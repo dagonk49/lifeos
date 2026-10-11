@@ -1,0 +1,7 @@
+node_modules
+.next
+test-results
+playwright-report
+e2e/.enrollment-token
+*.tsbuildinfo
+Dockerfile

@@ -13,6 +13,13 @@ http:
       service: lifeos-api
       middlewares: [lifeos-auth-ratelimit, lifeos-headers]
 
+    lifeos-web:
+      rule: "Host(`{{ env "LIFEOS_DOMAIN" }}`)"
+      priority: 1
+      entryPoints: [websecure]
+      service: lifeos-web
+      middlewares: [lifeos-headers]
+
   middlewares:
     lifeos-auth-ratelimit:
       rateLimit:
@@ -36,3 +43,7 @@ http:
         healthCheck:
           path: /healthz
           interval: 15s
+    lifeos-web:
+      loadBalancer:
+        servers:
+          - url: "http://web:3000"

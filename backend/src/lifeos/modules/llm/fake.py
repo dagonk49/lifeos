@@ -2,6 +2,7 @@
 
 from collections import deque
 from collections.abc import Callable
+from contextlib import suppress
 
 from pydantic import BaseModel
 
@@ -59,6 +60,10 @@ class FakeProvider:
     async def generate_structured[T: BaseModel](
         self, request: LLMRequest, schema: type[T]
     ) -> tuple[T, LLMResponse]:
+        if not self.queue and self.responder is _default_responder:
+            # Offline development: the smallest valid answer (e.g. "nothing to propose").
+            with suppress(ValueError):
+                self.push(schema.model_validate({}).model_dump_json())
         response = self._reply(request)
         return parse_structured(schema, response.text), response
 

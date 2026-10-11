@@ -64,6 +64,24 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
   locales restent consultables).
 - `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint.
 
+## Approbations
+
+- Une action soumise à approbation crée une ressource `approval` dont `params` sont
+  **exactement** ce qui sera exécuté et `preview` leur présentation lisible.
+- `POST /v1/approvals/{id}/approve` accepte un corps `{"params": {...}}` facultatif : le
+  propriétaire peut corriger les paramètres (ex. décocher une proposition) avant d'approuver ;
+  ils sont revalidés par le même schéma. L'exécution suit immédiatement l'accord.
+- Toute proposition issue du LLM (ex. analyse du journal) passe par une approbation, quel que
+  soit le niveau d'autonomie de l'action.
+- `403 approval_required` : action exécutée sans approbation valide (refus audité).
+- `501 action_not_available` : action déclarée dans la politique mais pas encore implémentée.
+
+## Mode dégradé du chat
+
+`POST /v1/chat/conversations/{id}/messages` répond `201` même si l'IA est indisponible : le
+message de l'utilisateur est enregistré, `assistant_message` vaut `null` et `error` contient
+le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |

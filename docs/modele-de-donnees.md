@@ -137,8 +137,8 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   `superseded` \| `retracted`), `occurred_at null` (date de l'événement), `source_type`,
   `source_id`, `supersedes_id`, `created_at`, `updated_at`, `search_vector`.
 - **`memories`** : `id`, `user_id`, `space_id`, `title`, `content`, `importance` (1–5),
-  `protected boolean` (jamais purgé automatiquement), `origin`, `revision`, `created_at`,
-  `updated_at`, `search_vector`.
+  `protected boolean` (jamais purgé automatiquement), `origin`, `source_type`, `source_id`,
+  `revision`, `created_at`, `updated_at`, `search_vector`.
 - **`memory_revisions`** : `memory_id`, `revision`, `title`, `content`, `importance`,
   `protected`, `changed_at`, `change_note` — historique de correction.
 - **`memory_facts`** : `memory_id`, `fact_id` — liens souvenir ↔ faits sources.
@@ -156,7 +156,8 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   `created_at`.
 - **`llm_calls`** : `id`, `user_id`, `space_id`, `purpose`, `provider`, `model`,
   `input_tokens`, `output_tokens`, `redactions` (nombre de masquages), `outcome` (`ok` \|
-  `denied` \| `budget_exceeded` \| `error`), `duration_ms`, `created_at`. **Aucun contenu.**
+  `denied` \| `budget_exceeded` \| `error`), `error_code`, `duration_ms`, `created_at`.
+  **Aucun contenu.**
 
 ### Notifications
 - **`notifications`** : `id`, `user_id`, `space_id null`, `category` (`critical` \|

@@ -38,6 +38,16 @@ async def test_fake_provider_scripted_and_structured() -> None:
     assert len(fake.requests) == 3
 
 
+async def test_fake_provider_default_structured_answer() -> None:
+    class Proposals(BaseModel):
+        items: list[str] = []
+
+    parsed, _ = await FakeProvider().generate_structured(_request(), Proposals)
+    assert parsed.items == []
+    with pytest.raises(LLMInvalidOutputError):
+        await FakeProvider().generate_structured(_request(), Extraction)  # required field
+
+
 async def test_disabled_provider_fails_cleanly() -> None:
     with pytest.raises(LLMDisabledError):
         await DisabledProvider().generate(_request())

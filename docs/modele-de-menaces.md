@@ -41,13 +41,16 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T11 | Escalade d'agent | un agent ne peut pas s'octroyer de permission ; `agent_permissions` gérées uniquement par l'utilisateur avec réauthentification récente | 2 |
 | T12 | Fuite inter-espaces | filtrage par espace dans chaque service ; tests dédiés ; RLS prévu en défense en profondeur | 2 |
 | T13 | Fuite vers le fournisseur LLM | consentement par espace, paquet minimal, masquage local, budget, journal des appels | 2 |
-| T14 | Exfiltration via la sortie du LLM (liens/images Markdown vers un domaine tiers) | rendu Markdown sans images distantes ni HTML brut ; liens externes affichés en clair | 2 |
+| T14 | Exfiltration via la sortie du LLM (liens/images Markdown vers un domaine tiers) | réponses affichées en texte brut (aucun HTML ni Markdown interprété) ; CSP `img-src 'self' data:` et `connect-src 'self'` | 2 |
 | T15 | Coût LLM incontrôlé (boucle, abus) | budget mensuel avec arrêt automatique ; limites de profondeur et d'appels par requête | 2 |
 | T16 | Hallucination présentée comme un fait | `origin` + `confidence` ; distinction fait / inférence dans l'interface ; corrections prioritaires | 2 |
 | T17 | Fichiers malveillants | validation MIME/taille, quarantaine, antivirus, refus des formats dangereux | 4 |
 | T18 | SSRF via connecteurs / URLs | liste d'hôtes autorisés, pas de requête vers des adresses privées | 5 |
 | T19 | Vol de jetons OAuth de connecteurs | chiffrement au repos, scopes minimaux, révocation | 5 |
 | T20 | Compromission de l'hôte / vol physique | chiffrement des volumes, mises à jour, pare-feu, accès distant par VPN | exploitation |
+
+Limite connue : la CSP autorise `'unsafe-inline'` pour les scripts (hydratation Next.js) ;
+passer à des nonces CSP est prévu à l'étape 6 (stabilisation).
 
 ## 4. Tests de sécurité associés
 
