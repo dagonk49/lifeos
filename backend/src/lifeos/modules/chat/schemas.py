@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -31,6 +31,7 @@ class MessageOut(BaseModel):
     content: str
     status: str
     model: str | None
+    agent: str | None = None
     purge_after: datetime | None
     created_at: datetime
 
@@ -53,6 +54,8 @@ class ChatContext(BaseModel):
 class SendMessage(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
     context: ChatContext = Field(default_factory=ChatContext)
+    # Specialised agents are only used when explicitly requested (F08).
+    agent: Literal["core", "planning", "coaching", "memory"] = "core"
 
 
 class SendResult(BaseModel):
@@ -61,6 +64,9 @@ class SendResult(BaseModel):
     # Degraded mode: the message is saved, the reply is unavailable and says why.
     error: dict[str, Any] | None = None
     context_items: int = 0
+    agent: str = "core"
+    # Deterministic hint shown by the client: an agent that could help next time.
+    suggested_agent: str | None = None
 
 
 class RetainRequest(BaseModel):

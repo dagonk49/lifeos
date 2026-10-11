@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import Page, keyset, page
 from lifeos.core.security import utcnow
+from lifeos.modules.agents.context import build_sections
+from lifeos.modules.agents.registry import AGENT_SPECS, suggest_agent
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.chat.schemas import (
@@ -20,6 +23,7 @@ from lifeos.modules.chat.schemas import (
 )
 from lifeos.modules.guardian import gateway
 from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.guardian.principal import agent_principal
 from lifeos.modules.identity.models import Space
 from lifeos.modules.llm.base import LLMMessage, LLMRequest
 from lifeos.modules.memory import service as memory
@@ -213,22 +217,58 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
 
     space = await ctx.db.get(Space, conversation.space_id)
     assert space is not None
-    items = await memory.relevant_context(ctx, space_id=conversation.space_id, query=data.content)
-    request = LLMRequest(
-        purpose="chat.reply",
-        system=await _system_prompt(ctx, space, data.context.screen, items),
-        messages=_history(await list_messages(ctx, conversation, HISTORY_MESSAGES)),
-        temperature=0.6,
-    )
-    try:
-        response = await gateway.complete(ctx, space_id=conversation.space_id, request=request)
-    except ProblemError as exc:
+    history = _history(await list_messages(ctx, conversation, HISTORY_MESSAGES))
+    suggestion = suggest_agent(data.content) if data.agent == "core" else None
+
+    def degraded(code: str, title: str, detail: str | None, **extra: Any) -> SendResult:
         return SendResult(
             user_message=MessageOut.model_validate(user_message),
             assistant_message=None,
-            error={"code": exc.code, "title": exc.title, "detail": exc.detail},
-            context_items=len(items),
+            error={"code": code, "title": title, "detail": detail, **extra},
+            agent=data.agent,
+            suggested_agent=suggestion,
         )
+
+    call_ctx = ctx
+    if data.agent == "core":
+        items = await memory.relevant_context(
+            ctx, space_id=conversation.space_id, query=data.content
+        )
+        system = await _system_prompt(ctx, space, data.context.screen, items)
+        context_items = len(items)
+    else:
+        spec = AGENT_SPECS[data.agent]
+        agent = await agent_principal(ctx.db, ctx.principal.user_id, spec.name)
+        missing = [r for r in spec.resources if not agent.can(space.id, r, "read")]
+        if missing:
+            return degraded(
+                "agent_permission_required",
+                "This agent has no access to this space",
+                "Grant it read access in the settings to use it.",
+                missing=missing,
+            )
+        call_ctx = replace(ctx, principal=agent)
+        sections = await build_sections(call_ctx, spec, space.id, data.content)
+        system = (
+            await _system_prompt(ctx, space, data.context.screen, [])
+            + "\n"
+            + spec.instructions
+            + "\n\n"
+            + "\n\n".join(sections)
+        )
+        context_items = len(sections)
+    request = LLMRequest(
+        purpose="chat.reply" if data.agent == "core" else f"agent.{data.agent}",
+        system=system,
+        messages=history,
+        temperature=0.6,
+    )
+    try:
+        response = await gateway.complete(call_ctx, space_id=conversation.space_id, request=request)
+    except ProblemError as exc:
+        result = degraded(exc.code, exc.title, exc.detail)
+        result.context_items = context_items
+        return result
     reply_at = utcnow()
     assistant_message = Message(
         user_id=ctx.principal.user_id,
@@ -237,6 +277,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         role="assistant",
         content=response.text,
         model=response.model,
+        agent=None if data.agent == "core" else data.agent,
         input_tokens=response.usage.input_tokens,
         output_tokens=response.usage.output_tokens,
         purge_after=reply_at + RAW_RETENTION,
@@ -248,7 +289,9 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
     return SendResult(
         user_message=MessageOut.model_validate(user_message),
         assistant_message=MessageOut.model_validate(assistant_message),
-        context_items=len(items),
+        context_items=context_items,
+        agent=data.agent,
+        suggested_agent=suggestion,
     )
 
 

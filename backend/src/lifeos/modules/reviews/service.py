@@ -25,7 +25,7 @@ from lifeos.modules.goals.service import metric_ratio
 from lifeos.modules.guardian import gateway
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
-from lifeos.modules.guardian.models import AgentPermission
+from lifeos.modules.guardian.permissions import set_bundle
 from lifeos.modules.guardian.principal import agent_principal
 from lifeos.modules.identity.models import Space, User
 from lifeos.modules.journal.models import JournalEntry
@@ -408,40 +408,18 @@ async def automation_status(ctx: Ctx, space_id: uuid.UUID) -> dict[str, Any]:
 
 async def set_automation(ctx: Ctx, space_id: uuid.UUID, enabled: bool) -> dict[str, Any]:
     """Enabling grants the coaching agent read access for this purpose (reinforced op)."""
-    ctx.principal.require_space(space_id)
-    await authorize(ctx, "permission.grant", space_id)
+    await set_bundle(
+        ctx,
+        agent="coaching",
+        space_id=space_id,
+        resources=COACHING_RESOURCES,
+        purpose=AUTOMATION_PURPOSE,
+        enabled=enabled,
+        days=365,
+    )
     space = await ctx.db.get(Space, space_id)
     assert space is not None
-    now = utcnow()
-    existing = list(
-        await ctx.db.scalars(
-            select(AgentPermission).where(
-                AgentPermission.user_id == ctx.principal.user_id,
-                AgentPermission.space_id == space_id,
-                AgentPermission.agent == "coaching",
-                AgentPermission.purpose == AUTOMATION_PURPOSE,
-                AgentPermission.revoked_at.is_(None),
-            )
-        )
-    )
-    for permission in existing:
-        permission.revoked_at = now
-    if enabled:
-        for resource in COACHING_RESOURCES:
-            ctx.db.add(
-                AgentPermission(
-                    user_id=ctx.principal.user_id,
-                    space_id=space_id,
-                    agent="coaching",
-                    resource=resource,
-                    access="read",
-                    purpose=AUTOMATION_PURPOSE,
-                    expires_at=now + timedelta(days=365),
-                    created_at=now,
-                )
-            )
     space.auto_reviews = enabled
-    await ctx.db.flush()
     await audit.record(
         ctx.db,
         action="review.automation",

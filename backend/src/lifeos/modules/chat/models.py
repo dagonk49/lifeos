@@ -32,6 +32,8 @@ class Message(UUIDPrimaryKey, Owned, Base):
     content: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="ok", server_default="ok")
     model: Mapped[str | None] = mapped_column(Text)
+    # Specialised agent that produced an assistant message (None = general assistant).
+    agent: Mapped[str | None] = mapped_column(Text)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     purge_after: Mapped[datetime | None] = mapped_column(index=True)

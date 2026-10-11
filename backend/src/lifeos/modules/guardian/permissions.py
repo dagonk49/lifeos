@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
@@ -83,4 +83,59 @@ async def revoke(ctx: Ctx, permission_id: uuid.UUID) -> None:
         space_id=permission.space_id,
         target_type="agent_permission",
         target_id=permission.id,
+    )
+
+
+async def set_bundle(
+    ctx: Ctx,
+    *,
+    agent: str,
+    space_id: uuid.UUID,
+    resources: tuple[str, ...],
+    purpose: str,
+    enabled: bool,
+    days: int,
+) -> None:
+    """Grants (or withdraws) read access to several resources for one purpose.
+
+    Granting is a reinforced operation; withdrawing is always allowed immediately.
+    """
+    ctx.principal.require_space(space_id)
+    if enabled:
+        await authorize(ctx, "permission.grant", space_id)
+    now = utcnow()
+    current = await ctx.db.scalars(
+        select(AgentPermission).where(
+            AgentPermission.user_id == ctx.principal.user_id,
+            AgentPermission.space_id == space_id,
+            AgentPermission.agent == agent,
+            AgentPermission.purpose == purpose,
+            AgentPermission.revoked_at.is_(None),
+        )
+    )
+    for permission in current:
+        permission.revoked_at = now
+    if enabled:
+        for resource in resources:
+            ctx.db.add(
+                AgentPermission(
+                    user_id=ctx.principal.user_id,
+                    space_id=space_id,
+                    agent=agent,
+                    resource=resource,
+                    access="read",
+                    purpose=purpose,
+                    expires_at=now + timedelta(days=days),
+                    created_at=now,
+                )
+            )
+    await ctx.db.flush()
+    await audit.record(
+        ctx.db,
+        action="permission.grant" if enabled else "permission.revoke",
+        actor_type="user",
+        actor_id=ctx.principal.actor_id,
+        user_id=ctx.principal.user_id,
+        space_id=space_id,
+        details={"agent": agent, "resources": ",".join(resources), "purpose_len": len(purpose)},
     )

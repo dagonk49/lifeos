@@ -12,6 +12,7 @@ from lifeos.config import Settings, get_settings
 from lifeos.core.errors import install_error_handlers
 from lifeos.db.session import Database
 from lifeos.logging import configure_logging
+from lifeos.modules.agents.router import router as agents_router
 from lifeos.modules.chat.router import router as chat_router
 from lifeos.modules.dashboard.router import router as dashboard_router
 from lifeos.modules.goals.router import router as goals_router
@@ -41,6 +42,7 @@ def build_v1_router() -> APIRouter:
         journal_router,
         memory_router,
         chat_router,
+        agents_router,
         search_router,
         approvals_router,
         guardian_router,

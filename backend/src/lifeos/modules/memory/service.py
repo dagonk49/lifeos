@@ -320,33 +320,41 @@ async def relevant_context(
     ctx: Ctx, *, space_id: uuid.UUID, query: str, limit: int = 8
 ) -> list[ContextItem]:
     """Minimal context packet: active facts and memories of ONE space matching the query,
-    plus the most important protected memories."""
+    plus the most important protected memories. Respects the principal's read rights."""
     ctx.principal.require_space(space_id)
     tsquery = any_word_query(query)
-    facts = await ctx.db.scalars(
-        select(Fact)
-        .where(
-            Fact.user_id == ctx.principal.user_id,
-            Fact.space_id == space_id,
-            Fact.status == "active",
-            Fact.search_vector.op("@@")(tsquery),
+    facts: list[Fact] = []
+    memories: list[Memory] = []
+    if ctx.principal.can(space_id, "facts", "read"):
+        facts = list(
+            await ctx.db.scalars(
+                select(Fact)
+                .where(
+                    Fact.user_id == ctx.principal.user_id,
+                    Fact.space_id == space_id,
+                    Fact.status == "active",
+                    Fact.search_vector.op("@@")(tsquery),
+                )
+                .order_by(func.ts_rank(Fact.search_vector, tsquery).desc(), Fact.created_at.desc())
+                .limit(limit)
+            )
         )
-        .order_by(func.ts_rank(Fact.search_vector, tsquery).desc(), Fact.created_at.desc())
-        .limit(limit)
-    )
-    memories = await ctx.db.scalars(
-        select(Memory)
-        .where(
-            Memory.user_id == ctx.principal.user_id,
-            Memory.space_id == space_id,
-            or_(
-                Memory.search_vector.op("@@")(tsquery),
-                Memory.protected.is_(True) & (Memory.importance >= 4),
-            ),
+    if ctx.principal.can(space_id, "memories", "read"):
+        memories = list(
+            await ctx.db.scalars(
+                select(Memory)
+                .where(
+                    Memory.user_id == ctx.principal.user_id,
+                    Memory.space_id == space_id,
+                    or_(
+                        Memory.search_vector.op("@@")(tsquery),
+                        Memory.protected.is_(True) & (Memory.importance >= 4),
+                    ),
+                )
+                .order_by(Memory.importance.desc(), Memory.updated_at.desc())
+                .limit(limit)
+            )
         )
-        .order_by(Memory.importance.desc(), Memory.updated_at.desc())
-        .limit(limit)
-    )
     items = [
         ContextItem(
             kind=f.kind, text=f.statement, origin=f.origin, date=f.occurred_at or f.created_at
