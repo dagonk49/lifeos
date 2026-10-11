@@ -33,9 +33,14 @@ class MemoryStats(BaseModel):
 class AssistantStatus(BaseModel):
     provider: str
     enabled: bool
+    paused: bool
+    billing: str
     cloud_enabled_spaces: list[uuid.UUID]
     month_tokens_used: int
     month_token_budget: int
+    requests_today: dict[str, int]
+    daily_request_caps: dict[str, int]
+    cost_month_usd: str
 
 
 class Dashboard(BaseModel):
@@ -129,10 +134,11 @@ async def dashboard(ctx: CtxDep, space_id: uuid.UUID | None = None) -> Dashboard
             facts=int(facts or 0), memories=int(memory_counts[0]), protected=int(memory_counts[1])
         ),
         assistant=AssistantStatus(
-            provider=ctx.llm.name,
-            enabled=ctx.llm.name != "disabled",
+            **{
+                k: v
+                for k, v in (await gateway.usage_summary(ctx)).items()
+                if k in AssistantStatus.model_fields
+            },
             cloud_enabled_spaces=list(cloud_spaces),
-            month_tokens_used=await gateway.tokens_used_this_month(ctx),
-            month_token_budget=ctx.user.llm_monthly_token_budget,
         ),
     )

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -83,7 +84,9 @@ class LLMCallOut(ORMModel):
     space_id: uuid.UUID | None
     purpose: str
     provider: str
+    tier: str
     model: str | None
+    cost_usd: Decimal
     input_tokens: int
     output_tokens: int
     redactions: int
@@ -96,8 +99,18 @@ class LLMCallOut(ORMModel):
 class LLMUsageOut(BaseModel):
     provider: str
     enabled: bool
+    paused: bool
+    billing: str
+    models: dict[str, str | None]
+    requests_today: dict[str, int]
+    daily_request_caps: dict[str, int]
+    quota_resets_at: datetime
     month_tokens_used: int
     month_token_budget: int
+    cost_today_usd: str
+    cost_month_usd: str
+    daily_budget_usd: float
+    monthly_budget_usd: float
     recent_calls: list[LLMCallOut]
 
 

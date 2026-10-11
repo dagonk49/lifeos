@@ -265,7 +265,14 @@ async def _journal_excerpts(ctx: Ctx, space_id: uuid.UUID, start: date, end: dat
 
 
 async def _narrative(
-    ctx: Ctx, space_id: uuid.UUID, period: str, start: date, end: date, facts: dict[str, Any]
+    ctx: Ctx,
+    space_id: uuid.UUID,
+    period: str,
+    start: date,
+    end: date,
+    facts: dict[str, Any],
+    *,
+    background: bool,
 ) -> tuple[ReviewNarrative, str]:
     excerpts = await _journal_excerpts(ctx, space_id, start, end)
     body = "FAITS (JSON) :\n" + json.dumps(facts, ensure_ascii=False, indent=1)
@@ -278,7 +285,10 @@ async def _narrative(
         ),
         messages=[LLMMessage(role="user", text=body)],
         temperature=0.4,
-        max_output_tokens=1500,
+        max_output_tokens=2000,
+        # Daily: cheap model. Weekly/monthly syntheses: the "deep" model.
+        tier="fast" if period == "daily" else "deep",
+        background=background,
     )
     narrative, response = await gateway.complete_structured(
         ctx, space_id=space_id, request=request, schema=ReviewNarrative
@@ -286,7 +296,9 @@ async def _narrative(
     return narrative, response.model
 
 
-async def generate(ctx: Ctx, request: ReviewRequest, *, generated_by: str) -> Review:
+async def generate(
+    ctx: Ctx, request: ReviewRequest, *, generated_by: str, background: bool = False
+) -> Review:
     space_id = ctx.principal.require_space(request.space_id)
     await authorize(ctx, "review.generate", space_id)
     today = utcnow().astimezone(ZoneInfo(ctx.user.timezone)).date()
@@ -299,7 +311,9 @@ async def generate(ctx: Ctx, request: ReviewRequest, *, generated_by: str) -> Re
     status, error, model = "none", None, None
     if request.with_narrative:
         try:
-            parsed, model = await _narrative(ctx, space_id, request.period, start, end, facts)
+            parsed, model = await _narrative(
+                ctx, space_id, request.period, start, end, facts, background=background
+            )
             narrative, status = parsed.model_dump(), "generated"
         except ProblemError as exc:
             # Degraded mode: the facts remain; the reason is shown to the owner.
@@ -480,6 +494,7 @@ async def run_scheduled(
                 }
             ),
             generated_by="agent:coaching",
+            background=True,
         )
         counts["generated"] += 1
         await notify(

@@ -36,6 +36,8 @@ class User(UUIDPrimaryKey, Timestamps, Base):
     llm_monthly_token_budget: Mapped[int] = mapped_column(
         Integer, default=1_000_000, server_default="1000000"
     )
+    # Emergency stop: no cloud call at all while set.
+    llm_paused: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 
 class Space(UUIDPrimaryKey, Timestamps, Base):

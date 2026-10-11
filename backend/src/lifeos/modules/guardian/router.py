@@ -113,9 +113,6 @@ async def llm_usage(ctx: CtxDep) -> LLMUsageOut:
         .limit(50)
     )
     return LLMUsageOut(
-        provider=ctx.llm.name,
-        enabled=ctx.llm.name != "disabled",
-        month_tokens_used=await gateway.tokens_used_this_month(ctx),
-        month_token_budget=ctx.user.llm_monthly_token_budget,
+        **await gateway.usage_summary(ctx),
         recent_calls=[LLMCallOut.model_validate(c) for c in calls],
     )

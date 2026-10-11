@@ -51,10 +51,30 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["disabled", "fake", "gemini"] = "disabled"
     llm_timeout_seconds: float = 60.0
+    # "free": project WITHOUT billing account (cannot be charged); local daily request caps
+    # keep usage under Google's free quotas. "paid": prepaid billing; local cost budgets.
+    llm_billing: Literal["free", "paid"] = "free"
+    # Local caps per tier and per day (Google's daily quotas reset at midnight Pacific).
+    llm_daily_requests_fast: int = 400
+    llm_daily_requests_deep: int = 15
+    # Paid mode: estimated cost from these prices (USD per 1M tokens) and hard local budgets.
+    llm_price_input_fast: float = 0.30
+    llm_price_output_fast: float = 2.50
+    llm_price_input_deep: float = 0.75
+    llm_price_output_deep: float = 3.75
+    llm_daily_budget_usd: float = 0.50
+    llm_monthly_budget_usd: float = 5.00
+
     gemini_backend: Literal["developer", "vertex"] = "developer"
     gemini_api_key: SecretStr | None = None
-    # No default on purpose: pin a stable, versioned model name (see ADR 0003).
+    # No default on purpose: pin stable, versioned model names (see ADR 0003).
+    # "fast" tier: chat, extraction, agents. "deep" tier: weekly/monthly reviews.
     gemini_model: str | None = None
+    gemini_model_deep: str | None = None
+    gemini_thinking_fast: Literal["minimal", "low", "medium", "high"] = "minimal"
+    gemini_thinking_deep: Literal["minimal", "low", "medium", "high"] = "low"
+    # Paid mode: background jobs use the Flex service tier (cheaper, slower).
+    gemini_flex_for_background: bool = True
     gemini_vertex_project: str | None = None
     gemini_vertex_location: str | None = None
 

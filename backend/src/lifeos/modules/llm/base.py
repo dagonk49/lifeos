@@ -14,12 +14,19 @@ class LLMMessage(BaseModel):
     text: str
 
 
+Tier = Literal["fast", "deep"]
+
+
 class LLMRequest(BaseModel):
     purpose: str = Field(description="Why the call is made, e.g. 'chat.reply' (audit, budget)")
     system: str | None = None
     messages: list[LLMMessage]
     temperature: float | None = None
     max_output_tokens: int | None = None
+    # "fast": cheap model, minimal thinking. "deep": better model for long syntheses.
+    tier: Tier = "fast"
+    # Background jobs may accept slower, cheaper processing (Flex tier when paid).
+    background: bool = False
 
 
 class LLMUsage(BaseModel):
@@ -47,6 +54,16 @@ class LLMUnavailableError(LLMError):
 
 
 class LLMDisabledError(LLMUnavailableError):
+    retryable = False
+
+
+class LLMQuotaError(LLMUnavailableError):
+    """The provider's rate limit or quota is exhausted (HTTP 429)."""
+
+
+class LLMBillingError(LLMUnavailableError):
+    """Prepaid balance exhausted or spend cap reached (HTTP 402): never retried."""
+
     retryable = False
 
 

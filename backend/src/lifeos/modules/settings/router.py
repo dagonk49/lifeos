@@ -38,6 +38,7 @@ class SettingsOut(BaseModel):
     quiet_hours_start: time | None
     quiet_hours_end: time | None
     llm_monthly_token_budget: int
+    llm_paused: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -46,6 +47,8 @@ class SettingsUpdate(BaseModel):
     quiet_hours_start: time | None = None
     quiet_hours_end: time | None = None
     llm_monthly_token_budget: int | None = Field(default=None, ge=0, le=100_000_000)
+    # Emergency stop of every cloud call (F08: "arrêt d'urgence").
+    llm_paused: bool | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -106,7 +109,9 @@ async def update_settings(body: SettingsUpdate, ctx: CtxDep) -> SettingsOut:
             422, "quiet_hours_incomplete", "Quiet hours need both a start and an end"
         )
     for key, value in changes.items():
-        if key in ("display_name", "timezone", "llm_monthly_token_budget") and value is None:
+        if key in ("display_name", "timezone", "llm_monthly_token_budget", "llm_paused") and (
+            value is None
+        ):
             continue
         setattr(ctx.user, key, value)
     await audit.record(

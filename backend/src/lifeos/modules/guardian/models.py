@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lifeos.db.base import Base, UUIDPrimaryKey
@@ -82,9 +83,12 @@ class LLMCall(UUIDPrimaryKey, Base):
     space_id: Mapped[uuid.UUID | None]
     purpose: Mapped[str] = mapped_column(Text)
     provider: Mapped[str] = mapped_column(Text)
+    tier: Mapped[str] = mapped_column(Text, default="fast", server_default="fast")
     model: Mapped[str | None] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # Estimated from the configured price table; 0 on free billing.
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, server_default="0")
     redactions: Mapped[int] = mapped_column(Integer, default=0)
     outcome: Mapped[str] = mapped_column(Text)
     error_code: Mapped[str | None] = mapped_column(Text)

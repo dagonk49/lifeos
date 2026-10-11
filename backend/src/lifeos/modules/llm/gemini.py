@@ -1,4 +1,10 @@
-"""Gemini adapter (google-genai SDK), for the Gemini Developer API or Vertex AI."""
+"""Gemini adapter (google-genai SDK), for the Gemini Developer API or Vertex AI.
+
+Cost-related choices (ADR 0007): two tiers ("fast" for chat and extraction, "deep" for
+long syntheses) with explicit thinking levels, no automatic SDK retries (a retry is a
+billed request), Flex service tier for background jobs on paid billing, and explicit
+errors for exhausted quotas (429) or prepaid balance (402).
+"""
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -7,17 +13,26 @@ from pydantic import BaseModel
 
 from lifeos.config import Settings
 from lifeos.modules.llm.base import (
+    LLMBillingError,
     LLMBlockedError,
     LLMError,
     LLMMessage,
+    LLMQuotaError,
     LLMRequest,
     LLMResponse,
     LLMUnavailableError,
     LLMUsage,
     parse_structured,
 )
+from lifeos.modules.llm.schema import gemini_schema
 
 _BLOCKED_FINISH_REASONS = {"SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "RECITATION"}
+_THINKING = {
+    "minimal": types.ThinkingLevel.MINIMAL,
+    "low": types.ThinkingLevel.LOW,
+    "medium": types.ThinkingLevel.MEDIUM,
+    "high": types.ThinkingLevel.HIGH,
+}
 
 
 def _to_contents(messages: list[LLMMessage]) -> list[types.Content]:
@@ -30,12 +45,29 @@ def _to_contents(messages: list[LLMMessage]) -> list[types.Content]:
     ]
 
 
+def _is_thinking_level_error(exc: genai_errors.ClientError) -> bool:
+    message = str(exc).lower()
+    return exc.code == 400 and "thinking" in message
+
+
 class GeminiProvider:
     name = "gemini"
 
     def __init__(self, settings: Settings) -> None:
         assert settings.gemini_model is not None  # enforced by Settings validation
-        self.model = settings.gemini_model
+        self.models = {
+            "fast": settings.gemini_model,
+            "deep": settings.gemini_model_deep or settings.gemini_model,
+        }
+        self.thinking = {
+            "fast": settings.gemini_thinking_fast,
+            "deep": settings.gemini_thinking_deep,
+        }
+        self.flex_for_background = (
+            settings.llm_billing == "paid" and settings.gemini_flex_for_background
+        )
+        # Retries are disabled on purpose (retry_options=None): every attempt is billed
+        # and counts against quotas; the caller decides what to do on failure.
         http_options = types.HttpOptions(timeout=int(settings.llm_timeout_seconds * 1000))
         if settings.gemini_backend == "vertex":
             self._client = genai.Client(
@@ -51,31 +83,56 @@ class GeminiProvider:
                 http_options=http_options,
             )
 
+    @property
+    def model(self) -> str:
+        return self.models["fast"]
+
     def _config(
-        self, request: LLMRequest, schema: type[BaseModel] | None = None
+        self, request: LLMRequest, schema: type[BaseModel] | None, thinking: str
     ) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
             system_instruction=request.system,
             temperature=request.temperature,
             max_output_tokens=request.max_output_tokens,
             response_mime_type="application/json" if schema else None,
-            response_json_schema=schema.model_json_schema() if schema else None,
+            response_json_schema=gemini_schema(schema.model_json_schema()) if schema else None,
+            thinking_config=types.ThinkingConfig(thinking_level=_THINKING[thinking]),
+            service_tier=types.ServiceTier.FLEX
+            if request.background and self.flex_for_background
+            else None,
+        )
+
+    async def _send(
+        self, request: LLMRequest, schema: type[BaseModel] | None, thinking: str
+    ) -> types.GenerateContentResponse:
+        return await self._client.aio.models.generate_content(
+            model=self.models[request.tier],
+            contents=_to_contents(request.messages),
+            config=self._config(request, schema, thinking),
         )
 
     async def _call(
         self, request: LLMRequest, schema: type[BaseModel] | None = None
     ) -> LLMResponse:
+        thinking = self.thinking[request.tier]
         try:
-            response = await self._client.aio.models.generate_content(
-                model=self.model,
-                contents=_to_contents(request.messages),
-                config=self._config(request, schema),
-            )
+            try:
+                response = await self._send(request, schema, thinking)
+            except genai_errors.ClientError as exc:
+                # Some models reject "minimal" (e.g. Flash 3.8): a 400 is not billed,
+                # retry once with the lowest level they accept.
+                if thinking != "minimal" or not _is_thinking_level_error(exc):
+                    raise
+                response = await self._send(request, schema, "low")
         except genai_errors.ServerError as exc:
             raise LLMUnavailableError(f"gemini server error {exc.code}") from exc
         except genai_errors.ClientError as exc:
-            if exc.code in (408, 429):
-                raise LLMUnavailableError(f"gemini client error {exc.code}") from exc
+            if exc.code == 402:
+                raise LLMBillingError("gemini prepaid balance or spend cap exhausted") from exc
+            if exc.code == 429:
+                raise LLMQuotaError("gemini quota exhausted") from exc
+            if exc.code == 408:
+                raise LLMUnavailableError("gemini timeout") from exc
             raise LLMError(f"gemini client error {exc.code}") from exc
         except (TimeoutError, OSError) as exc:
             raise LLMUnavailableError("gemini unreachable") from exc
@@ -89,9 +146,10 @@ class GeminiProvider:
         usage = response.usage_metadata
         return LLMResponse(
             text=response.text or "",
-            model=response.model_version or self.model,
+            model=response.model_version or self.models[request.tier],
             usage=LLMUsage(
                 input_tokens=(usage.prompt_token_count or 0) if usage else 0,
+                # Thinking tokens are billed as output tokens.
                 output_tokens=(
                     (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
                 )
