@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.logging import get_logger
@@ -37,15 +37,20 @@ async def vector_refs(
     space_ids: Iterable[uuid.UUID],
     object_types: Sequence[str],
     limit: int = 30,
-) -> list[Ref]:
-    """Nearest objects (best chunk) for the query, closest first."""
-    if embedder is None or not query.strip() or not object_types:
+) -> list[Ref] | None:
+    """Nearest objects (best chunk) for the query, closest first.
+
+    None when semantic search is unavailable (no embedder, model or ml service down).
+    """
+    if embedder is None:
+        return None
+    if not query.strip() or not object_types:
         return []
     try:
         [vector] = await embedder.embed([query], "query")
     except EmbeddingError as exc:
         log.warning("vector_search_unavailable", error=str(exc)[:200])
-        return []
+        return None
     await tune_index_scan(session, limit * 4)
     distance = Embedding.embedding.cosine_distance(vector)
     nearest = (
@@ -76,6 +81,9 @@ async def tune_index_scan(session: AsyncSession, candidates: int) -> None:
     type filters: widen it, and let pgvector >= 0.8 keep scanning until enough rows pass.
     Transaction-local settings."""
     ef_search = str(min(1000, max(100, candidates)))
+    # Make sure pgvector is loaded in this backend: before that, its settings are unknown
+    # and current_setting() would wrongly report iterative scans as unsupported.
+    await session.execute(text("SELECT NULL::halfvec"))
     await session.execute(select(func.set_config("hnsw.ef_search", ef_search, True)))
     if await session.scalar(select(func.current_setting("hnsw.iterative_scan", True))):
         await session.execute(select(func.set_config("hnsw.iterative_scan", "relaxed_order", True)))

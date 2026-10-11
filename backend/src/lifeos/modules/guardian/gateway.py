@@ -7,10 +7,12 @@ sensitive data, the call, and metering without storing any content. Provider fai
 become explicit degraded-mode errors.
 """
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from datetime import time as time_of_day
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -54,7 +56,13 @@ def month_start(now: datetime, timezone: str) -> datetime:
 
 def quota_day_start(now: datetime) -> datetime:
     local = now.astimezone(QUOTA_TZ)
-    return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+    return datetime.combine(local.date(), time_of_day.min, tzinfo=QUOTA_TZ).astimezone(UTC)
+
+
+def next_quota_reset(now: datetime) -> datetime:
+    """Next midnight in Pacific time (23 or 25 hours away on DST change days)."""
+    tomorrow = now.astimezone(QUOTA_TZ).date() + timedelta(days=1)
+    return datetime.combine(tomorrow, time_of_day.min, tzinfo=QUOTA_TZ).astimezone(UTC)
 
 
 def estimate_cost(
@@ -90,7 +98,8 @@ async def tokens_used_this_month(ctx: Ctx) -> int:
         select(func.coalesce(func.sum(LLMCall.input_tokens + LLMCall.output_tokens), 0)).where(
             LLMCall.user_id == ctx.user.id,
             LLMCall.created_at >= since,
-            LLMCall.outcome == "ok",
+            # Failed calls may have consumed tokens too (blocked, truncated, invalid).
+            LLMCall.outcome.in_(("ok", "error")),
         )
     )
     return int(used or 0)
@@ -332,11 +341,27 @@ async def _run[R](
             space_id=space_id,
             request=request,
             outcome="error",
+            response=exc.response,  # billed tokens of an unusable answer
             redactions=prepared.redactions,
             error_code=problem.code,
             started=started,
         )
         raise problem from exc
+    except BaseException:
+        # Unexpected failure or cancellation: the request may have reached the provider,
+        # so it counts against the daily caps.
+        await asyncio.shield(
+            _meter(
+                ctx,
+                space_id=space_id,
+                request=request,
+                outcome="error",
+                redactions=prepared.redactions,
+                error_code="llm_error",
+                started=started,
+            )
+        )
+        raise
     await _meter(
         ctx,
         space_id=space_id,
@@ -372,7 +397,7 @@ async def usage_summary(ctx: Ctx) -> dict[str, Any]:
     provider_models = getattr(ctx.llm, "models", None)
     if isinstance(provider_models, dict):
         models = {k: str(v) for k, v in provider_models.items()}
-    reset = quota_day_start(now) + timedelta(days=1)
+    reset = next_quota_reset(now)
     return {
         "provider": ctx.llm.name,
         "enabled": ctx.llm.name != "disabled",

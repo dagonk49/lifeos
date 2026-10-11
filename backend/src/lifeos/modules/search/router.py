@@ -247,7 +247,7 @@ async def search(
     )
     by_ref = {Ref(h.type, h.id): h for h in text_hits}
 
-    semantic = await vector_refs(
+    vector_hits = await vector_refs(
         ctx.db,
         ctx.embedder,
         q,
@@ -256,6 +256,7 @@ async def search(
         object_types=[OBJECT_TYPE[t] for t in sorted(wanted)],
         limit=limit * 2,
     )
+    semantic = vector_hits or []
     semantic_set = set(semantic)
     missing: dict[str, list[uuid.UUID]] = {}
     for ref in semantic:
@@ -280,4 +281,5 @@ async def search(
         hits.append(found.model_copy(update={"match": match, "rank": 1.0 / (position + 1)}))
         if len(hits) == limit:
             break
-    return SearchResult(query=q, hits=hits, semantic=ctx.embedder is not None)
+    # True only if the meaning-based part actually ran for this query.
+    return SearchResult(query=q, hits=hits, semantic=vector_hits is not None)

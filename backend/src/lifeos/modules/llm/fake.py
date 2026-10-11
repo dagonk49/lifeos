@@ -65,7 +65,7 @@ class FakeProvider:
             with suppress(ValueError):
                 self.push(schema.model_validate({}).model_dump_json())
         response = self._reply(request)
-        return parse_structured(schema, response.text), response
+        return parse_structured(schema, response.text, response), response
 
 
 class DisabledProvider:

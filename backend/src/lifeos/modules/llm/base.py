@@ -44,9 +44,18 @@ class LLMResponse(BaseModel):
 
 
 class LLMError(Exception):
-    """Base error. `retryable` tells callers whether a later retry may succeed."""
+    """Base error. `retryable` tells callers whether a later retry may succeed.
+
+    `response` is set when the provider did answer (and billed tokens) but the answer is
+    unusable (blocked, truncated, invalid): the gateway meters its usage anyway.
+    """
 
     retryable = False
+    response: "LLMResponse | None" = None
+
+    def with_response(self, response: "LLMResponse") -> "LLMError":
+        self.response = response
+        return self
 
 
 class LLMUnavailableError(LLMError):
@@ -93,8 +102,13 @@ class LLMProvider(Protocol):
     ) -> tuple[T, LLMResponse]: ...
 
 
-def parse_structured[T: BaseModel](schema: type[T], text: str) -> T:
+def parse_structured[T: BaseModel](
+    schema: type[T], text: str, response: "LLMResponse | None" = None
+) -> T:
     try:
         return schema.model_validate_json(text)
     except ValueError as exc:
-        raise LLMInvalidOutputError(f"output does not match {schema.__name__}") from exc
+        error = LLMInvalidOutputError(f"output does not match {schema.__name__}")
+        if response is not None:
+            error.with_response(response)
+        raise error from exc

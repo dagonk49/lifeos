@@ -218,7 +218,13 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
 
     space = await ctx.db.get(Space, conversation.space_id)
     assert space is not None
-    history = _history(await list_messages(ctx, conversation, HISTORY_MESSAGES))
+    recent = await list_messages(ctx, conversation, HISTORY_MESSAGES)
+    if data.agent != "core":
+        # An agent only sees what it may read: the owner's own words and its own earlier
+        # replies, never answers built by the general assistant or another agent from
+        # data it was not granted (facts, journal, memories...).
+        recent = [m for m in recent if m.role == "user" or m.agent == data.agent]
+    history = _history(recent)
     suggestion = suggest_agent(data.content) if data.agent == "core" else None
 
     def degraded(code: str, title: str, detail: str | None, **extra: Any) -> SendResult:

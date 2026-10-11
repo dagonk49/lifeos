@@ -14,7 +14,7 @@ from lifeos.modules.notifications.service import dispatch_reminders
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
 from lifeos.workers.broker import broker  # noqa: F401  (must be set before actors)
-from lifeos.workers.jobs import database, embedder, llm, run_job
+from lifeos.workers.jobs import database, embedder, llm, run_job, run_task
 
 configure_logging(get_settings())
 
@@ -75,8 +75,8 @@ async def index_embeddings() -> None:
         return
 
     async def job(session: AsyncSession) -> dict[str, int]:
-        counts = await index_pending(session, current, batch=64)
-        counts["dropped"] = await drop_other_models(session, current.model)
-        return counts
+        return {"dropped": await drop_other_models(session, current.model)}
 
-    await run_job("index_embeddings", job)
+    await run_job("drop_other_embedding_models", job)
+    # Manages its own short transactions: none is held while the model computes.
+    await run_task("index_embeddings", lambda: index_pending(database(), current, batch=64))

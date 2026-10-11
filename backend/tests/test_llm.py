@@ -59,6 +59,11 @@ def test_gemini_settings_are_validated() -> None:
     with pytest.raises(ValueError, match="API_KEY"):
         Settings(llm_provider="gemini", gemini_model="gemini-test")
     with pytest.raises(ValueError, match="VERTEX"):
+        Settings(
+            llm_provider="gemini", gemini_model="m", gemini_backend="vertex", llm_billing="paid"
+        )
+    # Vertex AI has no free tier: cost budgets are mandatory.
+    with pytest.raises(ValueError, match="always billed"):
         Settings(llm_provider="gemini", gemini_model="m", gemini_backend="vertex")
 
 

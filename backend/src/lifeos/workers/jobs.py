@@ -61,3 +61,17 @@ async def run_job(name: str, fn: Callable[[AsyncSession], Awaitable[Any]]) -> An
     JOB_RUNS.labels(name, "success").inc()
     log.info("job_done", job=name, duration_ms=round((time.perf_counter() - start) * 1000, 1))
     return result
+
+
+async def run_task(name: str, fn: Callable[[], Awaitable[Any]]) -> Any:
+    """Like run_job, for tasks that manage their own transactions."""
+    start = time.perf_counter()
+    try:
+        result = await fn()
+    except Exception:
+        JOB_RUNS.labels(name, "failure").inc()
+        log.exception("job_failed", job=name)
+        raise
+    JOB_RUNS.labels(name, "success").inc()
+    log.info("job_done", job=name, duration_ms=round((time.perf_counter() - start) * 1000, 1))
+    return result

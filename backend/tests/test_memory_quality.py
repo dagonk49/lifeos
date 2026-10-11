@@ -28,8 +28,7 @@ async def _fact(client: AsyncClient, space: str, statement: str, **extra: object
 
 
 async def _index(database: Database, embedder: FakeEmbedder) -> None:
-    async with database.sessionmaker() as session, session.begin():
-        await index_pending(session, embedder)
+    await index_pending(database, embedder)
 
 
 async def _review(client: AsyncClient, space: str) -> dict[str, object]:

@@ -6,6 +6,7 @@ billed request), Flex service tier for background jobs on paid billing, and expl
 errors for exhausted quotas (429) or prepaid balance (402).
 """
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -159,10 +160,11 @@ class GeminiProvider:
                 response = await self._send(request, schema, thinking)
             except genai_errors.ClientError as exc:
                 # Some models reject "minimal" (e.g. Flash 3.8): a 400 is not billed,
-                # retry once with the lowest level they accept.
+                # retry with the lowest level they accept, and remember it.
                 if thinking != "minimal" or not _is_thinking_level_error(exc):
                     raise
                 response = await self._send(request, schema, "low")
+                self.thinking[request.tier] = "low"
         except genai_errors.ServerError as exc:
             raise LLMUnavailableError(f"gemini server error {exc.code}") from exc
         except genai_errors.ClientError as exc:
@@ -173,20 +175,15 @@ class GeminiProvider:
             if exc.code == 408:
                 raise LLMUnavailableError("gemini timeout") from exc
             raise LLMError(f"gemini client error {exc.code}") from exc
-        except (TimeoutError, OSError) as exc:
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            raise LLMUnavailableError("gemini timeout") from exc
+        except (OSError, httpx.TransportError) as exc:
             raise LLMUnavailableError("gemini unreachable") from exc
 
-        if response.prompt_feedback and response.prompt_feedback.block_reason:
-            raise LLMBlockedError(str(response.prompt_feedback.block_reason))
         candidate = response.candidates[0] if response.candidates else None
         finish = candidate.finish_reason.name if candidate and candidate.finish_reason else None
-        if finish in _BLOCKED_FINISH_REASONS:
-            raise LLMBlockedError(finish)
-        if finish == "MAX_TOKENS" and not response.text:
-            # Thinking used the whole output budget: nothing usable came back.
-            raise LLMInvalidOutputError("gemini answer truncated (MAX_TOKENS)")
         usage = response.usage_metadata
-        return LLMResponse(
+        result = LLMResponse(
             text=response.text or "",
             model=response.model_version or self.models[request.tier],
             usage=LLMUsage(
@@ -201,6 +198,17 @@ class GeminiProvider:
             ),
             finish_reason=finish,
         )
+        # Unusable answers are still billed: the error carries the usage for metering.
+        if response.prompt_feedback and response.prompt_feedback.block_reason:
+            raise LLMBlockedError(str(response.prompt_feedback.block_reason)).with_response(result)
+        if finish in _BLOCKED_FINISH_REASONS:
+            raise LLMBlockedError(finish).with_response(result)
+        if finish == "MAX_TOKENS" and not response.text:
+            # Thinking used the whole output budget: nothing usable came back.
+            raise LLMInvalidOutputError("gemini answer truncated (MAX_TOKENS)").with_response(
+                result
+            )
+        return result
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         return await self._call(request)
@@ -209,4 +217,4 @@ class GeminiProvider:
         self, request: LLMRequest, schema: type[T]
     ) -> tuple[T, LLMResponse]:
         response = await self._call(request, schema)
-        return parse_structured(schema, response.text), response
+        return parse_structured(schema, response.text, response), response

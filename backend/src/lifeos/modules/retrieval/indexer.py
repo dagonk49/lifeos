@@ -5,10 +5,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, delete, func, literal, not_, or_, select
+from sqlalchemy import ColumnElement, Select, and_, delete, func, literal, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.core.security import utcnow
+from lifeos.db.session import Database
 from lifeos.logging import get_logger
 from lifeos.modules.chat.models import Message
 from lifeos.modules.goals.models import Goal
@@ -79,98 +80,145 @@ def chunk_text(text: str) -> list[str]:
     return chunks[:MAX_CHUNKS]
 
 
-# Arbitrary constant: one indexing run at a time (transaction-scoped advisory lock).
+# Arbitrary constant: one indexing run at a time (session-level advisory lock, held on
+# a dedicated autocommit connection for the duration of the run).
 INDEX_LOCK = 0x4C49_4645_4F53
 
 
-async def index_pending(
-    session: AsyncSession, embedder: Embedder, *, batch: int = 32
-) -> dict[str, int]:
-    """Embeds up to `batch` stale objects per type. Safe to run concurrently with writes;
-    a second concurrent run returns immediately."""
-    counts: dict[str, int] = {}
-    if not await session.scalar(select(func.pg_try_advisory_xact_lock(INDEX_LOCK))):
-        return counts
-    pruned = await _prune(session)
-    if pruned:
-        counts["pruned"] = pruned
-    for source in SOURCES:
-        model = source.model
-        current = func.md5(source.text)
-        stmt = (
-            select(model.id, model.user_id, model.space_id, source.text.label("text"), current)
-            .outerjoin(
-                Embedding,
-                and_(
-                    Embedding.object_type == source.object_type,
-                    Embedding.object_id == model.id,
-                    Embedding.chunk == 0,
-                    Embedding.model == embedder.model,
-                ),
-            )
-            .where(
-                or_(
-                    Embedding.id.is_(None),
-                    Embedding.content_hash != current,
-                    # Moved to another space: vectors are filtered by space.
-                    Embedding.space_id != model.space_id,
-                )
-            )
-            .limit(batch)
-        )
-        if source.condition is not None:
-            stmt = stmt.where(source.condition)
-        rows = (await session.execute(stmt)).all()
-        if not rows:
-            continue
-        chunks = [(row, i, text) for row in rows for i, text in enumerate(chunk_text(row[3]))]
-        try:
-            vectors = await embedder.embed([c[2] for c in chunks], "passage")
-        except EmbeddingError as exc:
-            # Model not downloaded yet or ml service down: nothing is lost, the next run
-            # (every few minutes) catches up. Not an error worth a retry storm.
-            log.warning("indexing_paused", error=str(exc)[:200])
-            counts["unavailable"] = 1
-            return counts
-        ids: list[uuid.UUID] = [row[0] for row in rows]
-        await session.execute(
-            delete(Embedding).where(
+def _stale(source: Source, embedder: Embedder, batch: int) -> Select[Any]:
+    model = source.model
+    current = func.md5(source.text)
+    stmt = (
+        select(model.id, model.user_id, model.space_id, source.text.label("text"), current)
+        .outerjoin(
+            Embedding,
+            and_(
                 Embedding.object_type == source.object_type,
-                Embedding.object_id.in_(ids),
+                Embedding.object_id == model.id,
+                Embedding.chunk == 0,
                 Embedding.model == embedder.model,
+            ),
+        )
+        .where(
+            or_(
+                Embedding.id.is_(None),
+                Embedding.content_hash != current,
+                # Moved to another space: vectors are filtered by space.
+                Embedding.space_id != model.space_id,
             )
         )
-        now = utcnow()
-        session.add_all(
-            Embedding(
-                user_id=row[1],
-                space_id=row[2],
-                object_type=source.object_type,
-                object_id=row[0],
-                chunk=index,
-                content_hash=row[4],
-                model=embedder.model,
-                embedding=vector,
-                created_at=now,
-            )
-            for (row, index, _), vector in zip(chunks, vectors, strict=True)
-        )
-        await session.flush()
-        counts[source.object_type] = len(rows)
+        .limit(batch)
+    )
+    if source.condition is not None:
+        stmt = stmt.where(source.condition)
+    return stmt
+
+
+async def index_pending(
+    database: Database, embedder: Embedder, *, batch: int = 32
+) -> dict[str, int]:
+    """Embeds up to `batch` stale objects per type; a concurrent run returns immediately.
+
+    No transaction is held while the model computes (it can take a while): rows are read,
+    embedded, then re-read under a share lock and written only if they still exist with
+    the same content. A concurrent deletion therefore never waits for the indexer, and
+    its trigger always sees (and removes) the vectors written before it.
+    """
+    counts: dict[str, int] = {}
+    async with database.engine.connect() as guard:
+        guard = await guard.execution_options(isolation_level="AUTOCOMMIT")
+        if not await guard.scalar(select(func.pg_try_advisory_lock(INDEX_LOCK))):
+            return counts
+        try:
+            async with database.sessionmaker() as session, session.begin():
+                pruned = await _prune(session)
+            if pruned:
+                counts["pruned"] = pruned
+            for source in SOURCES:
+                async with database.sessionmaker() as session:
+                    rows = (await session.execute(_stale(source, embedder, batch))).all()
+                if not rows:
+                    continue
+                chunks = [(row, i, t) for row in rows for i, t in enumerate(chunk_text(row[3]))]
+                try:
+                    vectors = await embedder.embed([c[2] for c in chunks], "passage")
+                except EmbeddingError as exc:
+                    # Model not downloaded yet or ml service down: nothing is lost, the
+                    # next run (every few minutes) catches up. No retry storm.
+                    log.warning("indexing_paused", error=str(exc)[:200])
+                    counts["unavailable"] = 1
+                    return counts
+                async with database.sessionmaker() as session, session.begin():
+                    written = await _write(session, source, embedder, chunks, vectors)
+                counts[source.object_type] = written
+        finally:
+            await guard.execute(select(func.pg_advisory_unlock(INDEX_LOCK)))
     return counts
 
 
+async def _write(
+    session: AsyncSession,
+    source: Source,
+    embedder: Embedder,
+    chunks: list[tuple[Any, int, str]],
+    vectors: list[list[float]],
+) -> int:
+    model = source.model
+    ids = list({row[0] for row, _, _ in chunks})
+    # Still there, same text, same space? Locked until commit: a deletion waits for us,
+    # then its trigger removes what we wrote.
+    current = {
+        row[0]: (row[1], row[2])
+        for row in await session.execute(
+            select(model.id, func.md5(source.text), model.space_id)
+            .where(model.id.in_(ids))
+            .with_for_update(read=True)
+        )
+    }
+    keep = {row[0] for row, _, _ in chunks if current.get(row[0]) == (row[4], row[2])}
+    if not keep:
+        return 0
+    await session.execute(
+        delete(Embedding).where(
+            Embedding.object_type == source.object_type,
+            Embedding.object_id.in_(keep),
+            Embedding.model == embedder.model,
+        )
+    )
+    now = utcnow()
+    session.add_all(
+        Embedding(
+            user_id=row[1],
+            space_id=row[2],
+            object_type=source.object_type,
+            object_id=row[0],
+            chunk=index,
+            content_hash=row[4],
+            model=embedder.model,
+            embedding=vector,
+            created_at=now,
+        )
+        for (row, index, _), vector in zip(chunks, vectors, strict=True)
+        if row[0] in keep
+    )
+    await session.flush()
+    return len(keep)
+
+
 async def _prune(session: AsyncSession) -> int:
-    """Vectors of objects that no longer qualify (e.g. a retracted fact)."""
+    """Vectors of objects that no longer qualify (e.g. a retracted fact) or no longer
+    exist (safety net: deletions are normally handled by database triggers)."""
     removed = 0
     for source in SOURCES:
-        if source.condition is None:
-            continue
-        result = await session.execute(
-            delete(Embedding).where(
-                Embedding.object_type == source.object_type,
-                Embedding.object_id.in_(select(source.model.id).where(not_(source.condition))),
+        model = source.model
+        gone = ~select(model.id).where(model.id == Embedding.object_id).exists()
+        stale = gone
+        if source.condition is not None:
+            stale = or_(
+                gone, Embedding.object_id.in_(select(model.id).where(not_(source.condition)))
             )
+        result = await session.execute(
+            delete(Embedding).where(Embedding.object_type == source.object_type, stale)
         )
         removed += int(result.rowcount or 0)  # type: ignore[attr-defined]
     return removed

@@ -61,7 +61,11 @@ async def relevant_context(
         if principal.can(space_id, resource, "read")
     ]
 
-    fts: list[Ref] = []
+    # One full-text ranking per type: fused separately, each type's best match competes
+    # on equal terms (a concatenated list would bury the journal behind facts/memories).
+    fact_refs: list[Ref] = []
+    memory_refs: list[Ref] = []
+    journal_refs: list[Ref] = []
     if "fact" in readable:
         stmt = select(Fact.id).where(
             Fact.user_id == uid,
@@ -76,7 +80,7 @@ async def relevant_context(
         rows = await ctx.db.scalars(
             stmt.order_by(func.ts_rank(Fact.search_vector, tsquery).desc()).limit(limit)
         )
-        fts += [Ref("fact", i) for i in rows]
+        fact_refs = [Ref("fact", i) for i in rows]
     if "memory" in readable:
         rows = await ctx.db.scalars(
             select(Memory.id)
@@ -88,7 +92,7 @@ async def relevant_context(
             .order_by(func.ts_rank(Memory.search_vector, tsquery).desc())
             .limit(limit)
         )
-        fts += [Ref("memory", i) for i in rows]
+        memory_refs = [Ref("memory", i) for i in rows]
     if "journal" in readable:
         stmt = select(JournalEntry.id).where(
             JournalEntry.user_id == uid, JournalEntry.space_id == space_id
@@ -102,7 +106,7 @@ async def relevant_context(
             stmt = stmt.where(JournalEntry.search_vector.op("@@")(tsquery)).order_by(
                 func.ts_rank(JournalEntry.search_vector, tsquery).desc()
             )
-        fts += [Ref("journal", i) for i in await ctx.db.scalars(stmt.limit(5))]
+        journal_refs = [Ref("journal", i) for i in await ctx.db.scalars(stmt.limit(5))]
 
     vectors = await vector_refs(
         ctx.db,
@@ -113,7 +117,7 @@ async def relevant_context(
         object_types=readable,
         limit=limit * 2,
     )
-    ranked = fuse(fts, vectors)
+    ranked = fuse(fact_refs, memory_refs, journal_refs, vectors or [])
 
     items = await _load(ctx, space_id, ranked, period, tz)
     items = items[: limit + 4]

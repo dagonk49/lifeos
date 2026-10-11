@@ -2,10 +2,12 @@
 
 import json
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -23,10 +25,14 @@ from lifeos.modules.identity.models import Space, User
 from lifeos.modules.journal.schemas import JournalAnalysis
 from lifeos.modules.llm.base import (
     LLMBillingError,
+    LLMBlockedError,
     LLMInvalidOutputError,
     LLMMessage,
     LLMQuotaError,
     LLMRequest,
+    LLMResponse,
+    LLMUnavailableError,
+    LLMUsage,
 )
 from lifeos.modules.llm.fake import FakeProvider
 from lifeos.modules.llm.gemini import GeminiProvider
@@ -168,10 +174,12 @@ async def test_unsupported_minimal_thinking_falls_back_to_low() -> None:
     rejected = genai_errors.ClientError(
         400, {"error": {"message": "Thinking level MINIMAL is not supported for this model"}}
     )
-    provider, models = _provider(_settings(), rejected, _ok())
+    provider, models = _provider(_settings(), rejected, _ok(), _ok())
+    await provider.generate(_req("fast"))
     await provider.generate(_req("fast"))
     levels = [c["config"].thinking_config.thinking_level for c in models.calls]
-    assert levels == [types.ThinkingLevel.MINIMAL, types.ThinkingLevel.LOW]
+    # The accepted level is remembered: one extra request per process, not per call.
+    assert levels == [types.ThinkingLevel.MINIMAL, types.ThinkingLevel.LOW, types.ThinkingLevel.LOW]
 
 
 async def test_billing_and_quota_errors_are_explicit() -> None:
@@ -363,8 +371,11 @@ async def test_truncated_answer_and_no_temperature() -> None:
     provider, models = _provider(_settings(), truncated)
     request = _req()
     request.temperature = 0.7
-    with pytest.raises(LLMInvalidOutputError):
+    with pytest.raises(LLMInvalidOutputError) as exc:
         await provider.generate(request)
+    # Thinking tokens were billed: the error carries the usage for metering.
+    assert exc.value.response is not None
+    assert exc.value.response.usage.output_tokens == 150
     config = models.calls[0]["config"]
     assert config.temperature is None
     assert config.thinking_config.include_thoughts is False
@@ -375,3 +386,54 @@ def test_cached_input_is_cheaper() -> None:
     full = gateway.estimate_cost(paid, "fast", 1_000_000, 0)
     cached = gateway.estimate_cost(paid, "fast", 1_000_000, 0, cached_input_tokens=1_000_000)
     assert full == Decimal("0.300000") and cached == Decimal("0.030000")
+
+
+async def test_network_failures_are_mapped() -> None:
+    provider, _ = _provider(_settings(), httpx.ReadTimeout("slow"))
+    with pytest.raises(LLMUnavailableError, match="timeout"):
+        await provider.generate(_req())
+    provider, _ = _provider(_settings(), httpx.ConnectError("refused"))
+    with pytest.raises(LLMUnavailableError, match="unreachable"):
+        await provider.generate(_req())
+
+
+def test_quota_reset_is_the_next_pacific_midnight_even_on_dst_days() -> None:
+    # 2026-11-01: end of US daylight saving time (the Pacific day lasts 25 hours).
+    now = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+    assert gateway.quota_day_start(now) == datetime(2026, 11, 1, 7, 0, tzinfo=UTC)
+    assert gateway.next_quota_reset(now) == datetime(2026, 11, 2, 8, 0, tzinfo=UTC)
+
+
+async def test_failed_calls_are_metered_with_their_usage(
+    database: Database,
+    db: AsyncSession,
+    owner: Owner,
+    fake_llm: FakeProvider,
+    settings: Settings,
+) -> None:
+    ctx, space = await _ctx(database, db, owner, fake_llm, settings)
+    billed = LLMResponse(
+        text="",
+        model="m",
+        usage=LLMUsage(input_tokens=700, output_tokens=300),
+        finish_reason="SAFETY",
+    )
+    fake_llm.push(LLMBlockedError("SAFETY").with_response(billed))
+    with pytest.raises(ProblemError):
+        await gateway.complete(ctx, space_id=space, request=_chat())
+    assert await gateway.tokens_used_this_month(ctx) == 1000
+
+    class Exploding(FakeProvider):
+        async def generate(self, request: LLMRequest) -> LLMResponse:
+            raise RuntimeError("unexpected SDK error")
+
+    ctx.llm = Exploding()
+    with pytest.raises(RuntimeError):
+        await gateway.complete(ctx, space_id=space, request=_chat())
+    calls = list(await db.scalars(select(LLMCall).order_by(LLMCall.created_at)))
+    assert [(c.outcome, c.error_code, c.input_tokens) for c in calls] == [
+        ("error", "llm_blocked", 700),
+        ("error", "llm_error", 0),
+    ]
+    # Both reached (or may have reached) the provider: they count against the daily cap.
+    assert await gateway.requests_today(ctx, "fast") == 2

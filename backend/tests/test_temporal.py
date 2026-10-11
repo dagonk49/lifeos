@@ -32,6 +32,14 @@ TODAY = date(2026, 10, 11)  # a Sunday
         ("en novembre", date(2025, 11, 1), date(2025, 11, 30)),
         ("depuis août", date(2026, 8, 1), TODAY),
         ("en 2024", date(2024, 1, 1), date(2024, 12, 31)),
+        # « depuis » opens the period up to today.
+        ("Qu'ai-je fait depuis le 1er octobre ?", date(2026, 10, 1), TODAY),
+        ("depuis hier", date(2026, 10, 10), TODAY),
+        ("depuis la semaine dernière", date(2026, 9, 28), TODAY),
+        ("depuis 3 jours", date(2026, 10, 8), TODAY),
+        ("depuis deux semaines", date(2026, 9, 27), TODAY),
+        ("depuis 2 mois", date(2026, 8, 11), TODAY),
+        ("depuis un an", date(2025, 10, 11), TODAY),
     ],
 )
 def test_french_expressions(text: str, start: date, end: date) -> None:
@@ -40,6 +48,19 @@ def test_french_expressions(text: str, start: date, end: date) -> None:
     assert (result.start, result.end) == (start, end)
 
 
-@pytest.mark.parametrize("text", ["Bonjour", "le 31 février", "mes 2 enfants", "mai-je ?"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Bonjour",
+        "le 31 février",
+        "mes 2 enfants",
+        "mai-je ?",
+        # Dates that cannot exist never crash the assistant.
+        "Les pyramides ont été construites il y a 4500 ans",
+        "il y a 2026 ans",
+        "il y a 99999999999 jours",
+        "le 29 février",  # 2026 is not a leap year
+    ],
+)
 def test_no_false_positives(text: str) -> None:
     assert parse(text, TODAY) is None

@@ -96,6 +96,10 @@ concordants ; ils sont à revérifier si les conditions de Google changent.
   Tout le reste de LifeOS continue de fonctionner.
 - Si Google modifie ses quotas gratuits, seul le réglage des plafonds change ; la garantie
   « zéro frais » reste vraie tant qu'aucun compte de facturation n'est rattaché au projet.
+- Les plafonds sont vérifiés avant l'appel, sans réservation : deux appels simultanés peuvent
+  dépasser un plafond d'une ou deux requêtes. Risque accepté (un seul utilisateur) : au-delà du
+  quota de Google, l'API refuse sans facturer. Les appels en erreur comptent dans les plafonds
+  et, s'ils ont consommé des jetons (réponse bloquée ou tronquée), dans le budget de jetons.
 
 ## Sources (consultées le 2026-10-11)
 

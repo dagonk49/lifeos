@@ -49,8 +49,7 @@ class FailingEmbedder:
 
 
 async def _index(database: Database, embedder: object) -> dict[str, int]:
-    async with database.sessionmaker() as session, session.begin():
-        return await index_pending(session, embedder, batch=100)  # type: ignore[arg-type]
+    return await index_pending(database, embedder, batch=100)  # type: ignore[arg-type]
 
 
 async def _vectors(database: Database, object_id: str | uuid.UUID) -> list[Embedding]:
@@ -242,12 +241,51 @@ async def test_indexing_waits_quietly_when_the_model_is_unavailable(
 async def test_concurrent_indexing_runs_do_not_collide(
     client: AsyncClient, spaces: dict[str, str], logged_in: Owner, database: Database
 ) -> None:
+    from lifeos.modules.retrieval.indexer import INDEX_LOCK
+
     await client.post("/v1/tasks", json={"space_id": spaces["personal"], "title": "Une tâche"})
-    async with database.sessionmaker() as first, first.begin():
-        assert await index_pending(first, FakeEmbedder()) == {"task": 1}
-        # The first run still holds its transaction: a second run backs off.
+    async with database.engine.connect() as other_run:
+        other_run = await other_run.execution_options(isolation_level="AUTOCOMMIT")
+        assert await other_run.scalar(select(func.pg_try_advisory_lock(INDEX_LOCK)))
+        # Another run is in progress: this one backs off.
         assert await _index(database, FakeEmbedder()) == {}
-    assert await _index(database, FakeEmbedder()) == {}
+        await other_run.execute(select(func.pg_advisory_unlock(INDEX_LOCK)))
+    assert await _index(database, FakeEmbedder()) == {"task": 1}
+
+
+async def test_an_object_deleted_while_being_embedded_leaves_no_vector(
+    client: AsyncClient, spaces: dict[str, str], logged_in: Owner, database: Database
+) -> None:
+    task = (
+        await client.post("/v1/tasks", json={"space_id": spaces["personal"], "title": "Éphémère"})
+    ).json()
+
+    class DeletingEmbedder(FakeEmbedder):
+        async def embed(self, texts: list[str], kind: Kind) -> list[list[float]]:
+            # The owner deletes the task while the model computes.
+            async with database.sessionmaker() as session, session.begin():
+                await session.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": task["id"]})
+            return await super().embed(texts, kind)
+
+    assert await _index(database, DeletingEmbedder()) == {"task": 0}
+    assert await _vectors(database, task["id"]) == []
+
+
+async def test_orphan_vectors_are_swept(
+    client: AsyncClient, spaces: dict[str, str], logged_in: Owner, database: Database
+) -> None:
+    task = (
+        await client.post("/v1/tasks", json={"space_id": spaces["personal"], "title": "Orpheline"})
+    ).json()
+    await _index(database, FakeEmbedder())
+    async with database.sessionmaker() as session, session.begin():
+        # Bypass the trigger (e.g. a restore from an older dump).
+        await session.execute(text("ALTER TABLE tasks DISABLE TRIGGER tasks_delete_embeddings"))
+        await session.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": task["id"]})
+        await session.execute(text("ALTER TABLE tasks ENABLE TRIGGER tasks_delete_embeddings"))
+    assert len(await _vectors(database, task["id"])) == 1
+    assert await _index(database, FakeEmbedder()) == {"pruned": 1}
+    assert await _vectors(database, task["id"]) == []
 
 
 # --- Hybrid search -----------------------------------------------------------------------
@@ -341,6 +379,7 @@ async def test_search_degrades_to_full_text_without_a_working_embedder(
 
     app.state.embedder = FailingEmbedder()
     degraded = (await client.get("/v1/search", params={"q": "vélo parc"})).json()
+    assert degraded["semantic"] is False  # the model is configured but unavailable
     assert [(h["id"], h["match"]) for h in degraded["hits"]] == [(ids["both"], "text")]
 
 
@@ -510,3 +549,49 @@ async def test_local_embedder_fails_fast_after_a_failed_load(
         with pytest.raises(EmbeddingError):
             await embedder.embed(["a"], "query")
     assert attempts == 1  # no new (slow) attempt before the retry delay
+
+
+async def test_context_keeps_journal_entries_of_the_period_among_many_matches(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    logged_in: Owner,
+    database: Database,
+    settings: Settings,
+    fake_llm: FakeProvider,
+) -> None:
+    personal = spaces["personal"]
+    for i in range(8):
+        await client.post(
+            "/v1/memory/facts",
+            json={"space_id": personal, "statement": f"Réunion de la semaine numéro {i}"},
+        )
+        await client.post(
+            "/v1/memory/memories",
+            json={"space_id": personal, "title": f"Semaine {i}", "content": "Une semaine chargée"},
+        )
+    await client.post(
+        "/v1/journal",
+        json={"space_id": personal, "entry_date": str(_today()), "content": "Jardinage au soleil"},
+    )
+    async with database.sessionmaker() as session:
+        user = await session.get(User, logged_in.user.id)
+        assert user is not None
+        ctx = await make_ctx(database, session, settings, user, fake_llm)  # no embedder
+        items = await relevant_context(
+            ctx, space_id=uuid.UUID(personal), query="Qu'ai-je fait cette semaine ?"
+        )
+    assert "Jardinage au soleil" in [item.text for item in items]
+
+
+async def test_iterative_scan_is_enabled_from_the_first_query(settings: Settings) -> None:
+    from lifeos.modules.retrieval.hybrid import tune_index_scan
+
+    fresh = Database(settings.database_url, pool_size=1)  # pgvector not loaded yet
+    try:
+        async with fresh.sessionmaker() as session, session.begin():
+            await tune_index_scan(session, 40)
+            assert await session.scalar(text("SELECT current_setting('hnsw.ef_search')")) == "100"
+            iterative = await session.scalar(text("SELECT current_setting('hnsw.iterative_scan')"))
+            assert iterative == "relaxed_order"
+    finally:
+        await fresh.dispose()

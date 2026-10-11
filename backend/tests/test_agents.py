@@ -130,3 +130,35 @@ async def test_general_assistant_suggests_an_agent(
     ).json()
     assert sent["agent"] == "core"
     assert sent["suggested_agent"] == "planning"
+
+
+async def test_agent_history_excludes_other_assistants_replies(
+    client: AsyncClient, spaces: dict[str, str], fake_llm: FakeProvider
+) -> None:
+    space = spaces["personal"]
+    await enable_cloud(client, space)
+    conversation = await _conversation(client, space)
+    # The general assistant answers from data the planning agent is not granted.
+    fake_llm.push("D'après ta mémoire : diagnostic médical confidentiel.")
+    await client.post(
+        f"/v1/chat/conversations/{conversation}/messages", json={"content": "Rappelle-moi"}
+    )
+    await client.put("/v1/agents/planning/access", json={"space_id": space, "enabled": True})
+    fake_llm.push("Voici ta semaine.")
+    await client.post(
+        f"/v1/chat/conversations/{conversation}/messages",
+        json={"content": "Organise ma semaine", "agent": "planning"},
+    )
+    fake_llm.push("Et la suite.")
+    await client.post(
+        f"/v1/chat/conversations/{conversation}/messages",
+        json={"content": "Et ensuite ?", "agent": "planning"},
+    )
+    request = fake_llm.requests[-1]
+    assert request.purpose == "agent.planning"
+    texts = [(m.role, m.text) for m in request.messages]
+    assert all("diagnostic" not in text for _, text in texts)
+    # The owner's words (consecutive turns merged) and the agent's own reply are kept.
+    assert texts[0] == ("user", "Rappelle-moi\n\nOrganise ma semaine")
+    assert ("assistant", "Voici ta semaine.") in texts
+    assert texts[-1] == ("user", "Et ensuite ?")

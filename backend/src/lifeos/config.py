@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     def _check_llm(self) -> Self:
         if self.llm_provider != "gemini":
             return self
+        if self.gemini_backend == "vertex" and self.llm_billing == "free":
+            # Vertex AI has no free tier: without cost budgets, spending would be unbounded.
+            raise ValueError(
+                "Vertex AI is always billed: set LIFEOS_LLM_BILLING=paid and cost budgets"
+            )
         if not self.gemini_model:
             raise ValueError("LIFEOS_GEMINI_MODEL is required when LIFEOS_LLM_PROVIDER=gemini")
         if self.gemini_backend == "developer" and not (
