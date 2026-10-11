@@ -144,14 +144,52 @@ jobs:
           path: apps/web/test-results
           retention-days: 7
 
+  ml-model:
+    # The real embedding model: downloaded once (cached), then used offline on a read-only
+    # cache, as in production. Also prints calibration distances and throughput.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      LIFEOS_EMBEDDINGS_MODEL: google/embeddinggemma-300m
+      LIFEOS_EMBEDDINGS_CACHE_DIR: ${{ github.workspace }}/models
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Install (with the ml extra)
+        run: uv sync --locked --extra ml
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: embeddings-google-embeddinggemma-300m-v1
+      - name: Download the model
+        run: uv run lifeos-ml download
+      - name: Real model tests (offline, read-only cache)
+        run: |
+          chmod -R a-w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
+          HF_HUB_OFFLINE=1 LIFEOS_TEST_REAL_MODEL=1 uv run pytest -q -s tests_ml
+          chmod -R u+w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
+
   infra:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Build images
         run: |
-          docker build -t lifeos-backend:ci backend
+          docker build --target app -t lifeos-backend:ci backend
+          docker build --target ml -t lifeos-ml:ci backend
           docker build -t lifeos-web:ci apps/web
+      - name: The ml image starts without network nor model (degraded, healthy API)
+        run: |
+          docker run -d --name ml --network none --read-only --tmpfs /tmp lifeos-ml:ci
+          sleep 8
+          docker exec ml python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).read())"
+          docker logs ml 2>&1 | tail -5
+          docker rm -f ml
       - name: Validate Compose file
         working-directory: infra
         run: |

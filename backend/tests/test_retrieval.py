@@ -449,7 +449,7 @@ async def test_remote_embedder_batches_and_validates(settings: Settings) -> None
     client = AsyncClient(transport=ASGITransport(app=app), event_hooks={"request": [record]})
     remote = RemoteEmbedder(remote_settings, client=client)
     vectors = await remote.embed([f"texte {i}" for i in range(70)], "passage")
-    assert len(vectors) == 70 and sizes == [32, 32, 6]
+    assert len(vectors) == 70 and sizes == [8] * 8 + [6]
     assert vectors[5] == (await FakeEmbedder().embed(["texte 5"], "passage"))[0]
 
     other = RemoteEmbedder(settings.model_copy(update={"embeddings_model": "other"}), client)
@@ -468,3 +468,23 @@ async def test_remote_embedder_batches_and_validates(settings: Settings) -> None
         )
         with pytest.raises(EmbeddingError):
             await broken.embed(["a"], "query")
+
+
+async def test_local_embedder_fails_fast_after_a_failed_load(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lifeos.modules.retrieval.embedders import LocalEmbedder
+
+    embedder = LocalEmbedder(settings)
+    attempts = 0
+
+    def missing_model() -> None:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("model not downloaded")
+
+    monkeypatch.setattr(embedder, "_load", missing_model)
+    for _ in range(3):
+        with pytest.raises(EmbeddingError):
+            await embedder.embed(["a"], "query")
+    assert attempts == 1  # no new (slow) attempt before the retry delay

@@ -10,6 +10,7 @@ import hashlib
 import math
 import os
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -109,6 +110,9 @@ class FakeEmbedder:
 # --- Local model (fastembed / ONNX Runtime) --------------------------------------------------
 
 
+LOAD_RETRY_S = 300.0
+
+
 class LocalEmbedder:
     """Loads the model lazily, once per process; inference runs in a worker thread."""
 
@@ -121,14 +125,15 @@ class LocalEmbedder:
             raise ValueError(f"unsupported embedding model {self.model!r}")
         self._settings = settings
         self._engine: Any = None
+        self._failed_at: float | None = None
         self._lock = asyncio.Lock()
 
     def _load(self) -> Any:
         from fastembed import TextEmbedding  # optional dependency (extra "ml")
 
-        token = self._settings.hf_token
-        if token is not None:
-            os.environ.setdefault("HF_TOKEN", token.get_secret_value())
+        token = self._settings.hf_token.get_secret_value() if self._settings.hf_token else ""
+        if token.strip():
+            os.environ.setdefault("HF_TOKEN", token.strip())
         return TextEmbedding(
             model_name=self.model,
             cache_dir=self._settings.embeddings_cache_dir,
@@ -141,11 +146,18 @@ class LocalEmbedder:
             await self._ensure_loaded()
 
     async def _ensure_loaded(self) -> None:
-        if self._engine is None:
-            try:
-                self._engine = await asyncio.to_thread(self._load)
-            except Exception as exc:  # download or runtime failure
-                raise EmbeddingError(f"cannot load {self.model}: {exc}") from exc
+        if self._engine is not None:
+            return
+        # A missing model (not downloaded yet) must not make every request wait for a
+        # new attempt: fail fast until the retry delay has passed.
+        if self._failed_at is not None and time.monotonic() - self._failed_at < LOAD_RETRY_S:
+            raise EmbeddingError(f"{self.model} unavailable (last load failed)")
+        try:
+            self._engine = await asyncio.to_thread(self._load)
+        except Exception as exc:  # download or runtime failure
+            self._failed_at = time.monotonic()
+            raise EmbeddingError(f"cannot load {self.model}: {exc}") from exc
+        self._failed_at = None
 
     def _run(self, texts: list[str], kind: Kind) -> list[list[float]]:
         assert self.spec is not None
@@ -162,7 +174,12 @@ class LocalEmbedder:
 # --- Remote (the internal `ml` service) ------------------------------------------------------
 
 
-REMOTE_BATCH = 32  # texts per request (the ml service accepts at most 128)
+# Passages per request (the ml service accepts at most 128). Small batches keep a user's
+# query from waiting long behind background indexing (one inference at a time).
+REMOTE_BATCH = 8
+# A search must answer quickly, even without vectors; indexing can wait.
+QUERY_TIMEOUT_S = 8.0
+PASSAGE_TIMEOUT_S = 120.0
 
 
 class RemoteEmbedder:
@@ -171,11 +188,17 @@ class RemoteEmbedder:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.model = settings.embeddings_model
         self._url = settings.ml_url.rstrip("/") + "/embed"
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=3.0))
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(PASSAGE_TIMEOUT_S, connect=3.0)
+        )
 
     async def _post(self, texts: list[str], kind: Kind) -> list[list[float]]:
         try:
-            response = await self._client.post(self._url, json={"texts": texts, "kind": kind})
+            response = await self._client.post(
+                self._url,
+                json={"texts": texts, "kind": kind},
+                timeout=QUERY_TIMEOUT_S if kind == "query" else PASSAGE_TIMEOUT_S,
+            )
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:

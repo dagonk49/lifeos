@@ -25,3 +25,7 @@ if [[ ! -e "$dir/lifeos_gemini_api_key" ]]; then
   : > "$dir/lifeos_gemini_api_key"
   echo "created: lifeos_gemini_api_key (empty: paste your key there to enable Gemini)"
 fi
+if [[ ! -e "$dir/lifeos_hf_token" ]]; then
+  : > "$dir/lifeos_hf_token"
+  echo "created: lifeos_hf_token (empty: only needed if the embedding model is gated)"
+fi

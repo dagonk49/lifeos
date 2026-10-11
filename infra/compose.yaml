@@ -1,8 +1,9 @@
 # LifeOS — Docker Compose (ADR 0005). Usage: see docs/exploitation.md
+# Memory limits are sized for a 10 GB VM (4 cores / 8 threads): see docs/exploitation.md.
 name: lifeos
 
 x-backend: &backend
-  build: ../backend
+  build: { context: ../backend, target: app }
   image: lifeos-backend:local
   restart: unless-stopped
   env_file: .env
@@ -20,10 +21,41 @@ x-backend: &backend
     driver: json-file
     options: { max-size: "10m", max-file: "5" }
 
+x-ml: &ml
+  build: { context: ../backend, target: ml }
+  image: lifeos-ml:local
+  env_file: .env
+  environment:
+    # The ml service never calls the LLM nor the database.
+    LIFEOS_LLM_PROVIDER: disabled
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.7-pg17
     restart: unless-stopped
+    # Tuned for a 10 GB VM shared with the other services (SSD storage assumed).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=50
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_parallel_maintenance_workers=2
+    mem_limit: 2g
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: lifeos
@@ -33,7 +65,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     networks: [internal]
-    shm_size: 256m
+    # Shared memory for parallel index builds (HNSW): at least maintenance_work_mem.
+    shm_size: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d lifeos"]
       interval: 5s
@@ -46,6 +79,7 @@ services:
     restart: unless-stopped
     # Not a source of truth (ADR 0004): the append-only file only limits lost queued jobs.
     command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    mem_limit: 256m
     volumes: [redisdata:/data]
     networks: [internal]
     healthcheck:
@@ -59,12 +93,14 @@ services:
     <<: *backend
     command: ["alembic", "upgrade", "head"]
     restart: "no"
+    mem_limit: 512m
     depends_on:
       postgres: { condition: service_healthy }
     networks: [internal]
 
   api:
     <<: *backend
+    mem_limit: 768m
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -75,6 +111,7 @@ services:
     <<: *backend
     command: ["dramatiq", "lifeos.workers.actors", "--processes", "1", "--threads", "4"]
     healthcheck: { disable: true }
+    mem_limit: 768m
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -84,15 +121,42 @@ services:
     <<: *backend
     command: ["lifeos-scheduler"]
     healthcheck: { disable: true }
+    mem_limit: 256m
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     networks: [internal]
 
+  # Local embedding model (ADR 0006), loaded once for the api and the worker. No route
+  # to the outside world: the model must have been downloaded first (`ml-download`).
+  ml:
+    <<: *ml
+    restart: unless-stopped
+    volumes: [models:/models:ro]
+    networks: [internal]
+    # EmbeddingGemma-300m (ONNX, fp32): about 1.2 GB on disk, 1.5-2.5 GB in RAM at peak.
+    mem_limit: 3g
+    cpus: 4
+
+  # One-time download of the embedding model: docker compose --profile setup run --rm ml-download
+  ml-download:
+    <<: *ml
+    profiles: [setup]
+    command: ["lifeos-ml", "download"]
+    restart: "no"
+    environment:
+      LIFEOS_LLM_PROVIDER: disabled
+      HF_HUB_OFFLINE: "0"
+    secrets: [lifeos_hf_token]
+    volumes: [models:/models]
+    networks: [egress]
+    mem_limit: 3g
+
   web:
     build: ../apps/web
     image: lifeos-web:local
     restart: unless-stopped
+    mem_limit: 512m
     read_only: true
     tmpfs: [/tmp, /app/.next/cache]
     cap_drop: [ALL]
@@ -117,6 +181,7 @@ services:
     networks: [edge]
     read_only: true
     security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
     depends_on:
       api: { condition: service_healthy }
       web: { condition: service_healthy }
@@ -135,6 +200,7 @@ services:
     networks: [internal, monitoring]
     # Local access only (e.g. through an SSH tunnel).
     ports: ["127.0.0.1:9090:9090"]
+    mem_limit: 512m
     logging: *logging
 
 networks:
@@ -149,6 +215,8 @@ volumes:
   pgdata:
   redisdata:
   prometheusdata:
+  # Embedding model files (re-downloadable: excluded from backups).
+  models:
 
 secrets:
   postgres_superuser_password:
@@ -157,3 +225,6 @@ secrets:
     file: ./secrets/lifeos_database_password
   lifeos_gemini_api_key:
     file: ./secrets/lifeos_gemini_api_key
+  # Optional (gated models only): a Hugging Face read token, used by ml-download.
+  lifeos_hf_token:
+    file: ./secrets/lifeos_hf_token
