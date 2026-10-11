@@ -78,6 +78,18 @@ class Settings(BaseSettings):
     gemini_vertex_project: str | None = None
     gemini_vertex_location: str | None = None
 
+    # Local embeddings (ADR 0006). "remote": the internal `ml` service (one model in RAM
+    # for the API and the worker); "local": in-process; "fake": tests; "disabled":
+    # full-text search only.
+    embeddings_provider: Literal["disabled", "fake", "local", "remote"] = "disabled"
+    embeddings_model: str = "google/embeddinggemma-300m"
+    embeddings_cache_dir: str = "/models"
+    # ONNX Runtime intra-op threads: physical cores the ml service may use.
+    embeddings_threads: int = 4
+    ml_url: str = "http://ml:8100"
+    # Only for the one-time download of a gated model (`lifeos-ml download`).
+    hf_token: SecretStr | None = None
+
     @model_validator(mode="after")
     def _check_llm(self) -> Self:
         if self.llm_provider != "gemini":

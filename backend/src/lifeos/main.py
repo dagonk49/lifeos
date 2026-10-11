@@ -24,6 +24,7 @@ from lifeos.modules.llm import build_provider
 from lifeos.modules.memory.router import router as memory_router
 from lifeos.modules.notifications.router import router as notifications_router
 from lifeos.modules.privacy.router import router as privacy_router
+from lifeos.modules.retrieval.embedders import build_embedder
 from lifeos.modules.reviews.router import router as reviews_router
 from lifeos.modules.search.router import router as search_router
 from lifeos.modules.settings.router import router as settings_router
@@ -64,6 +65,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.redis = Redis.from_url(settings.redis_url)
         if not hasattr(app.state, "llm"):
             app.state.llm = build_provider(settings)
+        if not hasattr(app.state, "embedder"):
+            app.state.embedder = build_embedder(settings)
         try:
             yield
         finally:

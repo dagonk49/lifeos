@@ -11,11 +11,14 @@ from lifeos.db.session import Database
 from lifeos.logging import get_logger
 from lifeos.modules.llm import build_provider
 from lifeos.modules.llm.base import LLMProvider
+from lifeos.modules.retrieval.embedders import Embedder, build_embedder
 from lifeos.observability.metrics import JOB_RUNS
 
 log = get_logger("lifeos.jobs")
 _db: Database | None = None
 _llm: LLMProvider | None = None
+_embedder: Embedder | None = None
+_embedder_built = False
 
 
 def llm() -> LLMProvider:
@@ -23,6 +26,14 @@ def llm() -> LLMProvider:
     if _llm is None:
         _llm = build_provider(get_settings())
     return _llm
+
+
+def embedder() -> Embedder | None:
+    global _embedder, _embedder_built
+    if not _embedder_built:
+        _embedder = build_embedder(get_settings())
+        _embedder_built = True
+    return _embedder
 
 
 def database() -> Database:

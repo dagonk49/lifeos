@@ -1,13 +1,10 @@
 """Mémoire Premium: facts with provenance and correction history, protected memories."""
 
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
-from sqlalchemy import ColumnElement, Text, cast, func, or_, select
-from sqlalchemy.dialects.postgresql import TSQUERY
+from sqlalchemy import select
 
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import Page, keyset, page
@@ -297,74 +294,3 @@ async def delete_memory(ctx: Ctx, memory_id: uuid.UUID, *, confirm: bool) -> Non
     await _audit(
         ctx, "memory.delete", memory.space_id, "memory", memory.id, protected=memory.protected
     )
-
-
-# --- Context for the assistant --------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ContextItem:
-    kind: str
-    text: str
-    origin: str
-    date: datetime
-
-
-def any_word_query(query: str) -> ColumnElement[Any]:
-    """tsquery matching ANY significant word of `query` (better recall for context)."""
-    plain = func.plainto_tsquery("lifeos_fr", query)
-    return cast(func.replace(cast(plain, Text), "&", "|"), TSQUERY)
-
-
-async def relevant_context(
-    ctx: Ctx, *, space_id: uuid.UUID, query: str, limit: int = 8
-) -> list[ContextItem]:
-    """Minimal context packet: active facts and memories of ONE space matching the query,
-    plus the most important protected memories. Respects the principal's read rights."""
-    ctx.principal.require_space(space_id)
-    tsquery = any_word_query(query)
-    facts: list[Fact] = []
-    memories: list[Memory] = []
-    if ctx.principal.can(space_id, "facts", "read"):
-        facts = list(
-            await ctx.db.scalars(
-                select(Fact)
-                .where(
-                    Fact.user_id == ctx.principal.user_id,
-                    Fact.space_id == space_id,
-                    Fact.status == "active",
-                    Fact.search_vector.op("@@")(tsquery),
-                )
-                .order_by(func.ts_rank(Fact.search_vector, tsquery).desc(), Fact.created_at.desc())
-                .limit(limit)
-            )
-        )
-    if ctx.principal.can(space_id, "memories", "read"):
-        memories = list(
-            await ctx.db.scalars(
-                select(Memory)
-                .where(
-                    Memory.user_id == ctx.principal.user_id,
-                    Memory.space_id == space_id,
-                    or_(
-                        Memory.search_vector.op("@@")(tsquery),
-                        Memory.protected.is_(True) & (Memory.importance >= 4),
-                    ),
-                )
-                .order_by(Memory.importance.desc(), Memory.updated_at.desc())
-                .limit(limit)
-            )
-        )
-    items = [
-        ContextItem(
-            kind=f.kind, text=f.statement, origin=f.origin, date=f.occurred_at or f.created_at
-        )
-        for f in facts
-    ]
-    items += [
-        ContextItem(
-            kind="memory", text=f"{m.title} — {m.content[:500]}", origin=m.origin, date=m.updated_at
-        )
-        for m in memories
-    ]
-    return items

@@ -36,14 +36,15 @@ _THINKING = {
 }
 
 
-def _to_contents(messages: list[LLMMessage]) -> list[types.Content]:
-    return [
+def _to_contents(messages: list[LLMMessage]) -> types.ContentListUnion:
+    contents: list[types.ContentUnion] = [
         types.Content(
             role="model" if m.role == "assistant" else "user",
             parts=[types.Part.from_text(text=m.text)],
         )
         for m in messages
     ]
+    return contents
 
 
 def _is_thinking_level_error(exc: genai_errors.ClientError) -> bool:

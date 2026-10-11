@@ -17,7 +17,7 @@ from lifeos.modules.goals.models import Goal
 from lifeos.modules.goals.service import metric_ratio
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.journal.models import JournalEntry
-from lifeos.modules.memory import service as memory
+from lifeos.modules.retrieval.context import relevant_context
 from lifeos.modules.reviews.models import Review
 from lifeos.modules.tasks.models import Task
 
@@ -134,7 +134,7 @@ async def _reviews(ctx: Ctx, space_id: uuid.UUID) -> list[str]:
 
 
 async def _memory(ctx: Ctx, space_id: uuid.UUID, query: str, tz: ZoneInfo) -> list[str]:
-    items = await memory.relevant_context(ctx, space_id=space_id, query=query, limit=12)
+    items = await relevant_context(ctx, space_id=space_id, query=query, limit=12)
     if not items:
         return ["MÉMOIRE : rien de pertinent trouvé."]
     lines = [

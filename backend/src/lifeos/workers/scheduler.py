@@ -54,6 +54,12 @@ def build_scheduler() -> BlockingScheduler:
         id="send_reminders",
         misfire_grace_time=60,
     )
+    scheduler.add_job(
+        actors.index_embeddings.send,
+        IntervalTrigger(minutes=2, timezone=tz),
+        id="index_embeddings",
+        misfire_grace_time=120,
+    )
     # Reviews: daily summary (local only), weekly on Sunday evening, monthly on the 1st.
     scheduler.add_job(
         actors.scheduled_reviews.send,

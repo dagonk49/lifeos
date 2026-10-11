@@ -23,9 +23,14 @@ dependencies = [
     "pgvector>=0.5",
 ]
 
+[project.optional-dependencies]
+# Local embeddings (ONNX Runtime, no PyTorch): only needed by the `ml` service.
+ml = ["fastembed>=0.9,<0.10"]
+
 [project.scripts]
 lifeos-admin = "lifeos.cli:main"
 lifeos-scheduler = "lifeos.workers.scheduler:main"
+lifeos-ml = "lifeos.ml.app:main"
 
 [dependency-groups]
 dev = [
@@ -73,5 +78,5 @@ mypy_path = "src"
 packages = ["lifeos"]
 
 [[tool.mypy.overrides]]
-module = ["dramatiq.*", "apscheduler.*"]
+module = ["dramatiq.*", "apscheduler.*", "fastembed.*"]
 ignore_missing_imports = true

@@ -29,6 +29,7 @@ from lifeos.modules.llm.base import LLMMessage, LLMRequest
 from lifeos.modules.memory import service as memory
 from lifeos.modules.memory.models import Memory
 from lifeos.modules.memory.schemas import MemoryCreate
+from lifeos.modules.retrieval.context import ContextItem, relevant_context
 
 RAW_RETENTION = timedelta(days=90)
 HISTORY_MESSAGES = 20
@@ -176,7 +177,7 @@ def _history(messages: list[Message]) -> list[LLMMessage]:
 
 
 async def _system_prompt(
-    ctx: Ctx, space: Space, screen: str | None, items: list[memory.ContextItem]
+    ctx: Ctx, space: Space, screen: str | None, items: list[ContextItem]
 ) -> str:
     now = datetime.now(ZoneInfo(ctx.user.timezone))
     memory_block = ""
@@ -231,9 +232,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
 
     call_ctx = ctx
     if data.agent == "core":
-        items = await memory.relevant_context(
-            ctx, space_id=conversation.space_id, query=data.content
-        )
+        items = await relevant_context(ctx, space_id=conversation.space_id, query=data.content)
         system = await _system_prompt(ctx, space, data.context.screen, items)
         context_items = len(items)
     else:

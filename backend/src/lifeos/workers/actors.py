@@ -11,9 +11,10 @@ from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.guardian.actions import expire_stale
 from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.notifications.service import dispatch_reminders
+from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
 from lifeos.workers.broker import broker  # noqa: F401  (must be set before actors)
-from lifeos.workers.jobs import database, llm, run_job
+from lifeos.workers.jobs import database, embedder, llm, run_job
 
 configure_logging(get_settings())
 
@@ -64,3 +65,18 @@ async def scheduled_reviews(period: str) -> None:
         )
 
     await run_job(f"scheduled_reviews_{period}", job)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=1, time_limit=10 * 60_000)
+async def index_embeddings() -> None:
+    """Embeds new or changed objects (local model). No-op when embeddings are disabled."""
+    current = embedder()
+    if current is None:
+        return
+
+    async def job(session: AsyncSession) -> dict[str, int]:
+        counts = await index_pending(session, current, batch=64)
+        counts["dropped"] = await drop_other_models(session, current.model)
+        return counts
+
+    await run_job("index_embeddings", job)

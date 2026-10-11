@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +8,9 @@ from lifeos.db.session import Database
 from lifeos.modules.guardian.principal import Principal
 from lifeos.modules.identity.models import User
 from lifeos.modules.llm.base import LLMProvider
+
+if TYPE_CHECKING:
+    from lifeos.modules.retrieval.embedders import Embedder
 
 
 @dataclass
@@ -19,3 +23,5 @@ class Ctx:
     principal: Principal
     user: User
     llm: LLMProvider
+    # Local embedder (None: full-text retrieval only).
+    embedder: "Embedder | None" = None

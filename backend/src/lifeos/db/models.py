@@ -16,6 +16,7 @@ from lifeos.modules.identity.models import (
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.memory.models import Fact, Memory, MemoryRevision, memory_facts
 from lifeos.modules.notifications.models import Notification
+from lifeos.modules.retrieval.models import Embedding
 from lifeos.modules.reviews.models import Review
 from lifeos.modules.tasks.models import Task
 
@@ -25,6 +26,7 @@ __all__ = [
     "AuditEvent",
     "AuthChallenge",
     "Conversation",
+    "Embedding",
     "EnrollmentToken",
     "Fact",
     "Goal",
