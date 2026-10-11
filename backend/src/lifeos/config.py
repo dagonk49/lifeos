@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     # Only for the one-time download of a gated model (`lifeos-ml download`).
     hf_token: SecretStr | None = None
 
+    # Memory quality (F07): cosine distances between two facts' vectors. Below the first,
+    # same meaning (duplicate); below the second, related (update or contradiction?).
+    # Depend on the embedding model: check them after changing it.
+    memory_duplicate_distance: float = 0.08
+    memory_related_distance: float = 0.25
+    memory_preference_max_age_days: int = 180
+
     @model_validator(mode="after")
     def _check_llm(self) -> Self:
         if self.llm_provider != "gemini":

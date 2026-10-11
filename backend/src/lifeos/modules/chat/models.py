@@ -13,6 +13,8 @@ class Conversation(UUIDPrimaryKey, Owned, Timestamps, Base):
 
     title: Mapped[str] = mapped_column(Text)
     last_message_at: Mapped[datetime | None] = mapped_column(index=True)
+    # Owner messages up to this instant were consolidated into memory proposals.
+    consolidated_until: Mapped[datetime | None]
 
 
 class Message(UUIDPrimaryKey, Owned, Base):

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from lifeos.api.deps import CtxDep
 from lifeos.core.idempotency import idempotent
 from lifeos.core.pagination import Page
-from lifeos.modules.memory import service
+from lifeos.modules.memory import quality, service
 from lifeos.modules.memory.schemas import (
     FactCorrect,
     FactCreate,
@@ -16,6 +16,8 @@ from lifeos.modules.memory.schemas import (
     MemoryOut,
     MemoryRevisionOut,
     MemoryUpdate,
+    PairDismiss,
+    ReviewQueue,
 )
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -67,6 +69,22 @@ async def fact_history(fact_id: uuid.UUID, ctx: CtxDep) -> list[FactOut]:
 @router.post("/facts/{fact_id}/correct", status_code=status.HTTP_201_CREATED)
 async def correct_fact(fact_id: uuid.UUID, body: FactCorrect, ctx: CtxDep) -> FactOut:
     return FactOut.model_validate(await service.correct_fact(ctx, fact_id, body))
+
+
+@router.post("/facts/{fact_id}/confirm")
+async def confirm_fact(fact_id: uuid.UUID, ctx: CtxDep) -> FactOut:
+    return FactOut.model_validate(await quality.confirm_fact(ctx, fact_id))
+
+
+@router.get("/review")
+async def review_queue(space_id: uuid.UUID, ctx: CtxDep) -> ReviewQueue:
+    """« À vérifier »: possible duplicates and contradictions, ageing preferences."""
+    return await quality.review_queue(ctx, space_id)
+
+
+@router.post("/review/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+async def dismiss_pair(body: PairDismiss, ctx: CtxDep) -> None:
+    await quality.dismiss_pair(ctx, body.fact_ids)
 
 
 @router.post("/facts/{fact_id}/retract")

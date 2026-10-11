@@ -7,7 +7,8 @@ from fastapi.responses import JSONResponse
 from lifeos.api.deps import CtxDep
 from lifeos.core.idempotency import idempotent
 from lifeos.core.pagination import Page
-from lifeos.modules.chat import service
+from lifeos.modules.chat import consolidation, service
+from lifeos.modules.chat.consolidation import ConsolidationResult
 from lifeos.modules.chat.schemas import (
     ConversationCreate,
     ConversationDetail,
@@ -85,6 +86,18 @@ async def send_message(
         path=request.url.path,
         body=body,
         run=run,
+    )
+
+
+@router.post("/conversations/{conversation_id}/consolidate")
+async def consolidate(conversation_id: uuid.UUID, ctx: CtxDep) -> ConsolidationResult:
+    """Proposes the durable facts and tasks of the owner's new messages, for approval."""
+    approval, count = await consolidation.consolidate(ctx, conversation_id)
+    proposed = 0
+    if approval is not None:
+        proposed = len(approval.params.get("tasks", [])) + len(approval.params.get("facts", []))
+    return ConsolidationResult(
+        approval_id=approval.id if approval else None, messages=count, proposed=proposed
     )
 
 

@@ -46,6 +46,13 @@ _SPECS = [
         "journal",
     ),
     ActionSpec(
+        "chat.apply_proposals",
+        "Enregistrer les tâches et faits tirés d'une conversation",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "facts",
+    ),
+    ActionSpec(
         "fact.write", "Enregistrer ou corriger un fait", Level.AUTOMATIC, Level.APPROVAL, "facts"
     ),
     ActionSpec(

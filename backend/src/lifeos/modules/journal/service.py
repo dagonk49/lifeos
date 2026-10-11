@@ -20,6 +20,8 @@ from lifeos.modules.journal.schemas import (
     JournalEntryOut,
     JournalEntryUpdate,
     JournalProposals,
+    ProposedFact,
+    ProposedTask,
 )
 from lifeos.modules.llm.base import LLMMessage, LLMRequest
 from lifeos.modules.memory import service as memory
@@ -159,15 +161,19 @@ def _local_datetime(day: date, at: time, timezone: str) -> datetime:
     return datetime.combine(day, at, tzinfo=ZoneInfo(timezone))
 
 
-async def _apply_proposals(
-    ctx: Ctx, space_id: uuid.UUID, params: JournalProposals
+async def save_proposals(
+    ctx: Ctx,
+    space_id: uuid.UUID,
+    proposed_tasks: list[ProposedTask],
+    proposed_facts: list[ProposedFact],
+    *,
+    source_type: str,
+    source_id: uuid.UUID,
 ) -> dict[str, Any]:
-    entry = await get_entry(ctx, params.entry_id)
-    if entry.space_id != space_id:
-        raise ProblemError(422, "invalid_action_params", "Entry does not belong to this space")
+    """Saves validated proposals (journal analysis, conversation consolidation)."""
     tz = ctx.user.timezone
     task_ids, fact_ids = [], []
-    for proposed in params.tasks:
+    for proposed in proposed_tasks:
         task = await tasks.create_task(
             ctx,
             TaskCreate(
@@ -177,11 +183,11 @@ async def _apply_proposals(
                 if proposed.due_date
                 else None,
             ),
-            source_type="journal_entry",
-            source_id=entry.id,
+            source_type=source_type,
+            source_id=source_id,
         )
         task_ids.append(str(task.id))
-    for proposed_fact in params.facts:
+    for proposed_fact in proposed_facts:
         fact = await memory.add_fact(
             ctx,
             space_id=space_id,
@@ -190,21 +196,22 @@ async def _apply_proposals(
             # Proposed by the model, then validated by the owner.
             origin="user_confirmed",
             confidence=Decimal("0.90"),
-            source_type="journal_entry",
-            source_id=entry.id,
+            source_type=source_type,
+            source_id=source_id,
             occurred_at=_local_datetime(proposed_fact.occurred_on, time(12, 0), tz)
             if proposed_fact.occurred_on
             else None,
         )
         fact_ids.append(str(fact.id))
-    entry.analyzed_at = utcnow()
     return {"task_ids": task_ids, "fact_ids": fact_ids}
 
 
-def _preview(params: JournalProposals) -> dict[str, Any]:
+def preview_proposals(
+    proposed_tasks: list[ProposedTask], proposed_facts: list[ProposedFact]
+) -> dict[str, Any]:
     items: list[dict[str, Any]] = [
         {"type": "task", "text": t.title, "date": t.due_date.isoformat() if t.due_date else None}
-        for t in params.tasks
+        for t in proposed_tasks
     ]
     items += [
         {
@@ -212,12 +219,29 @@ def _preview(params: JournalProposals) -> dict[str, Any]:
             "text": f.statement,
             "date": f.occurred_on.isoformat() if f.occurred_on else None,
         }
-        for f in params.facts
+        for f in proposed_facts
     ]
     return {
-        "summary": f"{len(params.tasks)} tâche(s), {len(params.facts)} fait(s) à enregistrer",
+        "summary": f"{len(proposed_tasks)} tâche(s), {len(proposed_facts)} fait(s) à enregistrer",
         "items": items,
     }
+
+
+async def _apply_proposals(
+    ctx: Ctx, space_id: uuid.UUID, params: JournalProposals
+) -> dict[str, Any]:
+    entry = await get_entry(ctx, params.entry_id)
+    if entry.space_id != space_id:
+        raise ProblemError(422, "invalid_action_params", "Entry does not belong to this space")
+    result = await save_proposals(
+        ctx, space_id, params.tasks, params.facts, source_type="journal_entry", source_id=entry.id
+    )
+    entry.analyzed_at = utcnow()
+    return result
+
+
+def _preview(params: JournalProposals) -> dict[str, Any]:
+    return preview_proposals(params.tasks, params.facts)
 
 
 actions.register("journal.apply_proposals", JournalProposals, _apply_proposals, _preview)

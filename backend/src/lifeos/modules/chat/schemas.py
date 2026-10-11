@@ -20,6 +20,7 @@ class ConversationOut(BaseModel):
     space_id: uuid.UUID
     title: str
     last_message_at: datetime | None
+    consolidated_until: datetime | None
     created_at: datetime
 
 

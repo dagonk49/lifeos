@@ -46,7 +46,7 @@ async def vector_refs(
     except EmbeddingError as exc:
         log.warning("vector_search_unavailable", error=str(exc)[:200])
         return []
-    await _tune_index_scan(session, limit * 4)
+    await tune_index_scan(session, limit * 4)
     distance = Embedding.embedding.cosine_distance(vector)
     nearest = (
         select(Embedding.object_type, Embedding.object_id, distance.label("distance"))
@@ -71,7 +71,7 @@ async def vector_refs(
     return [Ref(row[0], row[1]) for row in rows]
 
 
-async def _tune_index_scan(session: AsyncSession, candidates: int) -> None:
+async def tune_index_scan(session: AsyncSession, candidates: int) -> None:
     """HNSW returns at most `hnsw.ef_search` rows (default 40) BEFORE the owner, space and
     type filters: widen it, and let pgvector >= 0.8 keep scanning until enough rows pass.
     Transaction-local settings."""

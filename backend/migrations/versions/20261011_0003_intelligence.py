@@ -2,7 +2,7 @@
 
 Revision ID: 0003
 Revises: 0002
-Create Date: 2026-10-11 10:36:11.409947+00:00
+Create Date: 2026-10-11 15:31:20.769741+00:00
 """
 
 from collections.abc import Sequence
@@ -201,6 +201,49 @@ def upgrade() -> None:
     op.create_index(op.f("ix_reviews_space_id"), "reviews", ["space_id"], unique=False)
     op.create_index(op.f("ix_reviews_user_id"), "reviews", ["user_id"], unique=False)
     op.create_table(
+        "fact_pair_dismissals",
+        sa.Column("fact_a", sa.Uuid(), nullable=False),
+        sa.Column("fact_b", sa.Uuid(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("user_id", sa.Uuid(), nullable=False),
+        sa.Column("space_id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint("fact_a < fact_b", name=op.f("ck_fact_pair_dismissals_ordered")),
+        sa.ForeignKeyConstraint(
+            ["fact_a"],
+            ["facts.id"],
+            name=op.f("fk_fact_pair_dismissals_fact_a_facts"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["fact_b"],
+            ["facts.id"],
+            name=op.f("fk_fact_pair_dismissals_fact_b_facts"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["space_id"],
+            ["spaces.id"],
+            name=op.f("fk_fact_pair_dismissals_space_id_spaces"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name=op.f("fk_fact_pair_dismissals_user_id_users"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("fact_a", "fact_b", name=op.f("pk_fact_pair_dismissals")),
+    )
+    op.create_index(
+        op.f("ix_fact_pair_dismissals_fact_b"), "fact_pair_dismissals", ["fact_b"], unique=False
+    )
+    op.create_index(
+        op.f("ix_fact_pair_dismissals_space_id"), "fact_pair_dismissals", ["space_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_fact_pair_dismissals_user_id"), "fact_pair_dismissals", ["user_id"], unique=False
+    )
+    op.create_table(
         "goal_checkins",
         sa.Column("goal_id", sa.Uuid(), nullable=False),
         sa.Column("value", sa.Numeric(precision=14, scale=2), nullable=True),
@@ -246,6 +289,12 @@ def upgrade() -> None:
     )
     op.create_index(
         op.f("ix_goal_milestones_goal_id"), "goal_milestones", ["goal_id"], unique=False
+    )
+    op.add_column(
+        "conversations", sa.Column("consolidated_until", sa.DateTime(timezone=True), nullable=True)
+    )
+    op.add_column(
+        "facts", sa.Column("last_confirmed_at", sa.DateTime(timezone=True), nullable=True)
     )
     op.add_column("llm_calls", sa.Column("tier", sa.Text(), server_default="fast", nullable=False))
     op.add_column(
@@ -301,10 +350,16 @@ def downgrade() -> None:
     op.drop_column("llm_calls", "cost_usd")
     op.drop_column("llm_calls", "cached_tokens")
     op.drop_column("llm_calls", "tier")
+    op.drop_column("facts", "last_confirmed_at")
+    op.drop_column("conversations", "consolidated_until")
     op.drop_index(op.f("ix_goal_milestones_goal_id"), table_name="goal_milestones")
     op.drop_table("goal_milestones")
     op.drop_index(op.f("ix_goal_checkins_goal_id"), table_name="goal_checkins")
     op.drop_table("goal_checkins")
+    op.drop_index(op.f("ix_fact_pair_dismissals_user_id"), table_name="fact_pair_dismissals")
+    op.drop_index(op.f("ix_fact_pair_dismissals_space_id"), table_name="fact_pair_dismissals")
+    op.drop_index(op.f("ix_fact_pair_dismissals_fact_b"), table_name="fact_pair_dismissals")
+    op.drop_table("fact_pair_dismissals")
     op.drop_index(op.f("ix_reviews_user_id"), table_name="reviews")
     op.drop_index(op.f("ix_reviews_space_id"), table_name="reviews")
     op.drop_table("reviews")

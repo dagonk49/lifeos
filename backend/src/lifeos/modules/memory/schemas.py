@@ -34,6 +34,7 @@ class FactOut(BaseModel):
     source_type: str
     source_id: uuid.UUID | None
     supersedes_id: uuid.UUID | None
+    last_confirmed_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -79,3 +80,26 @@ class MemoryRevisionOut(BaseModel):
     protected: bool
     change_note: str | None
     changed_at: datetime
+
+
+ReviewKind = Literal["duplicate", "conflict", "stale"]
+
+
+class ReviewItem(BaseModel):
+    """One point for the owner to check in the memory (« À vérifier »)."""
+
+    kind: ReviewKind
+    reason: str
+    facts: list[FactOut]
+    # Cosine distance between the two facts (None: exact text match or ageing).
+    distance: float | None = None
+
+
+class ReviewQueue(BaseModel):
+    items: list[ReviewItem]
+    # False: no local embedding model, only exact duplicates and ageing are detected.
+    semantic: bool
+
+
+class PairDismiss(BaseModel):
+    fact_ids: list[uuid.UUID] = Field(min_length=2, max_length=2)

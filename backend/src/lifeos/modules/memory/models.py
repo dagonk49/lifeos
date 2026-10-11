@@ -48,7 +48,24 @@ class Fact(UUIDPrimaryKey, Owned, Timestamps, Base):
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("facts.id", ondelete="SET NULL")
     )
+    # Last explicit confirmation by the owner: preferences age from this date.
+    last_confirmed_at: Mapped[datetime | None]
     search_vector: Mapped[Any] = search_vector_column("statement")
+
+
+class FactPairDismissal(Owned, Base):
+    """« Keep both »: a pair of facts the owner reviewed and does not want flagged again."""
+
+    __tablename__ = "fact_pair_dismissals"
+    __table_args__ = (CheckConstraint("fact_a < fact_b", name="ordered"),)
+
+    fact_a: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("facts.id", ondelete="CASCADE"), primary_key=True
+    )
+    fact_b: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("facts.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime]
 
 
 memory_facts = Table(

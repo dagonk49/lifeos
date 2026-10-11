@@ -14,7 +14,13 @@ from lifeos.modules.identity.models import (
     UserSession,
 )
 from lifeos.modules.journal.models import JournalEntry
-from lifeos.modules.memory.models import Fact, Memory, MemoryRevision, memory_facts
+from lifeos.modules.memory.models import (
+    Fact,
+    FactPairDismissal,
+    Memory,
+    MemoryRevision,
+    memory_facts,
+)
 from lifeos.modules.notifications.models import Notification
 from lifeos.modules.retrieval.models import Embedding
 from lifeos.modules.reviews.models import Review
@@ -29,6 +35,7 @@ __all__ = [
     "Embedding",
     "EnrollmentToken",
     "Fact",
+    "FactPairDismissal",
     "Goal",
     "GoalCheckin",
     "GoalMilestone",
