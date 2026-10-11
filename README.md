@@ -14,7 +14,7 @@ contexte minimal filtré localement.
 | 0 — Cadrage | ADR, modèle de données, politique de données, menaces, conventions API | fait |
 | 1 — Socle | backend, base, auth passkeys, CI, sauvegarde, observabilité | fait |
 | 2 — MVP | client web, chat, tâches, journal, mémoire, recherche, Guardian | fait |
-| 3 — Intelligence | RAG hybride (embeddings locaux), bilans, objectifs, agents spécialisés | à venir |
+| 3 — Intelligence | recherche hybride (embeddings locaux), qualité de la mémoire, bilans, objectifs, agents spécialisés, maîtrise des coûts Gemini | fait |
 
 ## Structure
 
@@ -35,7 +35,9 @@ docker compose exec api lifeos-admin create-owner --email moi@example.org --name
 ```
 
 Puis ouvrir le lien d'enrôlement affiché pour créer la première passkey. Détails :
-[docs/exploitation.md](docs/exploitation.md).
+[docs/exploitation.md](docs/exploitation.md). Recherche par le sens :
+`docker compose --profile setup run --rm ml-download` (une fois). Assistant sans frais :
+[docs/guide-gemini.md](docs/guide-gemini.md).
 
 ## Ce que fait le MVP
 
@@ -49,6 +51,21 @@ Puis ouvrir le lien d'enrôlement affiché pour créer la première passkey. Dé
 - Conversations brutes purgées à 90 jours sauf « Conserver ».
 - Guardian : politique d'autonomie hors LLM, approbations aux paramètres exacts, permissions
   d'agents limitées et révocables, journal d'audit sans contenu.
+
+## Ce qu'ajoute l'étape 3
+
+- **Recherche hybride** : par les mots et par le sens (modèle d'embeddings **local**, aucun
+  envoi au cloud), filtres d'espace et de période, expressions comme « la semaine dernière ».
+- **Mémoire** : file « À vérifier » (doublons, contradictions possibles, préférences
+  anciennes à confirmer), consolidation d'une conversation en faits proposés puis approuvés.
+- **Objectifs** mesurables ou qualitatifs, jalons, points d'étape, progression calculée
+  localement, tâches rattachées.
+- **Bilans** quotidiens, hebdomadaires, mensuels : faits calculés localement, séparés de la
+  lecture de l'assistant (hypothèses présentées comme telles) ; automatiques sur demande.
+- **Agents spécialisés à la demande** (planification, coaching, mémoire) avec accès explicite,
+  limité aux ressources utiles, 90 jours, révocable.
+- **Coûts maîtrisés** : Gemini sans compte de facturation (zéro frais possible), plafonds
+  quotidiens par palier, arrêt d'urgence, suivi de la consommation.
 
 ## Licence
 

@@ -176,9 +176,18 @@ async def test_indexer_embeds_once_reembeds_changes_and_follows_deletions(
     [moved] = await _vectors(database, task["id"])
     assert str(moved.space_id) == spaces["professional"]
 
-    # Erasure reaches the vectors, whatever deleted the object (database triggers).
-    assert (await client.delete(f"/v1/memory/facts/{fact['id']}")).status_code == 204
+    # A retracted fact leaves the index at the next run.
+    await client.post(f"/v1/memory/facts/{fact['id']}/retract")
+    assert await _index(database, embedder) == {"pruned": 1}
     assert await _vectors(database, fact["id"]) == []
+
+    # Erasure reaches the vectors, whatever deleted the object (database triggers).
+    task_two = (
+        await client.post("/v1/tasks", json={"space_id": personal, "title": "Autre tâche"})
+    ).json()
+    assert await _index(database, embedder) == {"task": 1}
+    assert (await client.delete(f"/v1/tasks/{task_two['id']}")).status_code == 204
+    assert await _vectors(database, task_two["id"]) == []
     async with database.sessionmaker() as session, session.begin():
         await session.execute(text("DELETE FROM journal_entries"))
     assert await _vectors(database, entry["id"]) == []
@@ -304,6 +313,8 @@ async def test_hybrid_search_fuses_text_and_meaning_with_the_same_filters(
     ] == []
     limited = (await client.get("/v1/search", params={"q": "vélo parc", "limit": 1})).json()
     assert [h["id"] for h in limited["hits"]] == [ids["both"]]
+    status = (await client.get("/v1/search/status")).json()
+    assert status == {"semantic": True, "model": "fake-bow-768", "indexed": 4, "total": 4}
 
 
 async def test_search_degrades_to_full_text_without_a_working_embedder(
@@ -313,6 +324,8 @@ async def test_search_degrades_to_full_text_without_a_working_embedder(
     await _index(database, FakeEmbedder())
 
     app.state.embedder = None
+    status = (await client.get("/v1/search/status")).json()
+    assert status == {"semantic": False, "model": None, "indexed": 0, "total": 0}
     plain = (await client.get("/v1/search", params={"q": "vélo parc"})).json()
     assert plain["semantic"] is False
     assert [(h["id"], h["match"]) for h in plain["hits"]] == [(ids["both"], "text")]
@@ -338,7 +351,7 @@ async def test_vector_refs_are_scoped_to_owner_and_model(
             space_ids=all_spaces,
             object_types=["task", "journal", "memory", "fact"],
         )
-        assert len(mine) == 4  # retracted facts keep vectors; loaders filter them out
+        assert len(mine) == 3  # the retracted fact is not indexed
         other_user = await vector_refs(
             session,
             embedder,

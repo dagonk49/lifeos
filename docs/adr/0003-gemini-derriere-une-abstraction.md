@@ -1,6 +1,6 @@
 # ADR 0003 — Gemini comme fournisseur LLM, derrière une abstraction
 
-- Statut : acceptée
+- Statut : acceptée ; point 4 amendé par l'[ADR 0007](0007-couts-gemini-niveau-gratuit.md)
 - Date : 2026-10-11
 
 ## Contexte
@@ -28,7 +28,9 @@ transmission cloud minimale après filtrage local.
      localement (Privacy Engine) ;
    - vérifie le budget mensuel et refuse au-delà du seuil ;
    - journalise l'appel (finalité, modèle, jetons, issue) **sans le contenu**.
-4. **Conditions d'utilisation** :
+4. **Conditions d'utilisation** (amendé par l'ADR 0007 : en France, les conditions des
+   services payants s'appliquent aussi au quota gratuit ; le niveau gratuit sans compte de
+   facturation est retenu par défaut) :
    - le **niveau gratuit** de la Gemini Developer API est **interdit avec des données réelles** :
      selon les conditions de Google, les contenus des services non payants peuvent servir à
      améliorer leurs produits et être lus par des relecteurs humains ;

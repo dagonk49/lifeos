@@ -2,7 +2,7 @@
 
 Base : PostgreSQL (≥ 16) avec les extensions `vector` (pgvector) et `unaccent`. Les migrations
 sont gérées par Alembic (`backend/migrations`). Ce document décrit les règles transverses, les
-tables du socle (étape 1) et du MVP (étape 2), puis les tables prévues ensuite.
+tables du socle (étape 1), du MVP (étape 2) et de l'étape 3, puis les tables prévues ensuite.
 
 ## 1. Règles transverses
 
@@ -170,12 +170,51 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   `response_status`, `response_body jsonb`, `created_at`, `expires_at` (24 h). Clé primaire
   `(user_id, key)`.
 
-## 4. Prévu ensuite
+## 4. Étape 3 — intelligence
+
+### Objectifs (F06)
+- **`goals`** : `id`, `user_id`, `space_id`, `title`, `description`, `motivation`, `kind`
+  (`measurable` \| `qualitative`), `metric_unit`, `start_value`, `target_value`,
+  `current_value` (`numeric(14,2)`, jamais de flottant), `start_date`, `due_date`, `status`
+  (`active` \| `paused` \| `achieved` \| `abandoned` \| `archived`), `review_cadence`,
+  `achieved_at`, `version`, `created_at`, `updated_at`, `search_vector`.
+- **`goal_milestones`** : `goal_id` (cascade), `title`, `due_date`, `done_at`, `position`.
+- **`goal_checkins`** : `goal_id` (cascade), `value numeric(14,2) null`, `note`, `created_at`.
+- **`tasks.goal_id`** : tâche rattachée à un objectif (progression : tâches ouvertes/faites).
+
+### Bilans (F05)
+- **`reviews`** : `id`, `user_id`, `space_id`, `period` (`daily` \| `weekly` \| `monthly`),
+  `period_start`, `period_end`, `facts jsonb` (**calculés localement**, déterministes),
+  `narrative jsonb null` (lecture du modèle : synthèse, progrès, obstacles, suggestions,
+  hypothèses, questions — séparée des faits), `narrative_status` (`none` \| `generated` \|
+  `unavailable`), `narrative_error`, `model`, `generated_by` (`user` \| `agent:coaching`),
+  `generated_at`. Un bilan par espace et par période (régénérer le remplace).
+- **`spaces.auto_reviews`** : bilans automatiques activés pour l'espace.
+
+### Recherche hybride et qualité de la mémoire (F07, ADR 0006)
+- **`embeddings`** : `id`, `user_id`, `space_id`, `object_type` (`fact`, `memory`, `journal`,
+  `task`, `goal`, `message`), `object_id`, `chunk`, `content_hash` (md5 du texte source),
+  `model`, `embedding halfvec(768)`, `created_at` ; unique (`object_type`, `object_id`,
+  `chunk`, `model`) ; index HNSW cosinus. Supprimés par **trigger** avec l'objet source.
+- **`facts.last_confirmed_at`** : dernière confirmation explicite (vieillissement des
+  préférences).
+- **`fact_pair_dismissals`** : (`fact_a` < `fact_b`, cascade), `user_id`, `space_id`,
+  `created_at` — paires « garder les deux » qui ne sont plus signalées.
+- **`conversations.consolidated_until`** : messages du propriétaire déjà consolidés en
+  propositions de mémoire.
+
+### Agents et coûts (F08, ADR 0007)
+- **`messages.agent`** : agent spécialisé ayant rédigé une réponse (`planning`, `coaching`,
+  `memory`, ou `NULL` pour l'assistant général).
+- **`agent_permissions.resource`** : s'étend à `goals` et `reviews`.
+- **`users.llm_paused`** : arrêt d'urgence de tout appel cloud.
+- **`llm_calls`** : + `tier` (`fast` \| `deep`), `cost_usd numeric(12,6)` (estimé),
+  `cached_tokens`. Toujours **aucun contenu**.
+
+## 5. Prévu ensuite
 
 | Table | Étape | Notes |
 |---|---|---|
-| `embeddings` | 3 | `object_type`, `object_id`, `model`, `model_version`, `vector`, `space_id` ; supprimé avec l'objet source |
-| `goals`, `goal_milestones`, `reviews` | 3 | objectifs, jalons, bilans hebdomadaires/mensuels |
 | `documents` | 4 | empreinte, MIME, emplacement, classification, `retain_until`, provenance |
 | `connectors`, `connector_grants` | 5 | OAuth, scopes, expiration, révocation |
 | `financial_transactions`, `budgets` | 1.5 (produit) | montants exacts, devise, catégorie corrigeable, source |

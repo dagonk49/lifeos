@@ -11,7 +11,9 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Messages de conversation (bruts) | **90 jours**, sauf conservation explicite | `purge_after` ; purge quotidienne avec événement d'audit (nombre supprimé) |
 | Transcriptions audio (étape 4) | 90 jours | même mécanisme que les messages |
 | Faits, souvenirs, journal, tâches | tant que le propriétaire ne les supprime pas | souvenirs `protected` jamais purgés automatiquement |
-| Embeddings (étape 3) | durée de l'objet source | supprimés avec l'objet |
+| Embeddings | durée de l'objet source | calculés localement (jamais transmis) ; supprimés avec l'objet par trigger, retirés si le fait est retiré |
+| Bilans (faits + lecture) | tant que le propriétaire ne les supprime pas | régénérables à la demande |
+| Paires « garder les deux » (qualité mémoire) | durée des faits concernés | supprimées avec les faits |
 | Documents originaux (étape 4) | durée choisie à l'import, défaut 90 jours (**à valider**) | `retain_until`, aucune durée infinie par défaut |
 | Sessions | expiration + 30 jours | purge quotidienne |
 | Défis WebAuthn, jetons d'enrôlement | expiration + 1 jour | purge quotidienne |
@@ -43,7 +45,9 @@ Conditions cumulatives pour tout appel cloud (vérifiées par le Guardian, hors 
 1. le fournisseur est configuré et n'est pas désactivé ;
 2. l'espace concerné a le consentement cloud activé (`spaces.cloud_ai_enabled`) ;
 3. l'appelant (utilisateur ou agent) a accès aux données incluses ;
-4. le budget mensuel de jetons n'est pas atteint.
+4. l'assistant n'est pas en pause (arrêt d'urgence) ;
+5. le budget mensuel de jetons et le plafond quotidien de requêtes du palier ne sont pas
+   atteints (ou, en facturation payante, les budgets en dollars).
 
 Contenu transmis :
 
@@ -56,10 +60,21 @@ Contenu transmis :
 Catégories sensibles proposées, jamais transmises même masquées (**à valider**) : santé
 détaillée, identifiants bancaires, documents d'identité.
 
-Fournisseur : services **payants** de Gemini ou Vertex AI uniquement (voir
-[ADR 0003](adr/0003-gemini-derriere-une-abstraction.md)). Avant la mise en service, vérifier
-et consigner ici : durée de conservation pour la détection d'abus, usage pour l'entraînement,
-région de traitement.
+Fournisseur : Gemini Developer API, projet **sans compte de facturation** par défaut (voir
+[ADR 0007](adr/0007-couts-gemini-niveau-gratuit.md) et le [guide](guide-gemini.md)). En
+France (EEE), les conditions de Google appliquent au quota gratuit les règles des services
+payants : pas d'utilisation des contenus pour améliorer les produits Google ; conservation
+limitée pour la détection d'abus (55 jours annoncés pour les services payants, **à
+revérifier** sur les conditions en vigueur).
+
+Ce qui n'est **jamais** envoyé au cloud : les embeddings et la recherche par le sens (calculés
+localement), la détection des doublons et contradictions de la mémoire, les faits des bilans,
+la progression des objectifs.
+
+Consolidation d'une conversation : uniquement à la demande, seuls les messages **du
+propriétaire** sont transmis (jamais les réponses de l'assistant), et les faits proposés ne
+sont enregistrés qu'après approbation. Agents spécialisés : ils ne lisent que les ressources
+pour lesquelles le propriétaire leur a donné un accès explicite (90 jours, révocable).
 
 ## 4. Séparation des espaces
 

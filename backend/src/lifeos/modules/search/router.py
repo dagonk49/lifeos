@@ -22,6 +22,7 @@ from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.memory.models import Fact, Memory
 from lifeos.modules.retrieval.hybrid import Ref, fuse, vector_refs
+from lifeos.modules.retrieval.indexer import coverage
 from lifeos.modules.tasks.models import Task
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -58,6 +59,15 @@ class SearchResult(BaseModel):
     query: str
     hits: list[SearchHit]
     semantic: bool
+
+
+class IndexStatus(BaseModel):
+    """Progress of the local semantic index (owner's information)."""
+
+    semantic: bool
+    model: str | None
+    indexed: int
+    total: int
 
 
 def _branch(
@@ -209,6 +219,14 @@ async def _run(
         stmt.order_by(combined.c.rank.desc(), combined.c.date.desc()).limit(limit)
     )
     return [SearchHit.model_validate(dict(row._mapping)) for row in rows]
+
+
+@router.get("/status")
+async def index_status(ctx: CtxDep) -> IndexStatus:
+    if ctx.embedder is None:
+        return IndexStatus(semantic=False, model=None, indexed=0, total=0)
+    progress = await coverage(ctx.db, ctx.principal.user_id, ctx.embedder.model)
+    return IndexStatus(semantic=True, **progress)
 
 
 @router.get("")

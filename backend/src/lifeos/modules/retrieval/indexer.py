@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, delete, func, literal, or_, select
+from sqlalchemy import ColumnElement, and_, delete, func, literal, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.core.security import utcnow
@@ -38,7 +38,8 @@ def _join(*parts: Any) -> ColumnElement[str]:
 
 
 SOURCES: tuple[Source, ...] = (
-    Source("fact", Fact, _join(Fact.statement)),
+    # Retracted or superseded facts never surface: no need to embed them.
+    Source("fact", Fact, _join(Fact.statement), Fact.status == "active"),
     Source("memory", Memory, _join(Memory.title, Memory.content)),
     Source("journal", JournalEntry, _join(JournalEntry.content)),
     Source("task", Task, _join(Task.title, Task.notes)),
@@ -88,6 +89,9 @@ async def index_pending(
     counts: dict[str, int] = {}
     if not await session.scalar(select(func.pg_try_advisory_xact_lock(INDEX_LOCK))):
         return counts
+    pruned = await _prune(session)
+    if pruned:
+        counts["pruned"] = pruned
     for source in SOURCES:
         model = source.model
         current = func.md5(source.text)
@@ -145,6 +149,22 @@ async def index_pending(
         await session.flush()
         counts[source.object_type] = len(rows)
     return counts
+
+
+async def _prune(session: AsyncSession) -> int:
+    """Vectors of objects that no longer qualify (e.g. a retracted fact)."""
+    removed = 0
+    for source in SOURCES:
+        if source.condition is None:
+            continue
+        result = await session.execute(
+            delete(Embedding).where(
+                Embedding.object_type == source.object_type,
+                Embedding.object_id.in_(select(source.model.id).where(not_(source.condition))),
+            )
+        )
+        removed += int(result.rowcount or 0)  # type: ignore[attr-defined]
+    return removed
 
 
 async def drop_other_models(session: AsyncSession, model: str) -> int:
