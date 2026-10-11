@@ -230,6 +230,15 @@ async def test_short_messages_are_not_indexed_and_other_models_are_dropped(
     assert models == {"another-model"}
 
 
+async def test_indexing_waits_quietly_when_the_model_is_unavailable(
+    client: AsyncClient, spaces: dict[str, str], logged_in: Owner, database: Database
+) -> None:
+    await client.post("/v1/tasks", json={"space_id": spaces["personal"], "title": "Une tâche"})
+    assert await _index(database, FailingEmbedder()) == {"unavailable": 1}
+    # Nothing was lost: the next run with a working model catches up.
+    assert await _index(database, FakeEmbedder()) == {"task": 1}
+
+
 async def test_concurrent_indexing_runs_do_not_collide(
     client: AsyncClient, spaces: dict[str, str], logged_in: Owner, database: Database
 ) -> None:

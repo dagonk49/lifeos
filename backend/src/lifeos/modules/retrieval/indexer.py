@@ -9,14 +9,16 @@ from sqlalchemy import ColumnElement, and_, delete, func, literal, not_, or_, se
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.core.security import utcnow
+from lifeos.logging import get_logger
 from lifeos.modules.chat.models import Message
 from lifeos.modules.goals.models import Goal
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.memory.models import Fact, Memory
-from lifeos.modules.retrieval.embedders import Embedder
+from lifeos.modules.retrieval.embedders import Embedder, EmbeddingError
 from lifeos.modules.retrieval.models import Embedding
 from lifeos.modules.tasks.models import Task
 
+log = get_logger(__name__)
 CHUNK_CHARS = 1200
 MAX_CHUNKS = 8
 _SENTENCE = re.compile(r"(?<=[.!?…])\s+|\n+")
@@ -122,7 +124,14 @@ async def index_pending(
         if not rows:
             continue
         chunks = [(row, i, text) for row in rows for i, text in enumerate(chunk_text(row[3]))]
-        vectors = await embedder.embed([c[2] for c in chunks], "passage")
+        try:
+            vectors = await embedder.embed([c[2] for c in chunks], "passage")
+        except EmbeddingError as exc:
+            # Model not downloaded yet or ml service down: nothing is lost, the next run
+            # (every few minutes) catches up. Not an error worth a retry storm.
+            log.warning("indexing_paused", error=str(exc)[:200])
+            counts["unavailable"] = 1
+            return counts
         ids: list[uuid.UUID] = [row[0] for row in rows]
         await session.execute(
             delete(Embedding).where(
