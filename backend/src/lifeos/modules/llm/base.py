@@ -31,6 +31,8 @@ class LLMRequest(BaseModel):
 
 class LLMUsage(BaseModel):
     input_tokens: int = 0
+    # Part of input_tokens served from the provider's (implicit) cache, billed ~10 %.
+    cached_input_tokens: int = 0
     output_tokens: int = 0
 
 
@@ -59,6 +61,12 @@ class LLMDisabledError(LLMUnavailableError):
 
 class LLMQuotaError(LLMUnavailableError):
     """The provider's rate limit or quota is exhausted (HTTP 429)."""
+
+    def __init__(self, message: str, *, daily: bool = False, retry_after: int | None = None):
+        super().__init__(message)
+        # A daily quota only resets at midnight Pacific: do not retry before.
+        self.daily = daily
+        self.retry_after = retry_after
 
 
 class LLMBillingError(LLMUnavailableError):

@@ -2,7 +2,7 @@
 
 Revision ID: 0003
 Revises: 0002
-Create Date: 2026-10-11 10:24:16.525192+00:00
+Create Date: 2026-10-11 10:27:27.663203+00:00
 """
 
 from collections.abc import Sequence
@@ -183,6 +183,9 @@ def upgrade() -> None:
     )
     op.add_column("llm_calls", sa.Column("tier", sa.Text(), server_default="fast", nullable=False))
     op.add_column(
+        "llm_calls", sa.Column("cached_tokens", sa.Integer(), server_default="0", nullable=False)
+    )
+    op.add_column(
         "llm_calls",
         sa.Column(
             "cost_usd", sa.Numeric(precision=12, scale=6), server_default="0", nullable=False
@@ -230,6 +233,7 @@ def downgrade() -> None:
     op.drop_column("spaces", "auto_reviews")
     op.drop_column("messages", "agent")
     op.drop_column("llm_calls", "cost_usd")
+    op.drop_column("llm_calls", "cached_tokens")
     op.drop_column("llm_calls", "tier")
     op.drop_index(op.f("ix_goal_milestones_goal_id"), table_name="goal_milestones")
     op.drop_table("goal_milestones")

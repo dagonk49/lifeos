@@ -7,13 +7,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from google.genai import errors as genai_errors
+from google.genai import types
 from httpx import AsyncClient
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from google.genai import errors as genai_errors
-from google.genai import types
 from lifeos.config import Settings
 from lifeos.core.errors import ProblemError
 from lifeos.db.session import Database
@@ -23,6 +23,7 @@ from lifeos.modules.identity.models import Space, User
 from lifeos.modules.journal.schemas import JournalAnalysis
 from lifeos.modules.llm.base import (
     LLMBillingError,
+    LLMInvalidOutputError,
     LLMMessage,
     LLMQuotaError,
     LLMRequest,
@@ -116,7 +117,10 @@ def _ok(text: str = "ok") -> Any:
         prompt_feedback=None,
         candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name="STOP"))],
         usage_metadata=SimpleNamespace(
-            prompt_token_count=1000, candidates_token_count=100, thoughts_token_count=50
+            prompt_token_count=1000,
+            candidates_token_count=100,
+            thoughts_token_count=50,
+            cached_content_token_count=None,
         ),
     )
 
@@ -305,3 +309,69 @@ async def test_emergency_stop(
     assert resumed["error"] is None
     usage = (await client.get("/v1/guardian/llm-usage")).json()
     assert usage["requests_today"] == {"fast": 1, "deep": 0}
+
+
+async def test_quota_errors_are_classified() -> None:
+    daily = genai_errors.ClientError(
+        429,
+        {
+            "error": {
+                "message": "Quota exceeded",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                        "violations": [
+                            {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}
+                        ],
+                    },
+                    {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "51s"},
+                ],
+            }
+        },
+    )
+    provider, _ = _provider(_settings(), daily)
+    with pytest.raises(LLMQuotaError) as exc:
+        await provider.generate(_req())
+    assert exc.value.daily is True
+
+    per_minute = genai_errors.ClientError(
+        429,
+        {
+            "error": {
+                "message": "Please retry in 12s",
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                        "violations": [
+                            {"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}
+                        ],
+                    },
+                    {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "12.5s"},
+                ],
+            }
+        },
+    )
+    provider, _ = _provider(_settings(), per_minute)
+    with pytest.raises(LLMQuotaError) as exc:
+        await provider.generate(_req())
+    assert exc.value.daily is False and exc.value.retry_after == 12
+
+
+async def test_truncated_answer_and_no_temperature() -> None:
+    truncated = _ok("")
+    truncated.candidates = [SimpleNamespace(finish_reason=SimpleNamespace(name="MAX_TOKENS"))]
+    provider, models = _provider(_settings(), truncated)
+    request = _req()
+    request.temperature = 0.7
+    with pytest.raises(LLMInvalidOutputError):
+        await provider.generate(request)
+    config = models.calls[0]["config"]
+    assert config.temperature is None
+    assert config.thinking_config.include_thoughts is False
+
+
+def test_cached_input_is_cheaper() -> None:
+    paid = Settings(llm_billing="paid")
+    full = gateway.estimate_cost(paid, "fast", 1_000_000, 0)
+    cached = gateway.estimate_cost(paid, "fast", 1_000_000, 0, cached_input_tokens=1_000_000)
+    assert full == Decimal("0.300000") and cached == Decimal("0.030000")

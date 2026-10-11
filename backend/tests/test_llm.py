@@ -99,7 +99,10 @@ def _response(text: str, finish: str = "STOP", block: str | None = None) -> Any:
         prompt_feedback=SimpleNamespace(block_reason=block) if block else None,
         candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name=finish))],
         usage_metadata=SimpleNamespace(
-            prompt_token_count=12, candidates_token_count=5, thoughts_token_count=3
+            prompt_token_count=12,
+            candidates_token_count=5,
+            thoughts_token_count=3,
+            cached_content_token_count=None,
         ),
     )
 

@@ -16,6 +16,7 @@ from lifeos.modules.llm.base import (
     LLMBillingError,
     LLMBlockedError,
     LLMError,
+    LLMInvalidOutputError,
     LLMMessage,
     LLMQuotaError,
     LLMRequest,
@@ -48,6 +49,39 @@ def _to_contents(messages: list[LLMMessage]) -> list[types.Content]:
 def _is_thinking_level_error(exc: genai_errors.ClientError) -> bool:
     message = str(exc).lower()
     return exc.code == 400 and "thinking" in message
+
+
+def _seconds(duration: object) -> int | None:
+    if isinstance(duration, str) and duration.endswith("s"):
+        try:
+            return int(float(duration[:-1]))
+        except ValueError:
+            return None
+    return None
+
+
+def quota_error(exc: genai_errors.ClientError) -> LLMQuotaError:
+    """Classifies a 429: daily quota / spend cap (terminal) or short-term rate limit."""
+    message = str(exc)
+    daily = "limit: 0" in message or "spending cap" in message
+    retry_after = None
+    details = (
+        exc.details.get("error", {}).get("details", []) if isinstance(exc.details, dict) else []
+    )
+    for detail in details if isinstance(details, list) else []:
+        if not isinstance(detail, dict):
+            continue
+        kind = str(detail.get("@type", ""))
+        if kind.endswith("QuotaFailure"):
+            for violation in detail.get("violations", []) or []:
+                quota_id = str(violation.get("quotaId", ""))
+                if "PerDay" in quota_id or "Daily" in quota_id:
+                    daily = True
+        elif kind.endswith("RetryInfo"):
+            retry_after = _seconds(detail.get("retryDelay"))
+    if retry_after is not None and retry_after > 300:
+        daily = True
+    return LLMQuotaError("gemini quota exhausted", daily=daily, retry_after=retry_after)
 
 
 class GeminiProvider:
@@ -90,13 +124,17 @@ class GeminiProvider:
     def _config(
         self, request: LLMRequest, schema: type[BaseModel] | None, thinking: str
     ) -> types.GenerateContentConfig:
+        # No temperature: Gemini 3.x models ignore it (and may reject it); thinking level
+        # is the lever for cost and latency.
         return types.GenerateContentConfig(
             system_instruction=request.system,
-            temperature=request.temperature,
             max_output_tokens=request.max_output_tokens,
+            candidate_count=1,
             response_mime_type="application/json" if schema else None,
             response_json_schema=gemini_schema(schema.model_json_schema()) if schema else None,
-            thinking_config=types.ThinkingConfig(thinking_level=_THINKING[thinking]),
+            thinking_config=types.ThinkingConfig(
+                thinking_level=_THINKING[thinking], include_thoughts=False
+            ),
             service_tier=types.ServiceTier.FLEX
             if request.background and self.flex_for_background
             else None,
@@ -130,7 +168,7 @@ class GeminiProvider:
             if exc.code == 402:
                 raise LLMBillingError("gemini prepaid balance or spend cap exhausted") from exc
             if exc.code == 429:
-                raise LLMQuotaError("gemini quota exhausted") from exc
+                raise quota_error(exc) from exc
             if exc.code == 408:
                 raise LLMUnavailableError("gemini timeout") from exc
             raise LLMError(f"gemini client error {exc.code}") from exc
@@ -143,12 +181,16 @@ class GeminiProvider:
         finish = candidate.finish_reason.name if candidate and candidate.finish_reason else None
         if finish in _BLOCKED_FINISH_REASONS:
             raise LLMBlockedError(finish)
+        if finish == "MAX_TOKENS" and not response.text:
+            # Thinking used the whole output budget: nothing usable came back.
+            raise LLMInvalidOutputError("gemini answer truncated (MAX_TOKENS)")
         usage = response.usage_metadata
         return LLMResponse(
             text=response.text or "",
             model=response.model_version or self.models[request.tier],
             usage=LLMUsage(
                 input_tokens=(usage.prompt_token_count or 0) if usage else 0,
+                cached_input_tokens=(usage.cached_content_token_count or 0) if usage else 0,
                 # Thinking tokens are billed as output tokens.
                 output_tokens=(
                     (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)

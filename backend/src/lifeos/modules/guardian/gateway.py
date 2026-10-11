@@ -57,16 +57,29 @@ def quota_day_start(now: datetime) -> datetime:
     return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
 
 
-def estimate_cost(settings: Settings, tier: str, input_tokens: int, output_tokens: int) -> Decimal:
-    """USD cost estimated from the configured price table (0 on free billing)."""
+def estimate_cost(
+    settings: Settings,
+    tier: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_input_tokens: int = 0,
+) -> Decimal:
+    """USD cost estimated from the configured price table (0 on free billing).
+
+    Cached input tokens (implicit caching) are billed at about 10 % of the input price.
+    """
     if settings.llm_billing != "paid":
         return Decimal(0)
     prices = {
         "fast": (settings.llm_price_input_fast, settings.llm_price_output_fast),
         "deep": (settings.llm_price_input_deep, settings.llm_price_output_deep),
     }[tier]
+    price_in, price_out = Decimal(str(prices[0])), Decimal(str(prices[1]))
+    cached = min(cached_input_tokens, input_tokens)
     cost = (
-        Decimal(str(prices[0])) * input_tokens + Decimal(str(prices[1])) * output_tokens
+        price_in * (input_tokens - cached)
+        + price_in * Decimal("0.1") * cached
+        + price_out * output_tokens
     ) / Decimal(1_000_000)
     return cost.quantize(_MICRO)
 
@@ -125,6 +138,7 @@ async def _meter(
     provider = ctx.llm.name
     LLM_CALLS.labels(provider, request.purpose, outcome).inc()
     input_tokens = response.usage.input_tokens if response else 0
+    cached_tokens = response.usage.cached_input_tokens if response else 0
     output_tokens = response.usage.output_tokens if response else 0
     if response is not None:
         LLM_TOKENS.labels(provider, "input").inc(input_tokens)
@@ -140,8 +154,11 @@ async def _meter(
                 tier=request.tier,
                 model=response.model if response else None,
                 input_tokens=input_tokens,
+                cached_tokens=cached_tokens,
                 output_tokens=output_tokens,
-                cost_usd=estimate_cost(ctx.settings, request.tier, input_tokens, output_tokens),
+                cost_usd=estimate_cost(
+                    ctx.settings, request.tier, input_tokens, output_tokens, cached_tokens
+                ),
                 redactions=redactions,
                 outcome=outcome,
                 error_code=error_code,
@@ -275,7 +292,19 @@ def _problem(exc: LLMError) -> ProblemError:
     if isinstance(exc, LLMBillingError):
         return ProblemError(503, "llm_billing_exhausted", "AI prepaid balance or spend cap reached")
     if isinstance(exc, LLMQuotaError):
-        return ProblemError(503, "llm_quota_exceeded", "The AI provider's quota is exhausted")
+        extra: dict[str, Any] = {"daily": exc.daily}
+        headers = None
+        if exc.retry_after is not None and not exc.daily:
+            extra["retry_after"] = exc.retry_after
+            headers = {"Retry-After": str(exc.retry_after)}
+        return ProblemError(
+            503,
+            "llm_quota_exceeded",
+            "The AI provider's quota is exhausted",
+            "Daily quota: it resets around 9:00 (Paris time)." if exc.daily else None,
+            headers=headers,
+            extra=extra,
+        )
     if isinstance(exc, LLMUnavailableError):
         return ProblemError(503, "llm_unavailable", "AI assistant is temporarily unavailable")
     if isinstance(exc, LLMBlockedError):

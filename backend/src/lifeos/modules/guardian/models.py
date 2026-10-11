@@ -86,6 +86,7 @@ class LLMCall(UUIDPrimaryKey, Base):
     tier: Mapped[str] = mapped_column(Text, default="fast", server_default="fast")
     model: Mapped[str | None] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     # Estimated from the configured price table; 0 on free billing.
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, server_default="0")
