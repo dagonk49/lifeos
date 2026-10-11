@@ -62,6 +62,22 @@ _SPECS = [
     ActionSpec(
         "goal.write", "Créer ou modifier un objectif", Level.AUTOMATIC, Level.APPROVAL, "goals"
     ),
+    ActionSpec(
+        "document.write",
+        "Ajouter ou corriger un document",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "documents",
+    ),
+    ActionSpec("document.delete", "Supprimer un document", Level.AUTOMATIC, None, "documents"),
+    # "Classer une dépense" is automatic (cahier des charges §5), logged and correctable.
+    ActionSpec(
+        "finance.write",
+        "Enregistrer ou classer une dépense",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "finances",
+    ),
     # Data access is checked section by section with the principal's own read rights.
     ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),

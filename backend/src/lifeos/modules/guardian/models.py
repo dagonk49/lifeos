@@ -9,7 +9,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from lifeos.db.base import Base, UUIDPrimaryKey
 
 AGENTS = ("core", "planning", "memory", "coaching", "finance", "projects", "documents")
-RESOURCES = ("tasks", "journal", "facts", "memories", "messages", "goals", "reviews")
+RESOURCES = (
+    "tasks",
+    "journal",
+    "facts",
+    "memories",
+    "messages",
+    "goals",
+    "reviews",
+    "documents",
+    "finances",
+)
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:

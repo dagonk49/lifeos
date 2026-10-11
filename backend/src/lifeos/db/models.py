@@ -3,6 +3,8 @@
 from lifeos.core.idempotency import IdempotencyKey
 from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.chat.models import Conversation, Message
+from lifeos.modules.documents.models import Document
+from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
 from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
 from lifeos.modules.guardian.models import AgentPermission, Approval, LLMCall
 from lifeos.modules.identity.models import (
@@ -31,11 +33,14 @@ __all__ = [
     "Approval",
     "AuditEvent",
     "AuthChallenge",
+    "CategoryRule",
     "Conversation",
+    "Document",
     "Embedding",
     "EnrollmentToken",
     "Fact",
     "FactPairDismissal",
+    "FinanceCategory",
     "Goal",
     "GoalCheckin",
     "GoalMilestone",
@@ -50,6 +55,7 @@ __all__ = [
     "Review",
     "Space",
     "Task",
+    "Transaction",
     "User",
     "UserSession",
     "memory_facts",

@@ -90,6 +90,20 @@ class Settings(BaseSettings):
     # Only for the one-time download of a gated model (`lifeos-ml download`).
     hf_token: SecretStr | None = None
 
+    # Documents (F10, ADR 0008): encrypted originals on disk, kept for a limited time.
+    documents_dir: str = "/data/documents"
+    documents_max_bytes: int = 20 * 1024 * 1024
+    documents_original_retention_days: int = 90
+    documents_max_pages: int = 30
+    # AES-256-GCM key (base64, 32 bytes), Docker secret `lifeos_documents_key`.
+    documents_key: SecretStr | None = None
+    # Local text extraction and OCR: "remote" = the internal ml service.
+    extraction_provider: Literal["disabled", "fake", "local", "remote"] = "disabled"
+    # Local speech-to-text (ADR 0009): "remote" = the internal stt service.
+    stt_provider: Literal["disabled", "fake", "remote"] = "disabled"
+    stt_url: str = "http://stt:8200"
+    voice_max_seconds: int = 15 * 60
+
     # Memory quality (F07): cosine distances between two facts' vectors. Below the first,
     # same meaning (duplicate); below the second, related (update or contradiction?).
     # Depend on the embedding model: check them after changing it.
