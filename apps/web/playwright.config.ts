@@ -15,6 +15,8 @@ const backendEnv = {
   LIFEOS_WEBAUTHN_RP_ID: "localhost",
   LIFEOS_COOKIE_SECURE: "false",
   LIFEOS_LLM_PROVIDER: "fake",
+  // Exercises the vector search path (pgvector) with a deterministic local embedder.
+  LIFEOS_EMBEDDINGS_PROVIDER: "fake",
   LIFEOS_LOG_LEVEL: "WARNING",
 };
 

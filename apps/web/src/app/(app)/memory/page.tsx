@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { MemoryReviewPanel, useMemoryReview } from "@/components/MemoryReview";
+import { FactCorrectionForm, useInvalidateFacts } from "@/components/MemoryReviewCorrectForm";
 import {
   Alert,
   Badge,
@@ -19,32 +21,17 @@ import {
 } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatDateTime, KIND_LABELS, ORIGIN_LABELS } from "@/lib/format";
+import { ORIGIN_TONES, reviewBadgeText, reviewCountText } from "@/lib/memoryReview";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { Fact, FactKind, Memory, MemoryRevision, Page } from "@/lib/types";
 
-const ORIGIN_TONES = {
-  user_declared: "teal",
-  user_confirmed: "blue",
-  extracted: "amber",
-  inferred: "amber",
-} as const;
-
 function FactRow({ fact }: { fact: Fact }) {
-  const queryClient = useQueryClient();
   const { selected, spaceName } = useSpace();
   const [correcting, setCorrecting] = useState(false);
-  const [statement, setStatement] = useState(fact.statement);
   const [history, setHistory] = useState<Fact[] | null>(null);
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["facts"] });
+  // Facts, « À vérifier » queues and dashboard counts all depend on the active facts.
+  const refresh = useInvalidateFacts();
 
-  const correct = useMutation({
-    mutationFn: () =>
-      api<Fact>(`/v1/memory/facts/${fact.id}/correct`, { method: "POST", body: { statement } }),
-    onSuccess: () => {
-      setCorrecting(false);
-      void refresh();
-    },
-  });
   const retract = useMutation({
     mutationFn: () => api(`/v1/memory/facts/${fact.id}/retract`, { method: "POST" }),
     onSuccess: refresh,
@@ -61,23 +48,7 @@ function FactRow({ fact }: { fact: Fact }) {
   return (
     <li className="py-3">
       {correcting ? (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            correct.mutate();
-          }}
-        >
-          <Input aria-label="Énoncé corrigé" value={statement} onChange={(e) => setStatement(e.target.value)} />
-          <div className="flex gap-2">
-            <Button size="sm" type="submit">
-              Enregistrer la correction
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setCorrecting(false)}>
-              Annuler
-            </Button>
-          </div>
-        </form>
+        <FactCorrectionForm fact={fact} onCancel={() => setCorrecting(false)} onCorrected={() => setCorrecting(false)} />
       ) : (
         <p>{fact.statement}</p>
       )}
@@ -88,6 +59,7 @@ function FactRow({ fact }: { fact: Fact }) {
         {fact.occurred_at && <span>· le {formatDate(fact.occurred_at)}</span>}
         <span>· source {fact.source_type}</span>
         <span>· {formatDateTime(fact.created_at)}</span>
+        {fact.last_confirmed_at && <span>· confirmé le {formatDate(fact.last_confirmed_at)}</span>}
         {!selected && <Badge>{spaceName(fact.space_id)}</Badge>}
       </div>
       {!correcting && (
@@ -116,6 +88,11 @@ function FactRow({ fact }: { fact: Fact }) {
         </ol>
       )}
       {history && history.length <= 1 && <p className="mt-1 text-xs text-stone-500">Jamais corrigé.</p>}
+      {(retract.error ?? remove.error ?? loadHistory.error) && (
+        <div className="mt-2">
+          <Alert tone="error">{errorMessage(retract.error ?? remove.error ?? loadHistory.error)}</Alert>
+        </div>
+      )}
     </li>
   );
 }
@@ -228,13 +205,17 @@ function MemoryCard({ memory }: { memory: Memory }) {
 export default function MemoryPage() {
   const queryClient = useQueryClient();
   const { selected, writeSpaceId, spaceName } = useSpace();
-  const [tab, setTab] = useState<"facts" | "memories">("facts");
+  const [tab, setTab] = useState<"facts" | "memories" | "review">("facts");
   const [statement, setStatement] = useState("");
   const [kind, setKind] = useState<FactKind>("fact");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [importance, setImportance] = useState("3");
   const [isProtected, setProtected] = useState(false);
+  const invalidateFacts = useInvalidateFacts();
+  // Loaded whatever the tab, for the count badge.
+  const review = useMemoryReview();
+  const reviewCount = review.isPending && review.items.length === 0 ? null : review.items.length;
 
   const facts = useQuery({
     queryKey: ["facts", selected],
@@ -255,7 +236,7 @@ export default function MemoryPage() {
       }),
     onSuccess: () => {
       setStatement("");
-      void queryClient.invalidateQueries({ queryKey: ["facts"] });
+      void invalidateFacts();
     },
   });
   const addMemory = useMutation({
@@ -296,16 +277,34 @@ export default function MemoryPage() {
           Exporter mes données (JSON)
         </a>
       </PageHeader>
-      <div role="tablist" aria-label="Type de mémoire" className="mb-4 flex gap-2">
+      <div role="tablist" aria-label="Type de mémoire" className="mb-4 flex flex-wrap gap-2">
         <button role="tab" aria-selected={tab === "facts"} className={tabClass(tab === "facts")} onClick={() => setTab("facts")}>
           Faits
         </button>
         <button role="tab" aria-selected={tab === "memories"} className={tabClass(tab === "memories")} onClick={() => setTab("memories")}>
           Souvenirs
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === "review"}
+          className={cx(tabClass(tab === "review"), "inline-flex items-center gap-1.5")}
+          onClick={() => setTab("review")}
+        >
+          À vérifier
+          {reviewCount !== null && reviewCount > 0 && (
+            <>
+              <span aria-hidden className="rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                {reviewBadgeText(reviewCount, review.truncated)}
+              </span>
+              <span className="sr-only"> ({reviewCountText(reviewCount, review.truncated)})</span>
+            </>
+          )}
+        </button>
       </div>
 
-      {tab === "facts" ? (
+      {tab === "review" ? (
+        <MemoryReviewPanel review={review} />
+      ) : tab === "facts" ? (
         <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
           <Card footer="« Déclaré » : dit par vous · « Confirmé » : proposé puis validé par vous · « Extrait »/« Inféré » : à vérifier">
             {facts.isPending ? (

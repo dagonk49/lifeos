@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { AgentAccessPanel } from "@/components/AgentAccessPanel";
+import { UsagePanel } from "@/components/UsagePanel";
 import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api, errorMessage, withReauth } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -64,7 +66,7 @@ function SpacesSection() {
 }
 
 function PreferencesSection() {
-  const invalidate = useInvalidate("settings", "dashboard");
+  const invalidate = useInvalidate("settings", "dashboard", "llm-usage");
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api<Settings>("/v1/settings") });
   const [form, setForm] = useState({ display_name: "", timezone: "", start: "", end: "", budget: "" });
   const [saved, setSaved] = useState(false);
@@ -217,7 +219,8 @@ function DevicesSection() {
 }
 
 function PermissionsSection() {
-  const invalidate = useInvalidate("permissions");
+  // "agents": the per-space access shown in « Agents spécialisés ».
+  const invalidate = useInvalidate("permissions", "agents");
   const spaces = useQuery({ queryKey: ["spaces"], queryFn: () => api<Space[]>("/v1/spaces") });
   const permissions = useQuery({
     queryKey: ["permissions"],
@@ -361,6 +364,11 @@ export default function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SpacesSection />
         <PreferencesSection />
+        {/* Anchor of the dashboard's "Réglages de l'assistant" link. */}
+        <div id="assistant-ia" className="scroll-mt-4 lg:col-span-2">
+          <UsagePanel />
+        </div>
+        <AgentAccessPanel className="lg:col-span-2" />
         <DevicesSection />
         <PermissionsSection />
         <AuditSection />

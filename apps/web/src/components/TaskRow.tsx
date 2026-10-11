@@ -22,6 +22,8 @@ export function TaskRow({ task, onDelete }: { task: Task; onDelete?: () => void 
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      // A linked goal's progress counts open and done tasks.
+      if (task.goal_id) void queryClient.invalidateQueries({ queryKey: ["goals"] });
     },
   });
   const overdue = !done && task.due_at !== null && new Date(task.due_at) < new Date();

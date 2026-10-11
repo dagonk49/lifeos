@@ -70,7 +70,24 @@ const MESSAGES: Record<string, string> = {
   cloud_consent_required:
     "L'assistant IA n'est pas activé pour cet espace. Activez-le dans les réglages.",
   llm_unavailable: "L'assistant IA est indisponible pour le moment. Vos données restent accessibles.",
-  llm_budget_exceeded: "Le budget mensuel de l'assistant IA est atteint.",
+  llm_budget_exceeded: "Le budget de l'assistant IA est atteint.",
+  llm_daily_quota_reached:
+    "Le quota gratuit du jour est atteint. Il se renouvelle chaque jour vers 9 h (heure de Paris).",
+  llm_quota_exceeded:
+    "Le quota du fournisseur IA est épuisé pour le moment. Rien n'est facturé ; réessayez plus tard.",
+  llm_billing_exhausted: "Le crédit prépayé de l'assistant IA est épuisé.",
+  llm_paused: "L'assistant IA est en pause (arrêt d'urgence). Réactivez-le dans les réglages.",
+  cloud_call_denied: "Cet appel à l'IA n'est pas autorisé.",
+  agent_permission_required:
+    "Cet agent n'a pas encore accès aux données nécessaires dans cet espace.",
+  nothing_to_consolidate: "Aucun nouveau message à consolider dans cette conversation.",
+  review_in_future: "Cette période n'a pas encore commencé.",
+  goal_target_required: "Un objectif mesurable demande une valeur cible.",
+  goal_not_found: "Cet objectif est introuvable ou a été supprimé.",
+  milestone_not_found: "Ce jalon n'existe plus.",
+  goal_space_mismatch: "La tâche et l'objectif doivent appartenir au même espace.",
+  fact_not_active: "Ce fait n'est plus actif.",
+  invalid_pair: "Choisissez deux éléments distincts du même espace.",
   llm_blocked: "Le fournisseur IA a refusé de répondre à cette demande.",
   llm_invalid_output: "La réponse de l'IA n'a pas pu être validée. Réessayez.",
   approval_required: "Cette action demande votre approbation explicite.",

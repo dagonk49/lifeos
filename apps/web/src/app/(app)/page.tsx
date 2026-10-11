@@ -4,11 +4,54 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
 import { TaskRow } from "@/components/TaskRow";
+import { UsageMeter } from "@/components/UsageMeter";
 import { Alert, Badge, Card, Empty, PageHeader, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatTime } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { Dashboard } from "@/lib/types";
+import { formatRatio, formatUsd, tierQuotas } from "@/lib/usage";
+
+function AssistantSummary({ assistant }: { assistant: Dashboard["assistant"] }) {
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <p>
+        Fournisseur : <Badge tone={assistant.enabled ? "teal" : "neutral"}>{assistant.provider}</Badge>{" "}
+        {assistant.cloud_enabled_spaces.length === 0 && <span className="text-stone-500">· aucun espace autorisé</span>}
+      </p>
+      {assistant.paused && (
+        <p className="text-amber-800 dark:text-amber-200">Arrêt d&apos;urgence actif : aucun appel cloud n&apos;est effectué.</p>
+      )}
+      {assistant.billing === "paid" ? (
+        <p>
+          Coût du mois : <span className="font-medium tabular-nums">{formatUsd(assistant.cost_month_usd)}</span>
+        </p>
+      ) : (
+        tierQuotas(assistant.requests_today, assistant.daily_request_caps).map((quota) => (
+          <UsageMeter
+            key={quota.tier}
+            label={`Requêtes du jour · ${quota.label.toLowerCase()}`}
+            value={formatRatio(quota.used, quota.limit)}
+            used={quota.used}
+            limit={quota.limit}
+          />
+        ))
+      )}
+      <UsageMeter
+        label="Budget du mois"
+        value={`${formatRatio(assistant.month_tokens_used, assistant.month_token_budget)} jetons`}
+        used={assistant.month_tokens_used}
+        limit={assistant.month_token_budget}
+        ariaLabel="Budget IA utilisé"
+      />
+      <p>
+        <Link className="text-teal-700 underline dark:text-teal-400" href="/settings#assistant-ia">
+          Réglages de l&apos;assistant
+        </Link>
+      </p>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { selected } = useSpace();
@@ -22,9 +65,6 @@ export default function DashboardPage() {
   if (dashboard.error) return <Alert tone="error">{errorMessage(dashboard.error)}</Alert>;
   const d = dashboard.data;
   const asOf = `À jour à ${formatTime(d.generated_at)} · calculé localement`;
-  const budgetPct = d.assistant.month_token_budget
-    ? Math.min(100, Math.round((100 * d.assistant.month_tokens_used) / d.assistant.month_token_budget))
-    : 0;
 
   return (
     <>
@@ -110,34 +150,12 @@ export default function DashboardPage() {
           </p>
         </Card>
 
-        <Card title="Assistant IA" footer={asOf}>
-          <div className="flex flex-col gap-2 text-sm">
-            <p>
-              Fournisseur : <Badge tone={d.assistant.enabled ? "teal" : "neutral"}>{d.assistant.provider}</Badge>{" "}
-              {d.assistant.cloud_enabled_spaces.length === 0 && (
-                <span className="text-stone-500">· aucun espace autorisé</span>
-              )}
-            </p>
-            <div>
-              <div className="flex justify-between text-xs text-stone-500">
-                <span>Budget du mois</span>
-                <span>
-                  {d.assistant.month_tokens_used.toLocaleString("fr-FR")} /{" "}
-                  {d.assistant.month_token_budget.toLocaleString("fr-FR")} jetons
-                </span>
-              </div>
-              <div
-                className="mt-1 h-2 rounded bg-stone-200 dark:bg-stone-800"
-                role="progressbar"
-                aria-valuenow={budgetPct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="Budget IA utilisé"
-              >
-                <div className="h-2 rounded bg-teal-600" style={{ width: `${budgetPct}%` }} />
-              </div>
-            </div>
-          </div>
+        <Card
+          title="Assistant IA"
+          actions={d.assistant.paused && <Badge tone="amber">En pause</Badge>}
+          footer={asOf}
+        >
+          <AssistantSummary assistant={d.assistant} />
         </Card>
       </div>
     </>

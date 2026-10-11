@@ -67,12 +67,15 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  // The hint stays outside the <label>: the field's accessible name is the label alone.
   return (
-    <label className={cx("flex flex-col gap-1 text-sm", className)}>
-      <span className="font-medium text-stone-700 dark:text-stone-300">{label}</span>
-      {children}
+    <div className={cx("flex flex-col gap-1 text-sm", className)}>
+      <label className="flex flex-col gap-1">
+        <span className="font-medium text-stone-700 dark:text-stone-300">{label}</span>
+        {children}
+      </label>
       {hint && <span className="text-xs text-stone-500">{hint}</span>}
-    </label>
+    </div>
   );
 }
 

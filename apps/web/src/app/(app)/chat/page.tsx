@@ -3,13 +3,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
+import { AgentPermissionCard, type AgentPermissionNeed } from "@/components/AgentPermissionCard";
+import { AgentSelector } from "@/components/AgentSelector";
+import { AgentSuggestion } from "@/components/AgentSuggestion";
+import { ConsolidationPanel } from "@/components/ConsolidationPanel";
 import { Alert, Badge, Button, Card, Empty, PageHeader, Spinner, Textarea, cx } from "@/components/ui";
+import { CORE_AGENT, agentLabel, agentsKey, missingPermissions, suggestedAgent, type AgentChoice } from "@/lib/agents";
 import { api, errorMessage, problemMessage } from "@/lib/api";
 import { formatDate, formatTime } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
-import type { Conversation, ConversationDetail, Message, Page, SendResult } from "@/lib/types";
+import type { AgentInfo, AgentName, Conversation, ConversationDetail, Message, Page, SendResult } from "@/lib/types";
 
-function MessageBubble({ message, conversationId }: { message: Message; conversationId: string }) {
+function MessageBubble({
+  message,
+  conversationId,
+  agents,
+}: {
+  message: Message;
+  conversationId: string;
+  agents: AgentInfo[] | undefined;
+}) {
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["conversation", conversationId] });
@@ -36,7 +49,13 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
         {/* Plain text only: assistant output is never rendered as HTML (threat model T14). */}
         {message.content}
       </div>
-      <div className="flex items-center gap-2 text-xs text-stone-500">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
+        {!mine && message.agent && (
+          <Badge tone="violet">
+            <span className="sr-only">Agent : </span>
+            {agentLabel(message.agent, agents)}
+          </Badge>
+        )}
         <span>{formatTime(message.created_at)}</span>
         {message.retained && <Badge tone="teal">Conservé</Badge>}
         <button className="underline" onClick={() => retain.mutate()}>
@@ -51,12 +70,24 @@ function MessageBubble({ message, conversationId }: { message: Message; conversa
   );
 }
 
+interface SendVars {
+  content: string;
+  agent: AgentChoice;
+  /** Resending a message after granting access: the draft is left untouched. */
+  resend?: boolean;
+}
+
 export default function ChatPage() {
   const queryClient = useQueryClient();
   const { selected, writeSpaceId, spaceName } = useSpace();
   const [current, setCurrent] = useState<string | null>(null);
+  const [currentSpace, setCurrentSpace] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Specialised agents are only used when explicitly chosen here (F08).
+  const [agent, setAgent] = useState<AgentChoice>(CORE_AGENT);
   const [degraded, setDegraded] = useState<SendResult["error"]>(null);
+  const [permission, setPermission] = useState<(AgentPermissionNeed & { messageId: string }) | null>(null);
+  const [suggestion, setSuggestion] = useState<AgentName | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const bottom = useRef<HTMLDivElement>(null);
@@ -70,6 +101,13 @@ export default function ChatPage() {
     queryFn: () => api<ConversationDetail>(`/v1/chat/conversations/${current}`),
     enabled: current !== null,
   });
+  // Agents are described for the conversation's space (a new conversation uses writeSpaceId).
+  const spaceId = current ? (detail.data?.space_id ?? currentSpace) : writeSpaceId;
+  const agents = useQuery({
+    queryKey: agentsKey(spaceId),
+    queryFn: () => api<AgentInfo[]>(`/v1/agents?space_id=${encodeURIComponent(spaceId ?? "")}`),
+    enabled: Boolean(spaceId),
+  });
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -81,37 +119,64 @@ export default function ChatPage() {
     return () => window.clearInterval(timer);
   }, [startedAt]);
 
+  /** Opens a conversation (or none): each one starts with the general assistant. */
+  function openConversation(id: string | null, space: string | null) {
+    setCurrent(id);
+    setCurrentSpace(space);
+    setAgent(CORE_AGENT);
+    setDegraded(null);
+    setPermission(null);
+    setSuggestion(null);
+  }
+
   const create = useMutation({
     mutationFn: () =>
       api<Conversation>("/v1/chat/conversations", { method: "POST", body: { space_id: writeSpaceId } }),
     onSuccess: (conversation) => {
-      setCurrent(conversation.id);
+      openConversation(conversation.id, conversation.space_id);
       void queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 
   const send = useMutation({
-    mutationFn: async (content: string) => {
+    mutationFn: async ({ content, agent: chosen }: SendVars) => {
       let id = current;
+      let space = spaceId;
       if (!id) {
         const conversation = await api<Conversation>("/v1/chat/conversations", {
           method: "POST",
           body: { space_id: writeSpaceId },
         });
         id = conversation.id;
+        space = conversation.space_id;
         setCurrent(id);
+        setCurrentSpace(space);
       }
       setStartedAt(Date.now());
       setElapsed(0);
-      return api<SendResult>(`/v1/chat/conversations/${id}/messages`, {
+      const result = await api<SendResult>(`/v1/chat/conversations/${id}/messages`, {
         method: "POST",
         idempotent: true,
-        body: { content, context: { screen: "chat" } },
+        body: { content, context: { screen: "chat" }, agent: chosen },
       });
+      return { result, spaceId: space ?? writeSpaceId };
     },
-    onSuccess: (result) => {
-      setDraft("");
-      setDegraded(result.error);
+    onMutate: ({ resend }) => {
+      if (!resend) setPermission(null);
+      setSuggestion(null);
+    },
+    onSuccess: ({ result, spaceId: space }, { content, resend }) => {
+      if (!resend) setDraft("");
+      const missing = missingPermissions(result);
+      if (missing !== null && result.agent !== "core") {
+        // The message is saved; the agent first needs read access in this space.
+        setDegraded(null);
+        setPermission({ agent: result.agent, spaceId: space, missing, content, messageId: result.user_message.id });
+      } else {
+        setDegraded(result.error);
+        setPermission(null);
+      }
+      setSuggestion(suggestedAgent(result));
     },
     onSettled: () => {
       setStartedAt(null);
@@ -123,10 +188,15 @@ export default function ChatPage() {
   const remove = useMutation({
     mutationFn: (id: string) => api(`/v1/chat/conversations/${id}`, { method: "DELETE" }),
     onSuccess: () => {
-      setCurrent(null);
+      openConversation(null, null);
       void queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
+
+  const submit = () => {
+    const content = draft.trim();
+    if (content && !send.isPending) send.mutate({ content, agent });
+  };
 
   return (
     <>
@@ -146,7 +216,9 @@ export default function ChatPage() {
               {conversations.data?.items.map((c) => (
                 <li key={c.id}>
                   <button
-                    onClick={() => setCurrent(c.id)}
+                    onClick={() => {
+                      if (c.id !== current) openConversation(c.id, c.space_id);
+                    }}
                     aria-current={c.id === current ? "true" : undefined}
                     className={cx(
                       "w-full rounded px-2 py-1.5 text-left text-sm",
@@ -179,9 +251,12 @@ export default function ChatPage() {
           footer={`Espace : ${spaceName(detail.data?.space_id ?? writeSpaceId)} · conversations brutes conservées 90 jours sauf « Conserver »`}
         >
           <div className="flex min-h-[40vh] flex-col gap-3">
+            {current && detail.data?.id === current && detail.data.messages.length > 0 && (
+              <ConsolidationPanel key={detail.data.id} conversation={detail.data} />
+            )}
             <ol aria-label="Messages" className="flex max-h-[50vh] flex-1 flex-col gap-3 overflow-y-auto pr-1" aria-live="polite">
               {detail.data?.messages.map((m) => (
-                <MessageBubble key={m.id} message={m} conversationId={detail.data.id} />
+                <MessageBubble key={m.id} message={m} conversationId={detail.data.id} agents={agents.data} />
               ))}
               <div ref={bottom} />
             </ol>
@@ -191,12 +266,36 @@ export default function ChatPage() {
                 Message enregistré, réponse indisponible : {problemMessage(degraded.code, degraded.title)}
               </Alert>
             )}
+            {permission && (
+              <AgentPermissionCard
+                key={permission.messageId}
+                need={permission}
+                label={agentLabel(permission.agent, agents.data)}
+                spaceName={spaceName(permission.spaceId)}
+                resending={send.isPending}
+                onResend={() => {
+                  setAgent(permission.agent);
+                  send.mutate({ content: permission.content, agent: permission.agent, resend: true });
+                }}
+                onDismiss={() => setPermission(null)}
+              />
+            )}
             {send.error && <Alert tone="error">{errorMessage(send.error)}</Alert>}
+            {suggestion && suggestion !== agent && (
+              <AgentSuggestion
+                label={agentLabel(suggestion, agents.data)}
+                onUse={() => {
+                  setAgent(suggestion);
+                  setSuggestion(null);
+                }}
+                onDismiss={() => setSuggestion(null)}
+              />
+            )}
             <form
               className="flex flex-col gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (draft.trim()) send.mutate(draft.trim());
+                submit();
               }}
             >
               <Textarea
@@ -208,12 +307,19 @@ export default function ChatPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    if (draft.trim()) send.mutate(draft.trim());
+                    submit();
                   }
                 }}
               />
-              <div className="flex justify-end">
-                <Button type="submit" disabled={send.isPending || !draft.trim()}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <AgentSelector
+                  agents={agents.data}
+                  value={agent}
+                  onChange={setAgent}
+                  spaceName={spaceName(spaceId ?? writeSpaceId)}
+                  error={agents.error}
+                />
+                <Button type="submit" className="self-end sm:mt-6" disabled={send.isPending || !draft.trim()}>
                   Envoyer
                 </Button>
               </div>

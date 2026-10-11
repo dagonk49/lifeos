@@ -16,6 +16,8 @@ const NAV = [
   { href: "/chat", label: "Assistant" },
   { href: "/tasks", label: "Tâches" },
   { href: "/journal", label: "Journal" },
+  { href: "/goals", label: "Objectifs" },
+  { href: "/reviews", label: "Bilans" },
   { href: "/memory", label: "Mémoire" },
   { href: "/search", label: "Recherche" },
   { href: "/approvals", label: "Approbations" },
