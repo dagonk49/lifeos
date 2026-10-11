@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 from sqlalchemy import delete, text
@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.core.security import utcnow
 from lifeos.modules.audit.models import AuditEvent
+
+if TYPE_CHECKING:
+    from lifeos.db.session import Database
 
 ActorType = Literal["user", "agent", "system", "anonymous"]
 Outcome = Literal["success", "denied", "failure"]
@@ -64,3 +67,13 @@ async def purge_older_than(session: AsyncSession, *, days: int, now: datetime | 
     result = await session.execute(delete(AuditEvent).where(AuditEvent.occurred_at < cutoff))
     await session.execute(text("SET LOCAL lifeos.audit_purge = 'off'"))
     return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
+
+async def record_detached(database: "Database", **kwargs: Any) -> None:
+    """Records an audit event in its own transaction.
+
+    Used for denials and failures: the request transaction is rolled back when the error
+    propagates, but the trace of the refusal must survive.
+    """
+    async with database.sessionmaker() as session, session.begin():
+        await record(session, **kwargs)

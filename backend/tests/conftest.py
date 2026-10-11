@@ -15,6 +15,7 @@ os.environ.setdefault("LIFEOS_LOG_LEVEL", "WARNING")
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from alembic import command
@@ -33,6 +34,9 @@ from lifeos.modules.identity.models import User
 from lifeos.modules.llm.fake import FakeProvider
 
 from .webauthn_soft import SoftAuthenticator
+
+if TYPE_CHECKING:
+    from lifeos.modules.guardian.context import Ctx
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ORIGIN = os.environ["LIFEOS_PUBLIC_ORIGIN"]
@@ -152,3 +156,35 @@ async def logged_in(client: AsyncClient, owner: Owner) -> Owner:
     """Owner enrolled with one passkey; the client holds a session cookie."""
     await enroll(client, owner)
     return owner
+
+
+@pytest.fixture
+async def spaces(client: AsyncClient, logged_in: Owner) -> dict[str, str]:
+    """Space ids by kind (`personal`, `professional`) for the logged-in owner."""
+    me = (await client.get("/v1/auth/me")).json()
+    return {s["kind"]: s["id"] for s in me["spaces"]}
+
+
+async def enable_cloud(client: AsyncClient, space_id: str) -> None:
+    response = await client.patch(f"/v1/spaces/{space_id}", json={"cloud_ai_enabled": True})
+    assert response.status_code == 200, response.text
+
+
+async def make_ctx(
+    database: Database,
+    session: AsyncSession,
+    settings: Settings,
+    user: User,
+    llm: FakeProvider,
+    *,
+    principal: object | None = None,
+    recent_auth: bool = True,
+) -> "Ctx":
+    from lifeos.modules.guardian.context import Ctx
+    from lifeos.modules.guardian.principal import Principal, user_principal
+
+    resolved = principal or await user_principal(session, user.id, recent_auth=recent_auth)
+    assert isinstance(resolved, Principal)
+    return Ctx(
+        db=session, database=database, settings=settings, principal=resolved, user=user, llm=llm
+    )

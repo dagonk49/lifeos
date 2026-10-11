@@ -1,8 +1,16 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from ipaddress import IPv4Address, IPv6Address
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +29,13 @@ class User(UUIDPrimaryKey, Timestamps, Base):
         Text, default="Europe/Paris", server_default="Europe/Paris"
     )
     disabled_at: Mapped[datetime | None]
+    # Non-critical notifications wait for the end of this local time window.
+    quiet_hours_start: Mapped[time | None]
+    quiet_hours_end: Mapped[time | None]
+    # Automatic stop for cloud LLM usage (tokens per calendar month).
+    llm_monthly_token_budget: Mapped[int] = mapped_column(
+        Integer, default=1_000_000, server_default="1000000"
+    )
 
 
 class Space(UUIDPrimaryKey, Timestamps, Base):
@@ -35,6 +50,8 @@ class Space(UUIDPrimaryKey, Timestamps, Base):
     )
     kind: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text)
+    # Explicit consent to send minimal, masked excerpts of this space to the cloud LLM.
+    cloud_ai_enabled: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 
 class PasskeyCredential(UUIDPrimaryKey, Base):

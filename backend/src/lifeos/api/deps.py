@@ -11,6 +11,8 @@ from lifeos.config import Settings
 from lifeos.core.errors import ProblemError
 from lifeos.core.security import utcnow
 from lifeos.db.session import Database
+from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.guardian.principal import user_principal
 from lifeos.modules.identity import service as identity
 from lifeos.modules.identity.models import User, UserSession
 
@@ -76,7 +78,7 @@ async def get_recent_auth(
     auth: Annotated[AuthContext, Depends(get_auth)], settings: SettingsDep
 ) -> AuthContext:
     """For "reinforced validation" operations: login must be recent."""
-    if utcnow() - auth.session.authenticated_at > timedelta(minutes=settings.recent_auth_minutes):
+    if not is_recent(auth.session, settings):
         raise ProblemError(
             403,
             "reauthentication_required",
@@ -89,3 +91,26 @@ async def get_recent_auth(
 OptionalAuth = Annotated[AuthContext | None, Depends(get_optional_auth)]
 Auth = Annotated[AuthContext, Depends(get_auth)]
 RecentAuth = Annotated[AuthContext, Depends(get_recent_auth)]
+
+
+def is_recent(user_session: UserSession, settings: Settings) -> bool:
+    return utcnow() - user_session.authenticated_at <= timedelta(
+        minutes=settings.recent_auth_minutes
+    )
+
+
+async def get_ctx(request: Request, db: DbSession, settings: SettingsDep, auth: Auth) -> Ctx:
+    principal = await user_principal(
+        db, auth.user.id, recent_auth=is_recent(auth.session, settings)
+    )
+    return Ctx(
+        db=db,
+        database=request.app.state.db,
+        settings=settings,
+        principal=principal,
+        user=auth.user,
+        llm=request.app.state.llm,
+    )
+
+
+CtxDep = Annotated[Ctx, Depends(get_ctx)]

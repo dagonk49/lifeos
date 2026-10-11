@@ -12,13 +12,38 @@ from lifeos.config import Settings, get_settings
 from lifeos.core.errors import install_error_handlers
 from lifeos.db.session import Database
 from lifeos.logging import configure_logging
+from lifeos.modules.chat.router import router as chat_router
+from lifeos.modules.dashboard.router import router as dashboard_router
+from lifeos.modules.guardian.router import approvals_router
+from lifeos.modules.guardian.router import router as guardian_router
 from lifeos.modules.identity.router import router as auth_router
+from lifeos.modules.journal.router import router as journal_router
 from lifeos.modules.llm import build_provider
+from lifeos.modules.memory.router import router as memory_router
+from lifeos.modules.notifications.router import router as notifications_router
+from lifeos.modules.privacy.router import router as privacy_router
+from lifeos.modules.search.router import router as search_router
+from lifeos.modules.settings.router import router as settings_router
+from lifeos.modules.tasks.router import router as tasks_router
 
 
 def build_v1_router() -> APIRouter:
     v1 = APIRouter(prefix="/v1")
-    v1.include_router(auth_router)
+    for router in (
+        auth_router,
+        settings_router,
+        dashboard_router,
+        tasks_router,
+        journal_router,
+        memory_router,
+        chat_router,
+        search_router,
+        approvals_router,
+        guardian_router,
+        notifications_router,
+        privacy_router,
+    ):
+        v1.include_router(router)
     return v1
 
 

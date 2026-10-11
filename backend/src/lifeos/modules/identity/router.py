@@ -133,6 +133,7 @@ async def authentication_verify(
     response: Response,
     db: DbSession,
     settings: SettingsDep,
+    auth: OptionalAuth,
 ) -> UserOut:
     try:
         user, passkey = await passkeys.finish_authentication(
@@ -141,6 +142,15 @@ async def authentication_verify(
     except ProblemError:
         await db.commit()
         raise
+    if auth is not None and auth.user.id == user.id:
+        # Re-authentication: the fresh session replaces the current one.
+        await identity.revoke_session(
+            db,
+            user_id=user.id,
+            session_id=auth.session.id,
+            reason="reauthenticated",
+            actor_id=user.id,
+        )
     await _open_session(request, response, db, settings, user, passkey)
     return UserOut.model_validate(user)
 

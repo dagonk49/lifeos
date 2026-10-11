@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from lifeos.config import get_settings
 from lifeos.logging import get_logger
@@ -32,6 +33,26 @@ def build_scheduler() -> BlockingScheduler:
         actors.purge_audit_events.send,
         CronTrigger(hour=3, minute=40, timezone=tz),
         id="purge_audit_events",
+    )
+    scheduler.add_job(
+        actors.purge_messages.send,
+        CronTrigger(hour=3, minute=20, timezone=tz),
+        id="purge_messages",
+    )
+    scheduler.add_job(
+        actors.purge_idempotency_keys.send,
+        CronTrigger(hour=3, minute=30, timezone=tz),
+        id="purge_idempotency_keys",
+    )
+    scheduler.add_job(
+        actors.expire_approvals.send, CronTrigger(minute=5, timezone=tz), id="expire_approvals"
+    )
+    # Reminders are "real time": checked every minute, never coalesced into the past.
+    scheduler.add_job(
+        actors.send_reminders.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="send_reminders",
+        misfire_grace_time=60,
     )
     return scheduler
 
