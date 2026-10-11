@@ -54,6 +54,25 @@ def build_scheduler() -> BlockingScheduler:
         id="send_reminders",
         misfire_grace_time=60,
     )
+    # Reviews: daily summary (local only), weekly on Sunday evening, monthly on the 1st.
+    scheduler.add_job(
+        actors.scheduled_reviews.send,
+        CronTrigger(hour=21, minute=30, timezone=tz),
+        args=["daily"],
+        id="reviews_daily",
+    )
+    scheduler.add_job(
+        actors.scheduled_reviews.send,
+        CronTrigger(day_of_week="sun", hour=19, minute=0, timezone=tz),
+        args=["weekly"],
+        id="reviews_weekly",
+    )
+    scheduler.add_job(
+        actors.scheduled_reviews.send,
+        CronTrigger(day=1, hour=8, minute=0, timezone=tz),
+        args=["monthly"],
+        id="reviews_monthly",
+    )
     return scheduler
 
 

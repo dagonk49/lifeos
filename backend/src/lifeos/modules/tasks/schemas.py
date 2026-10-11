@@ -15,6 +15,7 @@ class TaskCreate(BaseModel):
     priority: TaskPriority = "normal"
     due_at: datetime | None = None
     remind_at: datetime | None = None
+    goal_id: uuid.UUID | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -24,6 +25,7 @@ class TaskUpdate(BaseModel):
     priority: TaskPriority | None = None
     due_at: datetime | None = None
     remind_at: datetime | None = None
+    goal_id: uuid.UUID | None = None
 
 
 class TaskOut(BaseModel):
@@ -39,6 +41,7 @@ class TaskOut(BaseModel):
     completed_at: datetime | None
     source_type: str
     source_id: uuid.UUID | None
+    goal_id: uuid.UUID | None
     version: int
     created_at: datetime
     updated_at: datetime

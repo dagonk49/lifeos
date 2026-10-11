@@ -3,6 +3,7 @@
 from lifeos.core.idempotency import IdempotencyKey
 from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.chat.models import Conversation, Message
+from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
 from lifeos.modules.guardian.models import AgentPermission, Approval, LLMCall
 from lifeos.modules.identity.models import (
     AuthChallenge,
@@ -15,6 +16,7 @@ from lifeos.modules.identity.models import (
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.memory.models import Fact, Memory, MemoryRevision, memory_facts
 from lifeos.modules.notifications.models import Notification
+from lifeos.modules.reviews.models import Review
 from lifeos.modules.tasks.models import Task
 
 __all__ = [
@@ -25,6 +27,9 @@ __all__ = [
     "Conversation",
     "EnrollmentToken",
     "Fact",
+    "Goal",
+    "GoalCheckin",
+    "GoalMilestone",
     "IdempotencyKey",
     "JournalEntry",
     "LLMCall",
@@ -33,6 +38,7 @@ __all__ = [
     "Message",
     "Notification",
     "PasskeyCredential",
+    "Review",
     "Space",
     "Task",
     "User",

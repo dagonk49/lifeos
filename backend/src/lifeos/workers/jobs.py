@@ -9,10 +9,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.config import get_settings
 from lifeos.db.session import Database
 from lifeos.logging import get_logger
+from lifeos.modules.llm import build_provider
+from lifeos.modules.llm.base import LLMProvider
 from lifeos.observability.metrics import JOB_RUNS
 
 log = get_logger("lifeos.jobs")
 _db: Database | None = None
+_llm: LLMProvider | None = None
+
+
+def llm() -> LLMProvider:
+    global _llm
+    if _llm is None:
+        _llm = build_provider(get_settings())
+    return _llm
+
+
+def database() -> Database:
+    return _database()
 
 
 def _database() -> Database:

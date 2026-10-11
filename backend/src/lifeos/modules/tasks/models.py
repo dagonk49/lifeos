@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Index, Integer, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lifeos.db.base import Base, Owned, Timestamps, UUIDPrimaryKey, search_vector_column
@@ -30,6 +30,9 @@ class Task(UUIDPrimaryKey, Owned, Timestamps, Base):
     completed_at: Mapped[datetime | None]
     source_type: Mapped[str] = mapped_column(Text, default="manual", server_default="manual")
     source_id: Mapped[uuid.UUID | None]
+    goal_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("goals.id", ondelete="SET NULL"), index=True
+    )
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     search_vector: Mapped[Any] = search_vector_column(
         "coalesce(title, '') || ' ' || coalesce(notes, '')"

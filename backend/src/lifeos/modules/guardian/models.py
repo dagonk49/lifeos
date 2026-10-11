@@ -8,7 +8,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from lifeos.db.base import Base, UUIDPrimaryKey
 
 AGENTS = ("core", "planning", "memory", "coaching", "finance", "projects", "documents")
-RESOURCES = ("tasks", "journal", "facts", "memories", "messages")
+RESOURCES = ("tasks", "journal", "facts", "memories", "messages", "goals", "reviews")
+
+
+def _in(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({', '.join(repr(v) for v in values)})"
 
 
 class AgentPermission(UUIDPrimaryKey, Base):
@@ -16,14 +20,8 @@ class AgentPermission(UUIDPrimaryKey, Base):
 
     __tablename__ = "agent_permissions"
     __table_args__ = (
-        CheckConstraint(
-            "agent IN ('core', 'planning', 'memory', 'coaching', 'finance', 'projects', "
-            "'documents')",
-            name="agent",
-        ),
-        CheckConstraint(
-            "resource IN ('tasks', 'journal', 'facts', 'memories', 'messages')", name="resource"
-        ),
+        CheckConstraint(_in("agent", AGENTS), name="agent"),
+        CheckConstraint(_in("resource", RESOURCES), name="resource"),
         CheckConstraint("access IN ('read', 'write')", name="access"),
     )
 

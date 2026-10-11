@@ -14,6 +14,7 @@ from lifeos.db.session import Database
 from lifeos.logging import configure_logging
 from lifeos.modules.chat.router import router as chat_router
 from lifeos.modules.dashboard.router import router as dashboard_router
+from lifeos.modules.goals.router import router as goals_router
 from lifeos.modules.guardian.router import approvals_router
 from lifeos.modules.guardian.router import router as guardian_router
 from lifeos.modules.identity.router import router as auth_router
@@ -22,6 +23,7 @@ from lifeos.modules.llm import build_provider
 from lifeos.modules.memory.router import router as memory_router
 from lifeos.modules.notifications.router import router as notifications_router
 from lifeos.modules.privacy.router import router as privacy_router
+from lifeos.modules.reviews.router import router as reviews_router
 from lifeos.modules.search.router import router as search_router
 from lifeos.modules.settings.router import router as settings_router
 from lifeos.modules.tasks.router import router as tasks_router
@@ -34,6 +36,8 @@ def build_v1_router() -> APIRouter:
         settings_router,
         dashboard_router,
         tasks_router,
+        goals_router,
+        reviews_router,
         journal_router,
         memory_router,
         chat_router,

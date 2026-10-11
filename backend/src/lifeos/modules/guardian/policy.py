@@ -52,6 +52,11 @@ _SPECS = [
         "memory.write", "Créer ou modifier un souvenir", Level.AUTOMATIC, Level.APPROVAL, "memories"
     ),
     ActionSpec("memory.delete", "Supprimer un souvenir", Level.AUTOMATIC, None, "memories"),
+    ActionSpec(
+        "goal.write", "Créer ou modifier un objectif", Level.AUTOMATIC, Level.APPROVAL, "goals"
+    ),
+    # Data access is checked section by section with the principal's own read rights.
+    ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),
     ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL),
     ActionSpec(

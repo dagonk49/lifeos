@@ -7,6 +7,7 @@ from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import Page, keyset, page
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
+from lifeos.modules.goals.service import check_task_goal
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.tasks.models import Task
@@ -21,6 +22,7 @@ async def list_tasks(
     space_id: uuid.UUID | None,
     statuses: list[str] | None,
     due_before: datetime | None = None,
+    goal_id: uuid.UUID | None = None,
     limit: int = 50,
     cursor: str | None = None,
 ) -> Page[TaskOut]:
@@ -30,6 +32,8 @@ async def list_tasks(
         stmt = stmt.where(Task.status.in_(statuses))
     if due_before is not None:
         stmt = stmt.where(Task.due_at < due_before)
+    if goal_id is not None:
+        stmt = stmt.where(Task.goal_id == goal_id)
     rows = list(await ctx.db.scalars(keyset(stmt, Task, cursor, limit)))
     return page(rows, limit, TaskOut.model_validate)
 
@@ -56,6 +60,7 @@ async def create_task(
 ) -> Task:
     ctx.principal.require_space(data.space_id)
     await authorize(ctx, "task.create", data.space_id)
+    await check_task_goal(ctx, data.goal_id, data.space_id)
     task = Task(
         user_id=ctx.principal.user_id,
         space_id=data.space_id,
@@ -64,6 +69,7 @@ async def create_task(
         priority=data.priority,
         due_at=data.due_at,
         remind_at=data.remind_at,
+        goal_id=data.goal_id,
         source_type=source_type,
         source_id=source_id,
     )
@@ -96,6 +102,8 @@ async def update_task(
             extra={"current_version": task.version},
         )
     changes = data.model_dump(exclude_unset=True)
+    if changes.get("goal_id") is not None:
+        await check_task_goal(ctx, changes["goal_id"], task.space_id)
     for key in ("title", "status", "priority"):
         if key in changes and changes[key] is None:
             changes.pop(key)

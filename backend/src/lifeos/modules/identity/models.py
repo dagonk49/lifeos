@@ -52,6 +52,8 @@ class Space(UUIDPrimaryKey, Timestamps, Base):
     name: Mapped[str] = mapped_column(Text)
     # Explicit consent to send minimal, masked excerpts of this space to the cloud LLM.
     cloud_ai_enabled: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Scheduled reviews by the "coaching" agent (which also needs its read permissions).
+    auto_reviews: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 
 class PasskeyCredential(UUIDPrimaryKey, Base):

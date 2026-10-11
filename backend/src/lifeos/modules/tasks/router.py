@@ -20,6 +20,7 @@ async def list_tasks(
     space_id: uuid.UUID | None = None,
     status_filter: Annotated[list[str] | None, Query(alias="status")] = None,
     due_before: datetime | None = None,
+    goal_id: uuid.UUID | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = None,
 ) -> Page[TaskOut]:
@@ -28,6 +29,7 @@ async def list_tasks(
         space_id=space_id,
         statuses=status_filter,
         due_before=due_before,
+        goal_id=goal_id,
         limit=limit,
         cursor=cursor,
     )
