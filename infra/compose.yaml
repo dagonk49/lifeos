@@ -1,0 +1,147 @@
+# LifeOS — Docker Compose (ADR 0005). Usage: see docs/exploitation.md
+name: lifeos
+
+x-backend: &backend
+  build: ../backend
+  image: lifeos-backend:local
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    LIFEOS_DATABASE_HOST: postgres
+    LIFEOS_REDIS_URL: redis://redis:6379/0
+  secrets:
+    - lifeos_database_password
+    - lifeos_gemini_api_key
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: &logging
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: lifeos
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+    secrets: [postgres_superuser_password, lifeos_database_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lifeos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # Not a source of truth (ADR 0004): the append-only file only limits lost queued jobs.
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    volumes: [redisdata:/data]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+
+  api:
+    <<: *backend
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    # `edge` gives Traefik access and outbound HTTPS (LLM provider).
+    networks: [internal, edge]
+
+  worker:
+    <<: *backend
+    command: ["dramatiq", "lifeos.workers.actors", "--processes", "1", "--threads", "4"]
+    healthcheck: { disable: true }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [internal, egress]
+
+  scheduler:
+    <<: *backend
+    command: ["lifeos-scheduler"]
+    healthcheck: { disable: true }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [internal]
+
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    # File provider only: the Docker socket is never mounted.
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    environment:
+      LIFEOS_DOMAIN: ${LIFEOS_DOMAIN:?set LIFEOS_DOMAIN in infra/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/certs:ro
+    networks: [edge]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      api: { condition: service_healthy }
+    logging: *logging
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    networks: [internal, monitoring]
+    # Local access only (e.g. through an SSH tunnel).
+    ports: ["127.0.0.1:9090:9090"]
+    logging: *logging
+
+networks:
+  # No route to the outside world: databases are unreachable except from LifeOS services.
+  internal:
+    internal: true
+  edge: {}
+  egress: {}
+  monitoring: {}
+
+volumes:
+  pgdata:
+  redisdata:
+  prometheusdata:
+
+secrets:
+  postgres_superuser_password:
+    file: ./secrets/postgres_superuser_password
+  lifeos_database_password:
+    file: ./secrets/lifeos_database_password
+  lifeos_gemini_api_key:
+    file: ./secrets/lifeos_gemini_api_key

@@ -1,0 +1,7 @@
+# Certificate for LIFEOS_DOMAIN (see docs/exploitation.md).
+# Copy to tls.yml once /certs/fullchain.pem and /certs/privkey.pem exist; until then Traefik
+# serves its default self-signed certificate.
+tls:
+  certificates:
+    - certFile: /certs/fullchain.pem
+      keyFile: /certs/privkey.pem

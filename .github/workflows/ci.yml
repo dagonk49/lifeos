@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg17
+        env:
+          POSTGRES_USER: lifeos
+          POSTGRES_PASSWORD: lifeos
+          POSTGRES_DB: lifeos_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lifeos -d lifeos_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      LIFEOS_DATABASE_NAME: lifeos_test
+      LIFEOS_DATABASE_USER: lifeos
+      LIFEOS_DATABASE_PASSWORD: lifeos
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q
+      - name: Migrations match models
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+      - name: Dependency audit
+        run: |
+          uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit --strict --no-deps --disable-pip -r "$RUNNER_TEMP/requirements.txt"
+
+  infra:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build backend image
+        run: docker build -t lifeos-backend:ci backend
+      - name: Validate Compose file
+        working-directory: infra
+        run: |
+          ./scripts/init-secrets.sh
+          cp .env.example .env
+          docker compose config --quiet
+      - name: Shellcheck
+        run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh

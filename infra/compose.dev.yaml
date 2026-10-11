@@ -1,0 +1,13 @@
+# Development overlay: exposes PostgreSQL and Redis on localhost only, for a backend run
+# with `uv run` (see backend/README.md).
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+    networks: [internal, dev]
+  redis:
+    ports: ["127.0.0.1:6379:6379"]
+    networks: [internal, dev]
+
+networks:
+  dev: {}

@@ -9,6 +9,7 @@
 | [politique-de-donnees.md](politique-de-donnees.md) | Conservation, purge, transmission cloud, effacement, sauvegardes |
 | [modele-de-menaces.md](modele-de-menaces.md) | Actifs, frontières de confiance, menaces et parades |
 | [conventions-api.md](conventions-api.md) | Conventions HTTP : versionnage, erreurs, pagination, idempotence, auth |
+| [exploitation.md](exploitation.md) | Installation, TLS, exposition réseau, sauvegarde/restauration, supervision |
 
 ## Décisions d'architecture
 

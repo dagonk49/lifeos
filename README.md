@@ -12,8 +12,27 @@ contexte minimal filtré localement.
 | Étape | Contenu | État |
 |---|---|---|
 | 0 — Cadrage | ADR, modèle de données, politique de données, menaces, conventions API | fait |
-| 1 — Socle | backend, base, auth, CI, sauvegarde, observabilité | à venir |
+| 1 — Socle | backend, base, auth passkeys, CI, sauvegarde, observabilité | fait |
 | 2 — MVP | client web, chat, tâches, journal, mémoire, recherche, Guardian | à venir |
+
+## Structure
+
+```
+backend/   API FastAPI, workers Dramatiq, migrations Alembic (voir backend/README.md)
+infra/     Docker Compose, Traefik, PostgreSQL, Prometheus, scripts de sauvegarde
+docs/      cadrage, ADR, modèle de données, politiques, exploitation
+```
+
+## Démarrage rapide
+
+```bash
+cd infra
+./scripts/init-secrets.sh && cp .env.example .env   # puis adapter .env
+docker compose up -d --build
+docker compose exec api lifeos-admin create-owner --email moi@example.org --name "Moi"
+```
+
+Détails : [docs/exploitation.md](docs/exploitation.md).
 
 ## Licence
 

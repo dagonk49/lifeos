@@ -28,6 +28,7 @@ infra/secrets/*
 !infra/secrets/.gitkeep
 !infra/secrets/README.md
 infra/traefik/certs/*
+infra/traefik/dynamic/tls.yml
 !infra/traefik/certs/.gitkeep
 
 # Editors / OS

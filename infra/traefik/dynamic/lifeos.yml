@@ -1,0 +1,38 @@
+# Dynamic configuration (Go templates: LIFEOS_DOMAIN comes from the Traefik environment).
+http:
+  routers:
+    lifeos-api:
+      rule: "Host(`{{ env "LIFEOS_DOMAIN" }}`) && (PathPrefix(`/v1`) || Path(`/healthz`))"
+      entryPoints: [websecure]
+      service: lifeos-api
+      middlewares: [lifeos-headers]
+    lifeos-auth:
+      rule: "Host(`{{ env "LIFEOS_DOMAIN" }}`) && PathPrefix(`/v1/auth`)"
+      priority: 1000
+      entryPoints: [websecure]
+      service: lifeos-api
+      middlewares: [lifeos-auth-ratelimit, lifeos-headers]
+
+  middlewares:
+    lifeos-auth-ratelimit:
+      rateLimit:
+        average: 30
+        period: 1m
+        burst: 15
+    lifeos-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: no-referrer
+        permissionsPolicy: "camera=(), geolocation=(), microphone=(self)"
+
+  services:
+    lifeos-api:
+      loadBalancer:
+        servers:
+          - url: "http://api:8000"
+        healthCheck:
+          path: /healthz
+          interval: 15s
