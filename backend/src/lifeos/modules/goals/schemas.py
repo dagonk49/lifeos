@@ -25,6 +25,9 @@ class GoalCreate(BaseModel):
     def _measurable_needs_target(self) -> "GoalCreate":
         if self.kind == "measurable" and self.target_value is None:
             raise ValueError("a measurable goal needs a target_value")
+        if self.kind == "measurable" and self.start_value is None:
+            # Without a starting point, progress is ambiguous (lose 10 kg vs read 20 books).
+            raise ValueError("a measurable goal needs a start_value")
         if self.start_date and self.due_date and self.due_date < self.start_date:
             raise ValueError("due_date is before start_date")
         return self

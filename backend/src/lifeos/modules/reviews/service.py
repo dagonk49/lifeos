@@ -11,13 +11,14 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.config import Settings
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.security import utcnow
 from lifeos.db.session import Database
+from lifeos.logging import get_logger
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat.models import Message
 from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
@@ -35,6 +36,8 @@ from lifeos.modules.notifications.service import notify
 from lifeos.modules.reviews.models import Review
 from lifeos.modules.reviews.schemas import ReviewNarrative, ReviewRequest
 from lifeos.modules.tasks.models import Task
+
+log = get_logger(__name__)
 
 OPEN = ("todo", "in_progress")
 COACHING_RESOURCES = ("tasks", "journal", "goals", "facts")
@@ -164,7 +167,14 @@ async def compute_facts(ctx: Ctx, space_id: uuid.UUID, start: date, end: date) -
         goals = list(
             await ctx.db.scalars(
                 select(Goal).where(
-                    Goal.user_id == uid, Goal.space_id == space_id, Goal.status == "active"
+                    Goal.user_id == uid,
+                    Goal.space_id == space_id,
+                    # Active goals, and those achieved during the period (their success
+                    # belongs to this review).
+                    or_(
+                        Goal.status == "active",
+                        and_(Goal.achieved_at >= since, Goal.achieved_at < until),
+                    ),
                 )
             )
         )
@@ -188,6 +198,7 @@ async def compute_facts(ctx: Ctx, space_id: uuid.UUID, start: date, end: date) -
                 {
                     "title": goal.title,
                     "kind": goal.kind,
+                    "status": goal.status,
                     "due_date": goal.due_date.isoformat() if goal.due_date else None,
                     "metric_progress": _ratio(
                         metric_ratio(goal.start_value, goal.target_value, goal.current_value)
@@ -305,6 +316,9 @@ async def generate(
     start, end = period_bounds(request.period, request.day or today)
     if start > today:
         raise ProblemError(422, "review_in_future", "This period has not started yet")
+    # One generation at a time per period: no duplicate narrative, no unique-key race.
+    key = f"review:{ctx.principal.user_id}:{space_id}:{request.period}:{start.isoformat()}"
+    await ctx.db.execute(select(func.pg_advisory_xact_lock(func.hashtext(key))))
     facts = await compute_facts(ctx, space_id, start, end)
 
     narrative: dict[str, Any] | None = None
@@ -446,6 +460,19 @@ async def set_automation(ctx: Ctx, space_id: uuid.UUID, enabled: bool) -> dict[s
     return await automation_status(ctx, space_id)
 
 
+def reference_day(period: str, now_local: datetime) -> date:
+    """The day whose period a scheduled run closes.
+
+    Jobs fire at the end of their period (daily 21:30, weekly Sunday 19:00) or just after
+    it (monthly, the 1st at 08:00), and may be caught up to 6 hours late: going back
+    6 hours lands in the right day or week; monthly reviews close the previous month.
+    """
+    day = (now_local - timedelta(hours=6)).date()
+    if period == "monthly":
+        return day.replace(day=1) - timedelta(days=1)
+    return day
+
+
 async def run_scheduled(
     session: AsyncSession,
     *,
@@ -481,21 +508,27 @@ async def run_scheduled(
         ctx = Ctx(
             db=session, database=database, settings=settings, principal=coach, user=user, llm=llm
         )
-        today = utcnow().astimezone(ZoneInfo(user.timezone)).date()
-        review = await generate(
-            ctx,
-            ReviewRequest.model_validate(
-                {
-                    "space_id": space.id,
-                    "period": period,
-                    "day": today,
-                    # Daily summaries stay local: no cloud call, no cost.
-                    "with_narrative": period != "daily",
-                }
-            ),
-            generated_by="agent:coaching",
-            background=True,
-        )
+        day = reference_day(period, utcnow().astimezone(ZoneInfo(user.timezone)))
+        try:
+            async with session.begin_nested():  # one failing space does not undo the others
+                review = await generate(
+                    ctx,
+                    ReviewRequest.model_validate(
+                        {
+                            "space_id": space.id,
+                            "period": period,
+                            "day": day,
+                            # Daily summaries stay local: no cloud call, no cost.
+                            "with_narrative": period != "daily",
+                        }
+                    ),
+                    generated_by="agent:coaching",
+                    background=True,
+                )
+        except Exception:
+            counts["failed"] = counts.get("failed", 0) + 1
+            log.exception("scheduled_review_failed", period=period, space_id=str(space.id))
+            continue
         counts["generated"] += 1
         await notify(
             session,

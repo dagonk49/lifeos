@@ -61,7 +61,7 @@ jobs:
           uv run alembic check
       - name: Dependency audit
         run: |
-          uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uv export --no-dev --all-extras --no-hashes --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
           uvx pip-audit --strict --no-deps --disable-pip -r "$RUNNER_TEMP/requirements.txt"
 
   web:

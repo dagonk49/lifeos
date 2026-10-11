@@ -248,6 +248,13 @@ describe("goal forms", () => {
       ok: false,
       error: "Un objectif mesurable demande une valeur cible.",
     });
+    // Without a starting point, progress would be ambiguous (lose 10 kg vs read 20 books).
+    expect(
+      buildGoalCreate({ ...EMPTY_GOAL_FORM, title: "x", kind: "measurable", target_value: "70" }, "s1"),
+    ).toEqual({
+      ok: false,
+      error: "Un objectif mesurable demande une valeur de départ (0 si vous partez de zéro).",
+    });
     expect(buildGoalCreate({ ...EMPTY_GOAL_FORM, title: " " }, "s1").ok).toBe(false);
     expect(
       buildGoalCreate({ ...EMPTY_GOAL_FORM, title: "x", start_date: "2026-10-11", due_date: "2026-10-01" }, "s1").ok,

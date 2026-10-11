@@ -22,6 +22,9 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 FROM runtime AS ml
 COPY --from=build-ml /app/.venv /app/.venv
+# Owned by the service user: Docker copies this ownership into a new, empty named
+# volume mounted here, so `ml-download` (uid 10001) can write the model.
+RUN install -d -o lifeos -g lifeos -m 0755 /models
 # The model is downloaded once into /models (`lifeos-ml download`); the service then
 # runs offline. Override HF_HUB_OFFLINE=0 only for the download.
 ENV HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 HF_HOME=/tmp/hf LIFEOS_EMBEDDINGS_CACHE_DIR=/models

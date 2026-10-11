@@ -86,6 +86,8 @@ const MESSAGES: Record<string, string> = {
   goal_not_found: "Cet objectif est introuvable ou a été supprimé.",
   milestone_not_found: "Ce jalon n'existe plus.",
   goal_space_mismatch: "La tâche et l'objectif doivent appartenir au même espace.",
+  goal_start_required: "Un objectif mesurable demande une valeur de départ.",
+  goal_dates_invalid: "L'échéance doit être postérieure à la date de début.",
   fact_not_active: "Ce fait n'est plus actif.",
   invalid_pair: "Choisissez deux éléments distincts du même espace.",
   llm_blocked: "Le fournisseur IA a refusé de répondre à cette demande.",

@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
@@ -162,3 +163,34 @@ async def test_agent_history_excludes_other_assistants_replies(
     assert texts[0] == ("user", "Rappelle-moi\n\nOrganise ma semaine")
     assert ("assistant", "Voici ta semaine.") in texts
     assert texts[-1] == ("user", "Et ensuite ?")
+
+
+async def test_planning_load_is_listed_chronologically(
+    client: AsyncClient, spaces: dict[str, str], fake_llm: FakeProvider
+) -> None:
+    space = spaces["personal"]
+    await enable_cloud(client, space)
+    now = datetime.now(UTC)
+    for days in (5, 1, 3):
+        await client.post(
+            "/v1/tasks",
+            json={
+                "space_id": space,
+                "title": f"Tâche J+{days}",
+                "due_at": (now + timedelta(days=days)).isoformat(),
+            },
+        )
+    await client.put("/v1/agents/planning/access", json={"space_id": space, "enabled": True})
+    conversation = await _conversation(client, space)
+    await client.post(
+        f"/v1/chat/conversations/{conversation}/messages",
+        json={"content": "Organise ma semaine", "agent": "planning"},
+    )
+    system = fake_llm.requests[-1].system or ""
+    charge = next(line for line in system.splitlines() if line.startswith("CHARGE DES 7"))
+    dates = re.findall(r"(\d{2})/(\d{2}) : ", charge)
+    assert len(dates) == 3
+    assert dates == sorted(dates, key=lambda d: (d[1], d[0]))
+    assert any(
+        label in charge for label in ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
+    )

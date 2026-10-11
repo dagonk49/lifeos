@@ -27,9 +27,13 @@ const STATUS: Record<Approval["status"], string> = {
  * Shows exactly what will be executed. For journal proposals, the owner can untick items:
  * the approved parameters are then the edited list, nothing else.
  */
+const PROPOSAL_ACTIONS = new Set(["journal.apply_proposals", "chat.apply_proposals"]);
+
 export function ApprovalReview({ approval, onDone }: { approval: Approval; onDone?: () => void }) {
   const queryClient = useQueryClient();
-  const isProposals = approval.action === "journal.apply_proposals";
+  // Tasks and facts proposed by the assistant (journal analysis, conversation
+  // consolidation): the owner keeps only what is right.
+  const isProposals = PROPOSAL_ACTIONS.has(approval.action);
   const params = approval.params as unknown as ProposalParams;
   const [keepTasks, setKeepTasks] = useState<boolean[]>(() => (isProposals ? params.tasks.map(() => true) : []));
   const [keepFacts, setKeepFacts] = useState<boolean[]>(() => (isProposals ? params.facts.map(() => true) : []));

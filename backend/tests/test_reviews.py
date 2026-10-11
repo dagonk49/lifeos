@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
 from sqlalchemy import select, update
@@ -12,7 +13,7 @@ from lifeos.modules.guardian.models import AgentPermission
 from lifeos.modules.llm.fake import FakeProvider
 from lifeos.modules.notifications.models import Notification
 from lifeos.modules.reviews.models import Review
-from lifeos.modules.reviews.service import period_bounds, run_scheduled
+from lifeos.modules.reviews.service import period_bounds, reference_day, run_scheduled
 
 from .conftest import enable_cloud
 
@@ -33,6 +34,48 @@ def test_period_bounds() -> None:
     assert period_bounds("monthly", sunday) == (date(2026, 10, 1), date(2026, 10, 31))
     assert period_bounds("monthly", date(2026, 2, 14)) == (date(2026, 2, 1), date(2026, 2, 28))
     assert period_bounds("weekly", date(2026, 12, 31)) == (date(2026, 12, 28), date(2027, 1, 3))
+
+
+def test_scheduled_runs_close_the_right_period() -> None:
+    paris = ZoneInfo("Europe/Paris")
+    # On time: daily 21:30, weekly Sunday 19:00 -> the day / week that is ending.
+    assert reference_day("daily", datetime(2026, 10, 11, 21, 30, tzinfo=paris)) == date(
+        2026, 10, 11
+    )
+    assert reference_day("weekly", datetime(2026, 10, 11, 19, 0, tzinfo=paris)) == date(
+        2026, 10, 11
+    )
+    # Caught up after midnight (scheduler restarted): still the previous day / week.
+    assert reference_day("daily", datetime(2026, 10, 12, 0, 30, tzinfo=paris)) == date(2026, 10, 11)
+    assert reference_day("weekly", datetime(2026, 10, 12, 1, 0, tzinfo=paris)) == date(2026, 10, 11)
+    # Monthly runs on the 1st: they close the month that just ended.
+    november_first = datetime(2026, 11, 1, 8, 0, tzinfo=paris)
+    assert period_bounds("monthly", reference_day("monthly", november_first)) == (
+        date(2026, 10, 1),
+        date(2026, 10, 31),
+    )
+
+
+async def test_goal_achieved_during_the_period_is_part_of_its_review(
+    client: AsyncClient, spaces: dict[str, str]
+) -> None:
+    space = spaces["personal"]
+    goal = (
+        await client.post("/v1/goals", json={"space_id": space, "title": "Finir le livre"})
+    ).json()
+    await client.patch(
+        f"/v1/goals/{goal['id']}",
+        json={"status": "achieved"},
+        headers={"If-Match": str(goal["version"])},
+    )
+    review = (
+        await client.post(
+            "/v1/reviews", json={"space_id": space, "period": "weekly", "with_narrative": False}
+        )
+    ).json()
+    assert [(g["title"], g["status"]) for g in review["facts"]["goals"]] == [
+        ("Finir le livre", "achieved")
+    ]
 
 
 async def _seed_week(client: AsyncClient, space: str) -> None:

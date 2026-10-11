@@ -45,9 +45,13 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        task = asyncio.create_task(warm_up())
+        # Embeddings disabled: stay idle, the model is only loaded on a real request.
+        task = (
+            asyncio.create_task(warm_up()) if settings.embeddings_provider != "disabled" else None
+        )
         yield
-        task.cancel()
+        if task is not None:
+            task.cancel()
 
     app = FastAPI(title="LifeOS ML", lifespan=lifespan, docs_url=None, openapi_url=None)
 

@@ -25,7 +25,12 @@ NEXT_TELEMETRY_DISABLED=1 pnpm -s build >/dev/null
 
 echo "== infra"
 shellcheck "$root"/infra/scripts/*.sh "$root"/infra/postgres/init/*.sh "$root"/scripts/*.sh
-(cd "$root/infra" && LIFEOS_DOMAIN=example.lan docker compose --env-file .env.example config --quiet)
+# On a throw-away copy: services read infra/.env, which a fresh clone does not have.
+infra_copy="$(mktemp -d)"
+cp -r "$root/infra/." "$infra_copy"
+cp "$infra_copy/.env.example" "$infra_copy/.env"
+(cd "$infra_copy" && LIFEOS_DOMAIN=example.lan docker compose config --quiet)
+rm -rf "$infra_copy"
 
 if [[ "${1:-}" == "--e2e" ]]; then
   echo "== e2e"

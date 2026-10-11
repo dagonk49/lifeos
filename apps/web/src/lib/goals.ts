@@ -286,6 +286,10 @@ function parseGoalFields(form: GoalFormValues): Parsed<GoalFields> {
     if (target.value === null) {
       return { ok: false, error: "Un objectif mesurable demande une valeur cible." };
     }
+    if (start.value === null) {
+      // Without a starting point, "lose 10 kg" and "read 20 books" cannot be told apart.
+      return { ok: false, error: "Un objectif mesurable demande une valeur de départ (0 si vous partez de zéro)." };
+    }
     metric = { metric_unit: blankToNull(form.metric_unit), start_value: start.value, target_value: target.value };
   }
   const start_date = form.start_date || null;

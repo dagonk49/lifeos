@@ -9,7 +9,8 @@ def test_metric_ratio_handles_increasing_and_decreasing_targets() -> None:
     assert metric_ratio(Decimal(0), Decimal(10), Decimal(5)) == 0.5
     assert metric_ratio(Decimal(80), Decimal(75), Decimal(78)) == 0.4  # weight loss
     assert metric_ratio(Decimal(80), Decimal(75), Decimal(82)) == 0.0  # clamped
-    assert metric_ratio(None, Decimal(10), Decimal(12)) == 1.0
+    # No starting point: "lose 10 kg" and "read 20 books" cannot be told apart.
+    assert metric_ratio(None, Decimal(70), Decimal(85)) is None
     assert metric_ratio(Decimal(0), Decimal(10), None) is None
 
 
@@ -116,3 +117,28 @@ async def test_goal_validation_and_space_rules(client: AsyncClient, spaces: dict
     assert mismatch.json()["code"] == "goal_space_mismatch"
     empty_checkin = await client.post(f"/v1/goals/{pro_goal['id']}/checkins", json={})
     assert empty_checkin.status_code == 422
+    # A measurable goal needs a starting point (progress is otherwise ambiguous).
+    no_start = await client.post(
+        "/v1/goals",
+        json={
+            "space_id": spaces["personal"],
+            "title": "Peser 70 kg",
+            "kind": "measurable",
+            "target_value": "70",
+        },
+    )
+    assert no_start.status_code == 422
+    # Dates stay coherent on update too.
+    dated = (
+        await client.post(
+            "/v1/goals",
+            json={"space_id": spaces["personal"], "title": "Daté", "start_date": "2026-10-01"},
+        )
+    ).json()
+    backwards = await client.patch(
+        f"/v1/goals/{dated['id']}",
+        json={"due_date": "2026-09-01"},
+        headers={"If-Match": str(dated["version"])},
+    )
+    assert backwards.status_code == 422
+    assert backwards.json()["code"] == "goal_dates_invalid"

@@ -26,8 +26,14 @@ export function GoalFormFields({
           <Field label="Unité" hint="Ex. kg, km, €, pages">
             <Input value={form.metric_unit} onChange={text("metric_unit")} maxLength={30} autoComplete="off" />
           </Field>
-          <Field label="Valeur de départ" hint="Facultatif.">
-            <Input inputMode="decimal" value={form.start_value} onChange={text("start_value")} autoComplete="off" />
+          <Field label="Valeur de départ" hint="Où vous en êtes aujourd'hui (0 si vous partez de zéro).">
+            <Input
+              inputMode="decimal"
+              value={form.start_value}
+              onChange={text("start_value")}
+              required
+              autoComplete="off"
+            />
           </Field>
           <Field label="Valeur cible">
             <Input

@@ -37,7 +37,10 @@ def metric_ratio(
     """Share of the way from start to target, for increasing or decreasing targets."""
     if target is None or current is None:
         return None
-    origin = start if start is not None else Decimal(0)
+    if start is None:
+        # No starting point: increasing and decreasing targets cannot be told apart.
+        return None
+    origin = start
     span = target - origin
     if span == 0:
         return 1.0 if current == target else 0.0
@@ -167,6 +170,10 @@ async def update_goal(
         setattr(goal, key, _q(value) if key in _DECIMAL_FIELDS else value)
     if goal.kind == "measurable" and goal.target_value is None:
         raise ProblemError(422, "goal_target_required", "A measurable goal needs a target value")
+    if goal.kind == "measurable" and goal.start_value is None:
+        raise ProblemError(422, "goal_start_required", "A measurable goal needs a start value")
+    if goal.start_date and goal.due_date and goal.due_date < goal.start_date:
+        raise ProblemError(422, "goal_dates_invalid", "The due date is before the start date")
     await ctx.db.flush()
     await _audit(ctx, "goal.update", goal, fields=",".join(sorted(changes)))
     return goal

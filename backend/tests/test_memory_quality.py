@@ -291,3 +291,29 @@ async def test_consolidation_without_durable_content_needs_no_approval(
     assert body == {"approval_id": None, "messages": 2, "proposed": 0}
     again = await client.post(f"/v1/chat/conversations/{conversation}/consolidate")
     assert again.status_code == 409
+
+
+async def test_consolidation_reuses_a_pending_proposal_and_skips_refused_ones(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    logged_in: Owner,
+    database: Database,
+    fake_llm: FakeProvider,
+) -> None:
+    space = spaces["personal"]
+    await enable_cloud(client, space)
+    conversation = await _conversation(database, logged_in, space)
+    proposal = json.dumps({"tasks": [], "facts": [{"kind": "decision", "statement": "Arrêter"}]})
+    fake_llm.push(proposal)
+    first = (await client.post(f"/v1/chat/conversations/{conversation}/consolidate")).json()
+    calls = len(fake_llm.requests)
+    # Asked again before deciding: the same proposal, no new cloud call, no duplicate.
+    again = (await client.post(f"/v1/chat/conversations/{conversation}/consolidate")).json()
+    assert again["approval_id"] == first["approval_id"]
+    assert len(fake_llm.requests) == calls
+    # Refused: those messages are not sent to the cloud again.
+    await client.post(f"/v1/approvals/{first['approval_id']}/reject")
+    after = await client.post(f"/v1/chat/conversations/{conversation}/consolidate")
+    assert after.status_code == 409
+    assert after.json()["code"] == "nothing_to_consolidate"
+    assert len(fake_llm.requests) == calls

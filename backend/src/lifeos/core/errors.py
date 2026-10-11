@@ -6,6 +6,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from lifeos.logging import get_logger
@@ -116,6 +117,11 @@ def install_error_handlers(app: FastAPI) -> None:
         code, title = _HTTP_CODES.get(exc.status_code, ("http_error", "HTTP error"))
         headers = dict(exc.headers) if exc.headers else None
         return problem_response(exc.status_code, code, title, headers=headers)
+
+    @app.exception_handler(StaleDataError)
+    async def _stale(_: Request, exc: StaleDataError) -> JSONResponse:
+        # Optimistic locking lost a race (two concurrent updates of the same object).
+        return problem_response(409, "version_conflict", "The resource was modified elsewhere")
 
     @app.exception_handler(Exception)
     async def _unexpected(_: Request, exc: Exception) -> JSONResponse:

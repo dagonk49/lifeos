@@ -6,7 +6,7 @@ was not explicitly granted for this space.
 
 import uuid
 from collections import Counter
-from datetime import timedelta
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -30,6 +30,9 @@ _ORIGIN = {
 }
 
 
+_DAYS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
+
+
 async def _tasks(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
     rows = list(
         await ctx.db.scalars(
@@ -47,7 +50,7 @@ async def _tasks(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
         return ["TÂCHES OUVERTES : aucune."]
     now = utcnow()
     lines = []
-    load: Counter[str] = Counter()
+    load: Counter[date] = Counter()
     for task in rows:
         details = [_PRIORITY[task.priority]] if task.priority in _PRIORITY else []
         if task.due_at:
@@ -56,12 +59,15 @@ async def _tasks(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
             if task.due_at < now:
                 details.append("EN RETARD")
             elif task.due_at < now + timedelta(days=7):
-                load[f"{local:%a %d/%m}"] += 1
+                load[local.date()] += 1
         if task.status == "in_progress":
             details.append("en cours")
         suffix = f" ({', '.join(details)})" if details else ""
         lines.append(f"- {task.title}{suffix}")
-    charge = ", ".join(f"{day} : {n}" for day, n in sorted(load.items())) or "aucune échéance"
+    charge = (
+        ", ".join(f"{_DAYS[day.weekday()]} {day:%d/%m} : {n}" for day, n in sorted(load.items()))
+        or "aucune échéance"
+    )
     return [
         "TÂCHES OUVERTES :\n" + "\n".join(lines),
         f"CHARGE DES 7 PROCHAINS JOURS (tâches à échéance) : {charge}",

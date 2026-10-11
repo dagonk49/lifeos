@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from lifeos.core.errors import ProblemError
 from lifeos.core.security import utcnow
-from lifeos.modules.chat.models import Message
+from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.chat.service import format_fr, get_conversation
 from lifeos.modules.guardian import actions, gateway
 from lifeos.modules.guardian.context import Ctx
@@ -58,15 +58,48 @@ class ConsolidationResult(BaseModel):
     proposed: int
 
 
+async def _previous(
+    ctx: Ctx, conversation: Conversation
+) -> tuple[Approval | None, datetime | None]:
+    """A proposal still awaiting a decision, and the end of the last refused one."""
+    rows = await ctx.db.scalars(
+        select(Approval).where(
+            Approval.user_id == ctx.principal.user_id,
+            Approval.space_id == conversation.space_id,
+            Approval.action == "chat.apply_proposals",
+            Approval.status.in_(("pending", "rejected")),
+        )
+    )
+    pending: Approval | None = None
+    refused_until: datetime | None = None
+    now = utcnow()
+    for approval in rows:
+        if approval.params.get("conversation_id") != str(conversation.id):
+            continue
+        if approval.status == "pending" and approval.expires_at > now:
+            if pending is None or approval.created_at > pending.created_at:
+                pending = approval
+        elif approval.status == "rejected":
+            until = datetime.fromisoformat(approval.params["until"])
+            refused_until = max(refused_until, until) if refused_until else until
+    return pending, refused_until
+
+
 async def consolidate(ctx: Ctx, conversation_id: uuid.UUID) -> tuple[Approval | None, int]:
     conversation = await get_conversation(ctx, conversation_id)
+    pending, refused_until = await _previous(ctx, conversation)
+    if pending is not None:
+        # Already proposed and awaiting the owner: no second cloud call, no duplicates.
+        return pending, 0
     stmt = select(Message).where(
         Message.conversation_id == conversation.id,
         Message.user_id == ctx.principal.user_id,
         Message.role == "user",
     )
-    if conversation.consolidated_until is not None:
-        stmt = stmt.where(Message.created_at > conversation.consolidated_until)
+    # Messages already consolidated, or whose proposals the owner refused, are not resent.
+    marks = [m for m in (conversation.consolidated_until, refused_until) if m is not None]
+    if marks:
+        stmt = stmt.where(Message.created_at > max(marks))
     messages = list(await ctx.db.scalars(stmt.order_by(Message.created_at).limit(MAX_MESSAGES)))
     if not messages:
         raise ProblemError(409, "nothing_to_consolidate", "No new message to consolidate")
