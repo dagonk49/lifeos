@@ -228,14 +228,15 @@ export default function MemoryPage() {
     enabled: tab === "memories",
   });
   const addFact = useMutation({
-    mutationFn: () =>
+    mutationFn: (submitted: string) =>
       api<Fact>("/v1/memory/facts", {
         method: "POST",
         idempotent: true,
-        body: { space_id: writeSpaceId, kind, statement },
+        body: { space_id: writeSpaceId, kind, statement: submitted },
       }),
-    onSuccess: () => {
-      setStatement("");
+    onSuccess: (_, submitted) => {
+      // Only clear what was sent: the owner may already be typing the next statement.
+      setStatement((current) => (current === submitted ? "" : current));
       void invalidateFacts();
     },
   });
@@ -326,7 +327,7 @@ export default function MemoryPage() {
               className="flex flex-col gap-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (statement.trim()) addFact.mutate();
+                if (statement.trim()) addFact.mutate(statement);
               }}
             >
               <Field label="Type">

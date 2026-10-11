@@ -69,7 +69,9 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
   for (const statement of ["J'aime le thé vert.", "j'aime le the vert"]) {
     await page.getByLabel("Énoncé").fill(statement);
     await page.getByRole("button", { name: "Ajouter" }).click();
-    await expect(page.getByText(statement, { exact: true })).toBeVisible();
+    // Saved: the field is emptied and the fact is listed.
+    await expect(page.getByLabel("Énoncé")).toHaveValue("");
+    await expect(page.getByRole("listitem").filter({ hasText: statement }).first()).toBeVisible();
   }
   await page.getByRole("tab", { name: /À vérifier/ }).click();
   await expect(page.getByText("Même texte enregistré plusieurs fois")).toBeVisible();
