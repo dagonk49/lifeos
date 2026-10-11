@@ -119,11 +119,12 @@ export default function ChatPage() {
     return () => window.clearInterval(timer);
   }, [startedAt]);
 
-  /** Opens a conversation (or none): each one starts with the general assistant. */
-  function openConversation(id: string | null, space: string | null) {
+  /** Opens a conversation (or none). An existing one starts with the general assistant;
+   * a new one keeps the agent the owner may already have picked while it was created. */
+  function openConversation(id: string | null, space: string | null, { keepAgent = false } = {}) {
     setCurrent(id);
     setCurrentSpace(space);
-    setAgent(CORE_AGENT);
+    if (!keepAgent) setAgent(CORE_AGENT);
     setDegraded(null);
     setPermission(null);
     setSuggestion(null);
@@ -133,7 +134,7 @@ export default function ChatPage() {
     mutationFn: () =>
       api<Conversation>("/v1/chat/conversations", { method: "POST", body: { space_id: writeSpaceId } }),
     onSuccess: (conversation) => {
-      openConversation(conversation.id, conversation.space_id);
+      openConversation(conversation.id, conversation.space_id, { keepAgent: true });
       void queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
@@ -195,13 +196,14 @@ export default function ChatPage() {
 
   const submit = () => {
     const content = draft.trim();
-    if (content && !send.isPending) send.mutate({ content, agent });
+    // Wait for a conversation being created: sending now would open a second one.
+    if (content && !send.isPending && !create.isPending) send.mutate({ content, agent });
   };
 
   return (
     <>
       <PageHeader title="Assistant">
-        <Button variant="secondary" size="sm" onClick={() => create.mutate()}>
+        <Button variant="secondary" size="sm" onClick={() => create.mutate()} disabled={create.isPending}>
           Nouvelle conversation
         </Button>
       </PageHeader>
@@ -319,7 +321,11 @@ export default function ChatPage() {
                   spaceName={spaceName(spaceId ?? writeSpaceId)}
                   error={agents.error}
                 />
-                <Button type="submit" className="self-end sm:mt-6" disabled={send.isPending || !draft.trim()}>
+                <Button
+                  type="submit"
+                  className="self-end sm:mt-6"
+                  disabled={send.isPending || create.isPending || !draft.trim()}
+                >
                   Envoyer
                 </Button>
               </div>

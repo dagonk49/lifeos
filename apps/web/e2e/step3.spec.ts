@@ -80,7 +80,9 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
 
   // Specialised agent (F08): explicit choice, access granted on demand, then the reply.
   await nav(page, "Assistant");
-  await page.getByRole("button", { name: "Nouvelle conversation" }).click();
+  const newConversation = page.getByRole("button", { name: "Nouvelle conversation" });
+  await newConversation.click();
+  await expect(newConversation).toBeEnabled(); // created
   await page.getByLabel("Agent").selectOption({ label: "Planification" });
   await page.getByLabel("Votre message").fill("Organise ma semaine");
   await page.getByRole("button", { name: "Envoyer" }).click();
