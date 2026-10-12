@@ -35,3 +35,6 @@ infra/traefik/dynamic/tls.yml
 .idea/
 .vscode/
 .DS_Store
+
+# Local Redis snapshot (development server started from the repository root)
+dump.rdb
