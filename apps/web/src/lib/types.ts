@@ -145,7 +145,7 @@ export interface ConversationDetail extends Conversation {
   messages: Message[];
 }
 
-export type AgentName = "planning" | "coaching" | "memory";
+export type AgentName = "planning" | "coaching" | "memory" | "finance";
 
 export interface SendResult {
   user_message: Message;
@@ -171,8 +171,10 @@ export interface AgentInfo {
   label: string;
   description: string;
   resources: string[];
-  /** Empty when the agent has read access to all its resources in the space. */
+  /** Empty when the agent has read access to all its required resources in the space. */
   missing_permissions: string[];
+  /** Optional resources not granted: the agent works without them, with less context. */
+  missing_optional?: string[];
 }
 
 export interface Approval {
@@ -206,10 +208,17 @@ export interface NotificationItem {
   created_at: string;
 }
 
-export type SearchType = "tasks" | "journal" | "facts" | "memories" | "messages" | "goals";
+export type SearchType =
+  | "tasks"
+  | "journal"
+  | "facts"
+  | "memories"
+  | "messages"
+  | "goals"
+  | "documents";
 
 export interface SearchHit {
-  type: "task" | "journal" | "fact" | "memory" | "message" | "goal";
+  type: "task" | "journal" | "fact" | "memory" | "message" | "goal" | "document";
   id: Uuid;
   space_id: Uuid;
   title: string;
@@ -486,4 +495,191 @@ export interface MemoryReviewQueue {
   items: MemoryReviewItem[];
   /** False: no local model, only exact duplicates and ageing are detected. */
   semantic: boolean;
+}
+
+// --- Documents (F10) -------------------------------------------------------------------
+
+export type DocumentKind = "image" | "pdf" | "text" | "audio";
+export type DocumentPurpose = "document" | "receipt" | "attachment" | "dictation";
+export type DocumentStatus = "pending" | "processing" | "ready" | "failed" | "rejected";
+export type SensitivityCategory = "identity" | "health" | "bank";
+export type DocumentSourceType =
+  | "journal_entry"
+  | "message"
+  | "conversation"
+  | "task"
+  | "goal"
+  | "transaction";
+
+/** Local receipt reading (UC02), stored in `analysis.receipt`; never applied by itself. */
+export interface ReceiptAnalysis {
+  merchant: string | null;
+  tx_date: string | null;
+  /** Exact decimal as a string ("6.43"). */
+  total: string | null;
+  currency: string;
+  vat_rates: string[];
+  card_payment: boolean;
+  confidence: number;
+  warnings: string[];
+  lines: { merchant: string | null; tx_date: string | null; total: string | null };
+  [key: string]: unknown;
+}
+
+export interface DocumentAnalysis {
+  /** Category -> human-readable reasons (never the detected values). */
+  sensitivity_reasons?: Partial<Record<SensitivityCategory, string[]>>;
+  receipt?: ReceiptAnalysis;
+  [key: string]: unknown;
+}
+
+export interface DocumentSummary {
+  id: Uuid;
+  space_id: Uuid;
+  title: string;
+  kind: DocumentKind;
+  mime: string;
+  size_bytes: number;
+  purpose: DocumentPurpose;
+  status: DocumentStatus;
+  /** Machine-readable reason of a pending (retry) or failed status. */
+  error: string | null;
+  sensitivity: SensitivityCategory[];
+  /** "pdf" (text layer), "ocr", "text" (plain text file), "speech" (dictation). */
+  text_source: string | null;
+  text_confidence: number | null;
+  pages: number | null;
+  processed_at: string | null;
+  text_corrected_at: string | null;
+  original_available: boolean;
+  /** Purge date of the original; null while it is kept indefinitely. */
+  original_until: string | null;
+  keep_original: boolean;
+  source_type: DocumentSourceType | null;
+  source_id: Uuid | null;
+  analysis: DocumentAnalysis | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentDetail extends DocumentSummary {
+  extracted_text: string | null;
+}
+
+// --- Finances (F04, UC02) ----------------------------------------------------------------
+
+/** Amounts are exact decimals serialised as strings ("12.50"): never parse them as floats
+ * for arithmetic. */
+export type Decimal = string;
+
+export interface FinanceCategory {
+  id: Uuid;
+  space_id: Uuid;
+  name: string;
+  kind: "expense" | "income";
+  monthly_budget: Decimal | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Transaction {
+  id: Uuid;
+  space_id: Uuid;
+  tx_date: string;
+  amount: Decimal;
+  direction: "expense" | "income";
+  currency: string;
+  merchant: string | null;
+  label: string | null;
+  notes: string | null;
+  category_id: Uuid | null;
+  /** False: chosen by a learned rule (correctable); true: by the owner. */
+  category_confirmed: boolean;
+  source_type: "manual" | "receipt" | "import";
+  document_id: Uuid | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReceiptProposal {
+  document_id: Uuid;
+  space_id: Uuid;
+  title: string;
+  merchant: string | null;
+  tx_date: string | null;
+  total: Decimal | null;
+  currency: string;
+  vat_rates: string[];
+  card_payment: boolean;
+  confidence: number;
+  warnings: string[];
+  lines: { merchant: string | null; tx_date: string | null; total: string | null };
+  suggested_category: { id: Uuid; name: string; source: "rule" | "keyword" } | null;
+  /** Transactions already recorded from this receipt. */
+  recorded_transaction_ids: Uuid[];
+}
+
+export interface CategorySummary {
+  category_id: Uuid;
+  name: string;
+  kind: "expense" | "income";
+  archived: boolean;
+  budget: Decimal | null;
+  spent: Decimal;
+  received: Decimal;
+  remaining: Decimal | null;
+  ratio: number | null;
+  over_budget: boolean;
+  transactions: number;
+}
+
+export interface BudgetSummary {
+  space_id: Uuid;
+  month: string;
+  currency: string;
+  period_start: string;
+  period_end: string;
+  categories: CategorySummary[];
+  uncategorised: { expenses: Decimal; income: Decimal; transactions: number };
+  totals: {
+    expenses: Decimal;
+    income: Decimal;
+    balance: Decimal;
+    budget: Decimal;
+    budgeted_spent: Decimal;
+    budget_remaining: Decimal;
+  };
+  other_currency_transactions: number;
+}
+
+export interface BudgetSnapshot {
+  space_id: Uuid;
+  month: string;
+  currency: string;
+  spent: Decimal;
+  budget: Decimal;
+  alerts: { category_id: Uuid; name: string; budget: Decimal; spent: Decimal; ratio: number }[];
+}
+
+// --- Voice (UC01) ------------------------------------------------------------------------
+
+export interface VoiceStatus {
+  /** False: dictation is disabled on this server. */
+  transcription: boolean;
+  max_seconds: number;
+}
+
+export interface Dictation {
+  id: Uuid;
+  space_id: Uuid;
+  status: "pending" | "processing" | "ready" | "failed";
+  error: string | null;
+  /** The transcript once ready ("" when nothing was said). */
+  text: string | null;
+  duration: number | null;
+  expires_at: string;
+  created_at: string;
 }

@@ -44,6 +44,29 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   return data as T;
 }
 
+/**
+ * Multipart upload (documents, dictations). The browser sets the Content-Type with its
+ * boundary; the server checks the type by signature, never by name or declared type.
+ */
+export async function upload<T>(
+  path: string,
+  form: FormData,
+  options: { idempotent?: boolean; signal?: AbortSignal } = {},
+): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (options.idempotent) headers["Idempotency-Key"] = newIdempotencyKey();
+  const response = await fetch(path, {
+    method: "POST",
+    headers,
+    body: form,
+    credentials: "same-origin",
+    signal: options.signal,
+  });
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(response.status, (data as Problem | null) ?? null);
+  return data as T;
+}
+
 export function isApiError(error: unknown, code?: string): error is ApiError {
   return error instanceof ApiError && (code === undefined || error.code === code);
 }
@@ -100,6 +123,39 @@ const MESSAGES: Record<string, string> = {
   passkey_verification_failed: "La vérification de la passkey a échoué.",
   enrollment_token_invalid: "Lien d'enrôlement invalide ou expiré.",
   validation_error: "Certaines valeurs saisies sont invalides.",
+  // Documents, finances, voice (step 4)
+  document_too_large: "Le fichier est trop volumineux.",
+  document_empty: "Le fichier est vide.",
+  unsupported_type:
+    "Type de fichier refusé. Formats acceptés : PDF, images (JPEG, PNG, WebP, HEIC) et texte.",
+  unsupported_media_type: "Envoi invalide : réessayez.",
+  documents_unavailable:
+    "Le stockage des documents n'est pas configuré sur le serveur (clé de chiffrement absente).",
+  document_not_found: "Ce document est introuvable ou a été supprimé.",
+  document_processing: "Le document est encore en cours de lecture.",
+  original_purged: "L'original n'est plus conservé (durée de conservation écoulée).",
+  document_title_required: "Le titre ne peut pas être vide.",
+  document_not_reprocessable: "Ce document ne peut pas être relu.",
+  source_not_found: "L'élément d'origine est introuvable.",
+  source_space_mismatch: "Le document et son origine doivent appartenir au même espace.",
+  receipt_not_ready: "Le ticket est encore en cours de lecture.",
+  not_a_receipt: "Ce document n'est pas un ticket de caisse.",
+  category_not_found: "Cette catégorie n'existe plus.",
+  category_exists: "Une catégorie porte déjà ce nom dans cet espace.",
+  category_archived: "Cette catégorie est archivée.",
+  category_space_mismatch: "La catégorie appartient à un autre espace.",
+  document_space_mismatch: "Le ticket appartient à un autre espace.",
+  receipt_document_required: "Une opération issue d'un ticket doit indiquer ce ticket.",
+  tx_date_in_future: "La date de l'opération ne peut pas être dans le futur.",
+  invalid_month: "Mois invalide.",
+  transaction_not_found: "Cette opération est introuvable ou a été supprimée.",
+  transcription_unavailable: "La dictée n'est pas activée sur ce serveur.",
+  dictation_not_found: "Cette dictée a expiré ou a été supprimée.",
+  attachment_sensitive:
+    "Ce document est sensible : son contenu n'est jamais envoyé à l'assistant IA.",
+  attachment_not_ready: "La pièce jointe est encore en cours de lecture.",
+  attachment_unreadable: "La pièce jointe n'a pas pu être lue : aucun texte à transmettre.",
+  space_not_found: "Cet espace est introuvable.",
 };
 
 export function problemMessage(code: string, fallback: string): string {

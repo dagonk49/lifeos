@@ -79,7 +79,8 @@ describe("isAgentChoice", () => {
   it("accepts only the agents the backend knows", () => {
     expect(isAgentChoice("core")).toBe(true);
     expect(isAgentChoice("memory")).toBe(true);
-    expect(isAgentChoice("finance")).toBe(false);
+    expect(isAgentChoice("finance")).toBe(true);
+    expect(isAgentChoice("legal")).toBe(false);
     expect(isAgentChoice("")).toBe(false);
   });
 });

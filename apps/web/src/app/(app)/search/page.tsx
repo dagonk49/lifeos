@@ -25,6 +25,7 @@ const TYPES = [
   { value: "facts", label: "Faits" },
   { value: "memories", label: "Souvenirs" },
   { value: "goals", label: "Objectifs" },
+  { value: "documents", label: "Documents" },
   { value: "messages", label: "Conversations" },
 ] as const;
 

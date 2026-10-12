@@ -368,6 +368,7 @@ const HIT_LABELS: Record<SearchHit["type"], string> = {
   memory: "Souvenir",
   message: "Message",
   goal: "Objectif",
+  document: "Document",
 };
 
 export function searchHitLabel(type: string): string {
@@ -381,10 +382,12 @@ const HIT_LINKS: Record<SearchHit["type"], string> = {
   memory: "/memory",
   message: "/chat",
   goal: "/goals",
+  document: "/documents",
 };
 
 /** Where "Ouvrir" leads; goals open directly on their detail. */
 export function searchHitHref(hit: Pick<SearchHit, "type" | "id">): string {
   if (hit.type === "goal") return `/goals?id=${encodeURIComponent(hit.id)}`;
+  if (hit.type === "document") return `/documents?id=${encodeURIComponent(hit.id)}`;
   return HIT_LINKS[hit.type] ?? "/";
 }

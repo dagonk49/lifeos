@@ -24,6 +24,7 @@ const AGENT_LABELS: Record<string, string> = {
   planning: "Planification",
   coaching: "Coaching",
   memory: "Mémoire",
+  finance: "Finances",
 };
 
 function humanize(value: string): string {
@@ -38,7 +39,13 @@ export function agentLabel(name: string | null | undefined, agents?: readonly Ag
 }
 
 export function isAgentChoice(value: string): value is AgentChoice {
-  return value === "core" || value === "planning" || value === "coaching" || value === "memory";
+  return (
+    value === "core" ||
+    value === "planning" ||
+    value === "coaching" ||
+    value === "memory" ||
+    value === "finance"
+  );
 }
 
 export interface AgentOption {
@@ -78,6 +85,8 @@ const RESOURCE_LABELS: Record<string, string> = {
   goals: "objectifs",
   messages: "messages",
   reviews: "bilans",
+  documents: "documents",
+  finances: "finances",
 };
 
 /** Lower-case French name of a data resource, for use inside a sentence. */
