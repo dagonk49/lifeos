@@ -149,8 +149,8 @@ describe("Assistant page: specialised agents", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Renvoyer" })).toBeNull());
     const sends = calls.filter((c) => c.url === "/v1/chat/conversations/c1/messages");
     expect(sends.map((c) => c.body)).toEqual([
-      { content: "Que faire en premier ?", context: { screen: "chat" }, agent: "planning" },
-      { content: "Que faire en premier ?", context: { screen: "chat" }, agent: "planning" },
+      { content: "Que faire en premier ?", context: { screen: "chat" }, agent: "planning", attachments: [] },
+      { content: "Que faire en premier ?", context: { screen: "chat" }, agent: "planning", attachments: [] },
     ]);
     const grant = calls.find((c) => c.url === "/v1/agents/planning/access");
     expect(grant).toMatchObject({ method: "PUT", body: { space_id: "s1", enabled: true } });
