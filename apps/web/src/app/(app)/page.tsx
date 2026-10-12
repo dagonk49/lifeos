@@ -7,10 +7,44 @@ import { TaskRow } from "@/components/TaskRow";
 import { UsageMeter } from "@/components/UsageMeter";
 import { Alert, Badge, Card, Empty, PageHeader, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { formatMoney, monthLabel, toCents } from "@/lib/finance";
 import { formatDate, formatTime } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
-import type { Dashboard } from "@/lib/types";
+import type { BudgetSnapshot, Dashboard } from "@/lib/types";
 import { formatRatio, formatUsd, tierQuotas } from "@/lib/usage";
+
+function BudgetSummaryCard({ budget }: { budget: BudgetSnapshot }) {
+  const hasBudget = (toCents(budget.budget) ?? 0n) > 0n;
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <p>
+        Dépensé : <span className="font-medium tabular-nums">{formatMoney(budget.spent, budget.currency)}</span>
+        {hasBudget && (
+          <>
+            {" "}
+            sur <span className="tabular-nums">{formatMoney(budget.budget, budget.currency)}</span> budgétés
+          </>
+        )}
+      </p>
+      {budget.alerts.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {budget.alerts.map((alert) => (
+            <li key={alert.category_id}>
+              <Badge tone={alert.ratio >= 1 ? "red" : "amber"}>{Math.round(alert.ratio * 100)} %</Badge>{" "}
+              {alert.name} : {formatMoney(alert.spent, budget.currency)} sur{" "}
+              {formatMoney(alert.budget, budget.currency)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        hasBudget && <p className="text-stone-600 dark:text-stone-400">Aucune catégorie proche de son budget.</p>
+      )}
+      <Link className="text-teal-700 underline dark:text-teal-400" href="/finances">
+        Voir les finances
+      </Link>
+    </div>
+  );
+}
 
 function AssistantSummary({ assistant }: { assistant: Dashboard["assistant"] }) {
   return (
@@ -149,6 +183,12 @@ export default function DashboardPage() {
             </Link>
           </p>
         </Card>
+
+        {d.budget && (
+          <Card title={`Budget de ${monthLabel(d.budget.month)}`} footer={asOf}>
+            <BudgetSummaryCard budget={d.budget} />
+          </Card>
+        )}
 
         <Card
           title="Assistant IA"

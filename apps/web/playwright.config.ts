@@ -1,3 +1,6 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -17,6 +20,12 @@ const backendEnv = {
   LIFEOS_LLM_PROVIDER: "fake",
   // Exercises the vector search path (pgvector) with a deterministic local embedder.
   LIFEOS_EMBEDDINGS_PROVIDER: "fake",
+  // Documents (step 4): encrypted storage with a throw-away key; text files are read for
+  // real, pictures and recordings by deterministic fakes (no OCR or speech model in E2E).
+  LIFEOS_DOCUMENTS_DIR: join(tmpdir(), "lifeos-e2e-documents"),
+  LIFEOS_DOCUMENTS_KEY: "ZTJlLW9ubHktZG9jdW1lbnRzLWtleS0zMi1ieXRlcyE=",
+  LIFEOS_EXTRACTION_PROVIDER: "fake",
+  LIFEOS_STT_PROVIDER: "fake",
   LIFEOS_LOG_LEVEL: "WARNING",
 };
 
@@ -39,9 +48,14 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH
-          ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
-          : {},
+        // A fake microphone (a tone) for dictation, granted without a prompt.
+        permissions: ["microphone"],
+        launchOptions: {
+          args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+          ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
+            ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
+            : {}),
+        },
       },
     },
   ],
@@ -49,6 +63,16 @@ export default defineConfig({
     {
       command:
         "uv run --directory ../../backend uvicorn lifeos.main:create_app --factory --host 127.0.0.1 --port 8000",
+      url: "http://127.0.0.1:8000/healthz",
+      env: backendEnv,
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // Background jobs: document reading and dictation transcription (fakes, see above).
+      // Dramatiq has no HTTP endpoint: readiness is the API's.
+      command:
+        "uv run --directory ../../backend dramatiq lifeos.workers.actors --processes 1 --threads 2",
       url: "http://127.0.0.1:8000/healthz",
       env: backendEnv,
       reuseExistingServer: false,

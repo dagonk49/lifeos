@@ -247,6 +247,8 @@ export interface IndexStatus {
 }
 
 export interface Dashboard {
+  /** Month budget of the selected space (personal by default); null without categories. */
+  budget?: BudgetSnapshot | null;
   generated_at: string;
   timezone: string;
   today: string;
