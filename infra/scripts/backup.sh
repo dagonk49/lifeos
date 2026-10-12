@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Encrypted, deduplicated database backup with restic (>= 0.17), then retention.
+# Encrypted, deduplicated backup with restic (>= 0.17): the database, then the encrypted
+# document originals; then retention.
 #
 # Required environment: RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE (keep the password file
 # outside the backed-up data and outside the repository host). Example (cron, daily):
@@ -17,9 +18,17 @@ restic backup --host lifeos --tag lifeos --tag db \
   --stdin-from-command -- \
   docker compose exec -T postgres pg_dump -U postgres -d lifeos --format=custom
 
+# Document originals (F10): already encrypted (AES-256-GCM) with lifeos_documents_key, which
+# is NOT part of these backups: keep a copy of that key apart (docs/exploitation.md).
+restic backup --host lifeos --tag lifeos --tag documents \
+  --stdin-filename lifeos-documents.tar \
+  --stdin-from-command -- \
+  docker compose exec -T worker tar -C /data/documents -cf - .
+
 # Retention (docs/politique-de-donnees.md): 14 daily + 4 weekly. Deleted data leaves the
 # backups when the last snapshot that contains it is pruned (about 35 days at most).
 restic forget --host lifeos --tag db --keep-daily 14 --keep-weekly 4 --prune
+restic forget --host lifeos --tag documents --keep-daily 14 --keep-weekly 4 --prune
 
 # Light integrity check of the repository structure.
 restic check

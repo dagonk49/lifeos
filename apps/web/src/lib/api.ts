@@ -155,6 +155,8 @@ const MESSAGES: Record<string, string> = {
     "Ce document est sensible : son contenu n'est jamais envoyé à l'assistant IA.",
   attachment_not_ready: "La pièce jointe est encore en cours de lecture.",
   attachment_unreadable: "La pièce jointe n'a pas pu être lue : aucun texte à transmettre.",
+  attachment_not_allowed:
+    "Cet agent n'a pas accès aux documents de cet espace : retirez la pièce jointe ou accordez-lui l'accès.",
   space_not_found: "Cet espace est introuvable.",
 };
 

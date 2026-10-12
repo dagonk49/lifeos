@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+from lifeos.modules.chat.attachments import MAX_ATTACHMENTS
 
 
 class ConversationCreate(BaseModel):
@@ -33,6 +35,8 @@ class MessageOut(BaseModel):
     status: str
     model: str | None
     agent: str | None = None
+    # Documents attached by the owner (their extracted text was sent with the message).
+    attachments: list[uuid.UUID] = []
     purge_after: datetime | None
     created_at: datetime
 
@@ -57,6 +61,13 @@ class SendMessage(BaseModel):
     context: ChatContext = Field(default_factory=ChatContext)
     # Specialised agents are only used when explicitly requested (F08).
     agent: Literal["core", "planning", "coaching", "memory", "finance"] = "core"
+    # Documents whose locally extracted text goes with the message (never sensitive ones).
+    attachments: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_ATTACHMENTS)
+
+    @field_validator("attachments")
+    @classmethod
+    def _distinct(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        return list(dict.fromkeys(value))
 
 
 class SendResult(BaseModel):

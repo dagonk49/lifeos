@@ -13,6 +13,7 @@ from lifeos.core.security import utcnow
 from lifeos.modules.agents.context import build_sections
 from lifeos.modules.agents.registry import AGENT_SPECS, suggest_agent
 from lifeos.modules.audit import service as audit
+from lifeos.modules.chat import attachments
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.chat.schemas import (
     ConversationCreate,
@@ -200,6 +201,15 @@ async def _system_prompt(
 
 async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) -> SendResult:
     conversation = await get_conversation(ctx, conversation_id)
+    agent = (
+        await agent_principal(ctx.db, ctx.principal.user_id, data.agent)
+        if data.agent != "core"
+        else None
+    )
+    # Checked before anything is saved: a refused attachment leaves no trace of the message.
+    attached = await attachments.load(
+        ctx.db, agent or ctx.principal, conversation.space_id, data.attachments
+    )
     now = utcnow()
     user_message = Message(
         user_id=ctx.principal.user_id,
@@ -207,6 +217,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         conversation_id=conversation.id,
         role="user",
         content=data.content,
+        attachments=[document.id for document in attached],
         purge_after=now + RAW_RETENTION,
         created_at=now,
     )
@@ -225,6 +236,13 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         # data it was not granted (facts, journal, memories...).
         recent = [m for m in recent if m.role == "user" or m.agent == data.agent]
     history = _history(recent)
+    if attached:
+        # Only with the message they were attached to: later turns do not resend them.
+        block = attachments.block(attached)
+        if history and history[-1].role == "user":
+            history[-1] = LLMMessage(role="user", text=f"{history[-1].text}\n\n{block}")
+        else:
+            history.append(LLMMessage(role="user", text=f"{data.content}\n\n{block}"))
     suggestion = suggest_agent(data.content) if data.agent == "core" else None
 
     def degraded(code: str, title: str, detail: str | None, **extra: Any) -> SendResult:
@@ -242,8 +260,8 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         system = await _system_prompt(ctx, space, data.context.screen, items)
         context_items = len(items)
     else:
+        assert agent is not None
         spec = AGENT_SPECS[data.agent]
-        agent = await agent_principal(ctx.db, ctx.principal.user_id, spec.name)
         missing = [r for r in spec.resources if not agent.can(space.id, r, "read")]
         if spec.required_missing(missing):
             return degraded(
@@ -262,6 +280,10 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
             + "\n\n".join(sections)
         )
         context_items = len(sections)
+    if attached:
+        await attachments.record(
+            ctx.db, agent or ctx.principal, attached, message_id=user_message.id
+        )
     request = LLMRequest(
         purpose="chat.reply" if data.agent == "core" else f"agent.{data.agent}",
         system=system,

@@ -82,6 +82,37 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 message de l'utilisateur est enregistré, `assistant_message` vaut `null` et `error` contient
 le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
 
+Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
+localement au message. Les refus ont lieu **avant** tout enregistrement :
+
+- `422 attachment_sensitive` (document sensible : jamais envoyé) ;
+- `409 attachment_not_ready` ;
+- `422 attachment_unreadable` ;
+- `404 document_not_found` (autre espace ou dictée) ;
+- `403 attachment_not_allowed` (agent sans droit `documents`).
+
+## Envois de fichiers (documents, dictées)
+
+- `multipart/form-data` avec un champ `file` et des champs de formulaire. La taille est
+  contrôlée **pendant** la lecture : `413 document_too_large` (`max_bytes` en extension).
+  Un fichier vide répond `422 document_empty`.
+- Le type est reconnu à la signature du contenu ; un type non accepté répond
+  `415 unsupported_type`. Sans clé de chiffrement configurée : `503 documents_unavailable`.
+- `POST /v1/documents` répond `201` avec `status: "pending"`. La lecture (texte du PDF, OCR)
+  a lieu en tâche de fond : suivre `GET /v1/documents/{id}` jusqu'à `ready` ou `failed`.
+  L'`Idempotency-Key` est liée aux champs **et** à l'empreinte SHA-256 du fichier.
+- `GET /v1/documents/{id}/original` sert l'original déchiffré en pièce jointe, avec
+  `nosniff`, `CSP sandbox` et `no-store`. Une fois l'original purgé : `410 original_purged`.
+- `PATCH /v1/documents/{id}` (`If-Match`) : titre, correction du texte extrait (la
+  sensibilité est recalculée), `keep_original`.
+- `POST /v1/documents/{id}/reprocess` relance la lecture et remplace une correction.
+- `POST /v1/voice/dictations` (champs `file`, `space_id`) répond `202` avec une dictée
+  `pending` :
+  - suivre `GET /v1/voice/dictations/{id}` jusqu'à `ready` (texte) ou `failed` (`too_long`,
+    `unreadable`…) ;
+  - puis `DELETE` une fois le texte utilisé ;
+  - `503 transcription_unavailable` si la dictée est désactivée (`GET /v1/voice/status`).
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -93,10 +124,14 @@ le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
 | `/v1/tasks` | 2 | CRUD, rappels, statuts |
 | `/v1/journal` | 2 | entrées, analyse (propositions à valider) |
 | `/v1/memory` | 2 | faits, souvenirs, correction, protection, export, suppression |
-| `/v1/search` | 2 | recherche plein texte filtrée par espace et période |
+| `/v1/search` | 2, 3, 4 | recherche hybride (plein texte + sens), filtrée par espace, type (dont `documents`) et période |
 | `/v1/approvals` | 2 | prévisualisation, accepter / refuser |
 | `/v1/guardian` | 2 | permissions d'agents, journal d'audit, appels LLM |
 | `/v1/notifications` | 2 | liste, lecture, préférences (plages de tranquillité) |
 | `/v1/dashboard` | 2 | briefing du jour |
 | `/v1/goals` | 3 | objectifs, jalons, bilans |
+| `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |
+| `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
+| `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
+| `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
 | `/v1/connectors` | 5 | OAuth, scopes, révocation, synchronisation |

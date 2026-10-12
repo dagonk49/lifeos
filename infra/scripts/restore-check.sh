@@ -20,3 +20,8 @@ version="$(psql_su -d "$scratch" -tAc 'SELECT version_num FROM alembic_version')
 users="$(psql_su -d "$scratch" -tAc 'SELECT count(*) FROM users')"
 audit="$(psql_su -d "$scratch" -tAc 'SELECT count(*) FROM audit_events')"
 echo "restore OK: schema revision $version, $users user(s), $audit audit event(s)"
+# Document originals: the archive is readable (files stay encrypted, no key needed here).
+if restic snapshots --host lifeos --tag documents --json | grep -q '"id"'; then
+  files="$(restic dump --host lifeos --tag documents latest lifeos-documents.tar | tar -t | grep -c '\.bin$' || true)"
+  echo "documents OK: $files encrypted original(s) in the latest snapshot"
+fi

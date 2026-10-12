@@ -9,7 +9,10 @@ Applications.
 |---|---|
 | Mémoire (faits, souvenirs, journal) | très élevée : vie privée, santé, relations |
 | Conversations brutes | très élevée |
-| Données financières (à venir) | élevée |
+| Données financières | élevée |
+| Documents (originaux chiffrés, texte extrait) | très élevée : identité, santé, banque |
+| Voix (enregistrements de dictée) | très élevée : biométrique ; conservée le temps de la transcription |
+| Clé de chiffrement des documents | élevée : sans elle, les originaux sont perdus ; avec elle et une sauvegarde, ils sont lisibles |
 | Sessions et passkeys | élevée : accès à tout le reste |
 | Clé d'API Gemini, secrets d'infrastructure | élevée : coût, accès |
 | Sauvegardes | très élevée : copie complète |
@@ -19,6 +22,8 @@ Applications.
 ```
 Navigateur / mobile ──HTTPS── Traefik ──┬── API ──┬── PostgreSQL (réseau interne)
                                         │         ├── Redis (réseau interne)
+                                        │         ├── ml : embeddings, OCR (interne, sans sortie)
+                                        │         ├── stt : transcription (interne, sans sortie)
                                         └── Web   └── Passerelle cloud ──HTTPS── Gemini
 Contenus importés (documents, e-mails, pages web) = NON FIABLES
 Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
@@ -44,7 +49,12 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T14 | Exfiltration via la sortie du LLM (liens/images Markdown vers un domaine tiers) | réponses affichées en texte brut (aucun HTML ni Markdown interprété) ; CSP `img-src 'self' data:` et `connect-src 'self'` | 2 |
 | T15 | Coût LLM incontrôlé (boucle, abus) | projet Gemini **sans compte de facturation** (rien ne peut être facturé, ADR 0007) ; plafonds quotidiens par palier et budget mensuel ; arrêt d'urgence ; aucune nouvelle tentative automatique ; limites de profondeur et d'appels par requête | 2, 3 |
 | T16 | Hallucination présentée comme un fait | `origin` + `confidence` ; distinction fait / inférence dans l'interface ; corrections prioritaires | 2 |
-| T17 | Fichiers malveillants | validation MIME/taille, quarantaine, antivirus, refus des formats dangereux | 4 |
+| T17 | Fichiers malveillants (bombe de décompression, PDF ou image piégés, HTML/SVG actifs) | liste blanche par **signature** ; taille bornée pendant la lecture ; analyse dans `ml` ou `stt` isolés (sans sortie, lecture seule, sans privilèges) ; décodeur imposé par le type détecté ; contrôle des dimensions avant décodage ; images ré-encodées à partir des pixels ; originaux servis en téléchargement (`nosniff`, `CSP sandbox`, `no-store`). Pas d'antivirus (coût RAM ; voir ADR 0008), à revoir avec l'e-mail | 4 |
+| T24 | Fuite d'un document sensible vers le cloud (pièce jointe, agent) | classement local identité / santé / banque avant tout usage ; refus côté serveur avant enregistrement du message ; agents limités aux métadonnées des tickets ; audit `document.attach` | 4 |
+| T25 | Injection de prompt par le contenu d'un document joint | texte présenté comme données délimitées ; le Guardian décide hors LLM ; aucune action sans approbation (T10) | 4 |
+| T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi | 4 |
+| T27 | Conservation abusive de la voix | enregistrement chiffré puis supprimé dès la transcription (ou le refus) ; dictées effacées après 24 h ; transcription locale ; lecture à voix haute avec les seules voix locales de l'appareil | 4 |
+| T28 | Perte ou vol de la clé des documents | secret Docker séparé des données ; non inclus dans les sauvegardes ; copie à conserver hors du serveur (gestionnaire de mots de passe) | 4 |
 | T18 | SSRF via connecteurs / URLs | liste d'hôtes autorisés, pas de requête vers des adresses privées | 5 |
 | T19 | Vol de jetons OAuth de connecteurs | chiffrement au repos, scopes minimaux, révocation | 5 |
 | T20 | Compromission de l'hôte / vol physique | chiffrement des volumes, mises à jour, pare-feu, accès distant par VPN | exploitation |
@@ -65,3 +75,9 @@ passer à des nonces CSP est prévu à l'étape 6 (stabilisation).
   espace.
 - Cloud : espace sans consentement → aucun appel ; budget atteint → aucun appel ; données
   sensibles masquées dans le paquet envoyé.
+- Documents : formats dangereux refusés (SVG, HTML, exécutables, archives) ; bombe de
+  décompression refusée avant décodage ; EXIF/GPS absents de l'image conservée ; chiffrement
+  lié au document ; document sensible refusé comme pièce jointe sans message enregistré ;
+  agent sans droit `documents` refusé ; corpus synthétique de détection de sensibilité.
+- Voix : enregistrement supprimé après transcription comme après refus ; dictées hors
+  recherche et index ; une seule transcription à la fois.

@@ -4,11 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ApprovalReview } from "@/components/ApprovalReview";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, todayLocal } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { Approval, JournalEntry, Page } from "@/lib/types";
+import { appendTranscript } from "@/lib/voice";
 
 const MOODS = ["", "1 — très difficile", "2 — difficile", "3 — neutre", "4 — bien", "5 — très bien"];
 
@@ -101,6 +103,7 @@ export default function JournalPage() {
   const [date, setDate] = useState(todayLocal());
   const [content, setContent] = useState("");
   const [mood, setMood] = useState("");
+  const [dictated, setDictated] = useState(false);
 
   const entries = useQuery({
     queryKey: ["journal", selected],
@@ -116,6 +119,7 @@ export default function JournalPage() {
     onSuccess: () => {
       setContent("");
       setMood("");
+      setDictated(false);
       void queryClient.invalidateQueries({ queryKey: ["journal"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
@@ -139,6 +143,15 @@ export default function JournalPage() {
             <Field label="Faits, accomplissements, difficultés…">
               <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={8} required />
             </Field>
+            {/* UC01: dictate the day; the transcript is reviewed here before being saved. */}
+            <VoiceRecorder
+              spaceId={writeSpaceId}
+              label="Dicter ma journée"
+              onTranscript={(text) => {
+                setContent((current) => appendTranscript(current, text));
+                setDictated(true);
+              }}
+            />
             <Field label="Humeur (facultatif)" hint="Partagée seulement si vous le souhaitez.">
               <Select value={mood} onChange={(e) => setMood(e.target.value)}>
                 {MOODS.map((label, i) => (
@@ -152,6 +165,12 @@ export default function JournalPage() {
               Enregistrer
             </Button>
             {create.error && <Alert tone="error">{errorMessage(create.error)}</Alert>}
+            {dictated && (
+              <p className="text-xs text-stone-500">
+                Après l'enregistrement, « Extraire tâches et faits » propose les tâches et
+                accomplissements dictés : rien n'est ajouté sans votre validation.
+              </p>
+            )}
           </form>
         </Card>
         <div className="flex flex-col gap-4">

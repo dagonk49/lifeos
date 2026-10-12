@@ -15,6 +15,7 @@ contexte minimal filtré localement.
 | 1 — Socle | backend, base, auth passkeys, CI, sauvegarde, observabilité | fait |
 | 2 — MVP | client web, chat, tâches, journal, mémoire, recherche, Guardian | fait |
 | 3 — Intelligence | recherche hybride (embeddings locaux), qualité de la mémoire, bilans, objectifs, agents spécialisés, maîtrise des coûts Gemini | fait |
+| 4 — Multimodal | documents chiffrés et OCR local, tickets de caisse et finances, dictée et lecture vocale, pièces jointes, filtrage local des documents sensibles | fait |
 
 ## Structure
 
@@ -36,7 +37,8 @@ docker compose exec api lifeos-admin create-owner --email moi@example.org --name
 
 Puis ouvrir le lien d'enrôlement affiché pour créer la première passkey. Détails :
 [docs/exploitation.md](docs/exploitation.md). Recherche par le sens :
-`docker compose --profile setup run --rm ml-download` (une fois). Assistant sans frais :
+`docker compose --profile setup run --rm ml-download` (une fois) ; dictée vocale :
+`docker compose --profile setup run --rm stt-download` (une fois). Assistant sans frais :
 [docs/guide-gemini.md](docs/guide-gemini.md).
 
 ## Ce que fait le MVP
@@ -66,6 +68,32 @@ Puis ouvrir le lien d'enrôlement affiché pour créer la première passkey. Dé
   limité aux ressources utiles, 90 jours, révocable.
 - **Coûts maîtrisés** : Gemini sans compte de facturation (zéro frais possible), plafonds
   quotidiens par palier, arrêt d'urgence, suivi de la consommation.
+
+## Ce qu'ajoute l'étape 4
+
+- **Documents** : PDF, photos (JPEG, PNG, WebP, HEIC) et textes.
+  - Originaux **chiffrés** sur le serveur, conservés 90 jours par défaut (ou sans limite si
+    vous le choisissez).
+  - Texte lu **localement** (couche texte des PDF, OCR Tesseract en français), corrigeable,
+    retrouvable dans la recherche.
+  - Photos nettoyées de leurs métadonnées (GPS, appareil).
+- **Documents sensibles** (identité, santé, banque) reconnus localement : leur contenu n'est
+  **jamais** envoyé à l'assistant IA.
+- **Tickets de caisse** (UC02) : marchand, date et total lus sur la photo, chaque valeur avec
+  sa ligne d'origine, à vérifier avant l'ajout au budget.
+- **Finances** :
+  - catégories et budgets mensuels ;
+  - opérations en montants exacts ;
+  - classement appris de vos corrections ;
+  - budget du mois calculé localement ;
+  - agent Finances à la demande.
+  - Aucune connexion bancaire, aucun paiement.
+- **Voix** : dictée dans le journal (UC01) et dans le chat.
+  - Elle est transcrite **sur votre serveur** (Whisper, sur CPU ou GTX 1050 Ti), puis
+    l'enregistrement est supprimé.
+  - « Écouter » lit les réponses avec les voix de l'appareil.
+- **Pièces jointes du chat** : seul le texte extrait d'un document non sensible accompagne le
+  message.
 
 ## Licence
 

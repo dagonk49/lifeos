@@ -211,11 +211,57 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
 - **`llm_calls`** : + `tier` (`fast` \| `deep`), `cost_usd numeric(12,6)` (estimé),
   `cached_tokens`. Toujours **aucun contenu**.
 
-## 5. Prévu ensuite
+## 5. Étape 4 — multimodal (migrations 0004 et 0005)
+
+### Documents (F10, ADR 0008)
+- **`documents`** : colonnes regroupées par rôle.
+  - Identification : `id`, `user_id`, `space_id`, `title`.
+  - Fichier : `kind` (`image` \| `pdf` \| `text` \| `audio`), `mime` (détecté par
+    signature), `size_bytes`, `sha256`.
+  - Usage : `purpose` (`document` \| `receipt` \| `attachment` \| `dictation`), `status`
+    (`pending` \| `processing` \| `ready` \| `failed` \| `rejected`), `error`.
+  - Lecture locale :
+    - `sensitivity text[]` (`identity`, `health`, `bank`, classées localement) ;
+    - `extracted_text`, `text_source` (`pdf` \| `ocr` \| `text` \| `speech`),
+      `text_confidence numeric(4,3)`, `text_corrected_at`, `pages` ;
+    - `analysis jsonb` (raisons de sensibilité, lecture du ticket ; jamais d'autorité),
+      `processed_at`.
+  - Original : `storage_key` (fichier chiffré ; `NULL` une fois purgé), `original_until`
+    (`NULL` = conservé sans limite).
+  - Provenance : `source_type` / `source_id` (message, conversation, entrée de journal,
+    tâche, objectif, opération).
+  - `version`, `search_vector` (titre + texte extrait), `created_at`, `updated_at`.
+  - Les fichiers : `<documents_dir>/<user>/<document>.bin`, au format `LOS1 | id de clé |
+    nonce | AES-256-GCM`, avec l'identifiant du document en données associées.
+  - Les dictées (`purpose = 'dictation'`) sont transitoires (ADR 0009) : audio supprimé après
+    transcription, ligne effacée après 24 h. Elles sont exclues de la liste, de la recherche
+    et des embeddings.
+- **`messages.attachments uuid[]`** : documents joints par le propriétaire (seul leur texte
+  extrait a accompagné le message ; références conservées même si le document est supprimé).
+- **`embeddings.object_type`** : s'étend à `document` et `transaction` (suppression par
+  trigger).
+
+### Finances (F04, UC02)
+- **`finance_categories`** : `id`, `user_id`, `space_id`, `name` (unique par espace), `kind`
+  (`expense` \| `income`), `monthly_budget numeric(14,2)`, `archived`, horodatages.
+- **`transactions`** :
+  - `id`, `user_id`, `space_id`, `tx_date` ;
+  - `amount numeric(14,2)` **> 0** (le sens est `direction` : `expense` \| `income`) ;
+  - `currency` (ISO 4217), `merchant`, `label`, `notes` ;
+  - `category_id` (FK `SET NULL`) et `category_confirmed` (`false` : choisie par une règle
+    apprise) ;
+  - `source_type` (`manual` \| `receipt` \| `import`) et `document_id` (FK `SET NULL`, le
+    ticket) ;
+  - `version`, `search_vector`, horodatages.
+- **`finance_category_rules`** : `merchant_key` (nom de marchand normalisé, unique par
+  espace) → `category_id` (cascade), `hits`. Apprises des corrections du propriétaire
+  (« classer une dépense » : automatique et corrigeable).
+- **`agent_permissions.resource`** : s'étend à `documents` et `finances`.
+
+## 6. Prévu ensuite
 
 | Table | Étape | Notes |
 |---|---|---|
-| `documents` | 4 | empreinte, MIME, emplacement, classification, `retain_until`, provenance |
 | `connectors`, `connector_grants` | 5 | OAuth, scopes, expiration, révocation |
-| `financial_transactions`, `budgets` | 1.5 (produit) | montants exacts, devise, catégorie corrigeable, source |
 | `push_devices` | 5 | jetons de notification mobile |
+| import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |

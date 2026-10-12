@@ -1,18 +1,33 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { AgentPermissionCard, type AgentPermissionNeed } from "@/components/AgentPermissionCard";
 import { AgentSelector } from "@/components/AgentSelector";
 import { AgentSuggestion } from "@/components/AgentSuggestion";
+import { ChatAttachments } from "@/components/ChatAttachments";
 import { ConsolidationPanel } from "@/components/ConsolidationPanel";
+import { SpeakButton } from "@/components/SpeakButton";
+import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Alert, Badge, Button, Card, Empty, PageHeader, Spinner, Textarea, cx } from "@/components/ui";
 import { CORE_AGENT, agentLabel, agentsKey, missingPermissions, suggestedAgent, type AgentChoice } from "@/lib/agents";
 import { api, errorMessage, problemMessage } from "@/lib/api";
+import { attachmentState, attachmentsReading, sendableAttachments } from "@/lib/attachments";
 import { formatDate, formatTime } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
-import type { AgentInfo, AgentName, Conversation, ConversationDetail, Message, Page, SendResult } from "@/lib/types";
+import type {
+  AgentInfo,
+  AgentName,
+  Conversation,
+  ConversationDetail,
+  DocumentSummary,
+  Message,
+  Page,
+  SendResult,
+} from "@/lib/types";
+import { appendTranscript } from "@/lib/voice";
 
 function MessageBubble({
   message,
@@ -49,6 +64,17 @@ function MessageBubble({
         {/* Plain text only: assistant output is never rendered as HTML (threat model T14). */}
         {message.content}
       </div>
+      {mine && (message.attachments?.length ?? 0) > 0 && (
+        <ul aria-label="Pièces jointes envoyées" className="flex flex-wrap gap-2 text-xs">
+          {message.attachments?.map((id, index) => (
+            <li key={id}>
+              <Link className="underline" href={`/documents?id=${encodeURIComponent(id)}`}>
+                Pièce jointe {index + 1}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
         {!mine && message.agent && (
           <Badge tone="violet">
@@ -57,6 +83,7 @@ function MessageBubble({
           </Badge>
         )}
         <span>{formatTime(message.created_at)}</span>
+        {!mine && <SpeakButton text={message.content} />}
         {message.retained && <Badge tone="teal">Conservé</Badge>}
         <button className="underline" onClick={() => retain.mutate()}>
           {message.retained ? "Ne plus conserver" : "Conserver"}
@@ -73,6 +100,8 @@ function MessageBubble({
 interface SendVars {
   content: string;
   agent: AgentChoice;
+  /** Documents whose extracted text goes with the message. */
+  attachments?: string[];
   /** Resending a message after granting access: the draft is left untouched. */
   resend?: boolean;
 }
@@ -90,6 +119,7 @@ export default function ChatPage() {
   const [suggestion, setSuggestion] = useState<AgentName | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const bottom = useRef<HTMLDivElement>(null);
 
   const conversations = useQuery({
@@ -108,6 +138,18 @@ export default function ChatPage() {
     queryFn: () => api<AgentInfo[]>(`/v1/agents?space_id=${encodeURIComponent(spaceId ?? "")}`),
     enabled: Boolean(spaceId),
   });
+
+  // Attached documents are read on the server: polled until ready (or refused).
+  const attachmentQueries = useQueries({
+    queries: attachmentIds.map((id) => ({
+      queryKey: ["document", id],
+      queryFn: () => api<DocumentSummary>(`/v1/documents/${id}`),
+      refetchInterval: (query: { state: { data?: DocumentSummary } }) =>
+        attachmentState(query.state.data) === "reading" ? 1500 : false,
+    })),
+  });
+  const attachmentDocs = attachmentQueries.map((q) => q.data);
+  const readingAttachments = attachmentsReading(attachmentDocs);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -128,6 +170,7 @@ export default function ChatPage() {
     setDegraded(null);
     setPermission(null);
     setSuggestion(null);
+    if (!keepAgent) setAttachmentIds([]);
   }
 
   const create = useMutation({
@@ -140,7 +183,7 @@ export default function ChatPage() {
   });
 
   const send = useMutation({
-    mutationFn: async ({ content, agent: chosen }: SendVars) => {
+    mutationFn: async ({ content, agent: chosen, attachments = [] }: SendVars) => {
       let id = current;
       let space = spaceId;
       if (!id) {
@@ -158,7 +201,7 @@ export default function ChatPage() {
       const result = await api<SendResult>(`/v1/chat/conversations/${id}/messages`, {
         method: "POST",
         idempotent: true,
-        body: { content, context: { screen: "chat" }, agent: chosen },
+        body: { content, context: { screen: "chat" }, agent: chosen, attachments },
       });
       return { result, spaceId: space ?? writeSpaceId };
     },
@@ -167,7 +210,10 @@ export default function ChatPage() {
       setSuggestion(null);
     },
     onSuccess: ({ result, spaceId: space }, { content, resend }) => {
-      if (!resend) setDraft("");
+      if (!resend) {
+        setDraft("");
+        setAttachmentIds([]);
+      }
       const missing = missingPermissions(result);
       if (missing !== null && result.agent !== "core") {
         // The message is saved; the agent first needs read access in this space.
@@ -197,7 +243,9 @@ export default function ChatPage() {
   const submit = () => {
     const content = draft.trim();
     // Wait for a conversation being created: sending now would open a second one.
-    if (content && !send.isPending && !create.isPending) send.mutate({ content, agent });
+    if (content && !send.isPending && !create.isPending && !readingAttachments) {
+      send.mutate({ content, agent, attachments: sendableAttachments(attachmentDocs) });
+    }
   };
 
   return (
@@ -300,6 +348,18 @@ export default function ChatPage() {
                 submit();
               }}
             >
+              <ChatAttachments
+                spaceId={spaceId ?? writeSpaceId}
+                conversationId={current}
+                ids={attachmentIds}
+                documents={attachmentDocs}
+                onAdd={(id) => setAttachmentIds((ids) => (ids.includes(id) ? ids : [...ids, id]))}
+                onRemove={(id) => setAttachmentIds((ids) => ids.filter((other) => other !== id))}
+              />
+              <VoiceRecorder
+                spaceId={spaceId ?? writeSpaceId}
+                onTranscript={(text) => setDraft((current) => appendTranscript(current, text, { multiline: false }))}
+              />
               <Textarea
                 aria-label="Votre message"
                 placeholder="Écrivez à LifeOS…"
@@ -324,9 +384,9 @@ export default function ChatPage() {
                 <Button
                   type="submit"
                   className="self-end sm:mt-6"
-                  disabled={send.isPending || create.isPending || !draft.trim()}
+                  disabled={send.isPending || create.isPending || readingAttachments || !draft.trim()}
                 >
-                  Envoyer
+                  {readingAttachments ? "Lecture de la pièce jointe…" : "Envoyer"}
                 </Button>
               </div>
             </form>

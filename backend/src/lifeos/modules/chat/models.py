@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text, Uuid
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lifeos.db.base import Base, Owned, Timestamps, UUIDPrimaryKey, search_vector_column
@@ -38,6 +39,11 @@ class Message(UUIDPrimaryKey, Owned, Base):
     agent: Mapped[str | None] = mapped_column(Text)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    # Documents attached by the owner to this message (their locally extracted text was
+    # sent along with it). References only: a deleted document stays listed here.
+    attachments: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(Uuid), default=list, server_default="{}"
+    )
     purge_after: Mapped[datetime | None] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(index=True)
     search_vector: Mapped[Any] = search_vector_column("content")

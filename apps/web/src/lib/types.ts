@@ -136,6 +136,8 @@ export interface Message {
   model: string | null;
   /** Specialised agent that wrote an assistant message (null = general assistant). */
   agent: AgentName | null;
+  /** Documents attached by the owner (their extracted text went with the message). */
+  attachments?: Uuid[];
   purge_after: string | null;
   retained: boolean;
   created_at: string;
