@@ -67,10 +67,12 @@ async def database(settings: Settings) -> AsyncIterator[Database]:
 @pytest.fixture(autouse=True)
 async def clean_tables(database: Database) -> AsyncIterator[None]:
     yield
-    tables = ", ".join(t.name for t in reversed(Base.metadata.sorted_tables))
+    # DELETE in reverse dependency order: much faster than TRUNCATE on ~40 small tables
+    # (TRUNCATE has a fixed per-table cost, around 1 s per test overall).
     async with database.engine.begin() as conn:
         await conn.execute(text("SET LOCAL lifeos.audit_purge = 'on'"))
-        await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
 
 
 @pytest.fixture

@@ -60,6 +60,18 @@ def build_scheduler() -> BlockingScheduler:
         id="index_embeddings",
         misfire_grace_time=120,
     )
+    # Documents: pending extractions (lost messages, retries) and original retention.
+    scheduler.add_job(
+        actors.process_pending_documents.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="process_pending_documents",
+        misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        actors.purge_document_originals.send,
+        CronTrigger(hour=3, minute=50, timezone=tz),
+        id="purge_document_originals",
+    )
     # Reviews: daily summary (local only), weekly on Sunday evening, monthly on the 1st.
     scheduler.add_job(
         actors.scheduled_reviews.send,

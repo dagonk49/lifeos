@@ -25,6 +25,10 @@ class StorageError(Exception):
     """Storage unavailable (no key) or file unreadable."""
 
 
+class OriginalMissingError(StorageError):
+    """No file for this storage key (purged, or deleted from the volume)."""
+
+
 def _key(settings: Settings) -> bytes:
     secret = settings.documents_key.get_secret_value().strip() if settings.documents_key else ""
     if not secret:
@@ -79,7 +83,7 @@ class DocumentStore:
         try:
             blob = self._path(storage_key).read_bytes()
         except FileNotFoundError as exc:
-            raise StorageError("original not found") from exc
+            raise OriginalMissingError("original not found") from exc
         header = len(MAGIC) + 1 + NONCE_BYTES
         if len(blob) < header or not blob.startswith(MAGIC) or blob[len(MAGIC)] != KEY_ID:
             raise StorageError("unknown file format")

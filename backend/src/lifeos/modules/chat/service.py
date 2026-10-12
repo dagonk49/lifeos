@@ -245,7 +245,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         spec = AGENT_SPECS[data.agent]
         agent = await agent_principal(ctx.db, ctx.principal.user_id, spec.name)
         missing = [r for r in spec.resources if not agent.can(space.id, r, "read")]
-        if missing:
+        if spec.required_missing(missing):
             return degraded(
                 "agent_permission_required",
                 "This agent has no access to this space",

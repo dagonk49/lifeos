@@ -12,6 +12,7 @@ from lifeos.core.security import utcnow
 from lifeos.db.session import Database
 from lifeos.logging import get_logger
 from lifeos.modules.chat.models import Message
+from lifeos.modules.documents.models import Document
 from lifeos.modules.goals.models import Goal
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.memory.models import Fact, Memory
@@ -49,6 +50,13 @@ SOURCES: tuple[Source, ...] = (
     Source("goal", Goal, _join(Goal.title, Goal.description, Goal.motivation)),
     # Very short messages ("ok", "merci") carry no retrievable meaning.
     Source("message", Message, _join(Message.content), func.length(Message.content) >= 15),
+    # Extracted (or corrected) text, once processing is done. Vectors stay on the server.
+    Source(
+        "document",
+        Document,
+        _join(Document.title, Document.extracted_text),
+        Document.status == "ready",
+    ),
 )
 SOURCE_BY_TYPE = {s.object_type: s for s in SOURCES}
 

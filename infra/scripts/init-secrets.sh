@@ -21,6 +21,14 @@ new_secret() {
 
 new_secret postgres_superuser_password
 new_secret lifeos_database_password
+# AES-256-GCM key of the document originals (ADR 0008): 32 random bytes, base64. Keep a
+# copy OUTSIDE the backups: without it, the originals cannot be decrypted.
+if [[ -e "$dir/lifeos_documents_key" ]]; then
+  echo "exists:  lifeos_documents_key"
+else
+  head -c 32 /dev/urandom | base64 | tr -d '\n' > "$dir/lifeos_documents_key"
+  echo "created: lifeos_documents_key (save a copy outside the backups)"
+fi
 if [[ ! -e "$dir/lifeos_gemini_api_key" ]]; then
   : > "$dir/lifeos_gemini_api_key"
   echo "created: lifeos_gemini_api_key (empty: paste your key there to enable Gemini)"

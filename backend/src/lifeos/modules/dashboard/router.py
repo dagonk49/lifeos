@@ -10,6 +10,8 @@ from sqlalchemy import func, select
 
 from lifeos.api.deps import CtxDep
 from lifeos.core.security import utcnow
+from lifeos.modules.finance.schemas import BudgetSnapshot
+from lifeos.modules.finance.service import budget_snapshot
 from lifeos.modules.guardian import gateway
 from lifeos.modules.guardian.models import Approval
 from lifeos.modules.identity.models import Space
@@ -56,6 +58,9 @@ class Dashboard(BaseModel):
     unread_notifications: int
     memory: MemoryStats
     assistant: AssistantStatus
+    # Current month budget of the selected space (personal space by default); None while
+    # that space has no finance data. Computed locally, like everything here.
+    budget: BudgetSnapshot | None = None
 
 
 @router.get("")
@@ -119,6 +124,9 @@ async def dashboard(ctx: CtxDep, space_id: uuid.UUID | None = None) -> Dashboard
     cloud_spaces = await ctx.db.scalars(
         select(Space.id).where(Space.id.in_(spaces), Space.cloud_ai_enabled.is_(True))
     )
+    budget_space = space_id or await ctx.db.scalar(
+        select(Space.id).where(Space.user_id == uid, Space.id.in_(spaces), Space.kind == "personal")
+    )
     return Dashboard(
         generated_at=now,
         timezone=ctx.user.timezone,
@@ -141,4 +149,5 @@ async def dashboard(ctx: CtxDep, space_id: uuid.UUID | None = None) -> Dashboard
             },
             cloud_enabled_spaces=list(cloud_spaces),
         ),
+        budget=await budget_snapshot(ctx, budget_space) if budget_space else None,
     )

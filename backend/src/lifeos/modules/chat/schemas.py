@@ -56,7 +56,7 @@ class SendMessage(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
     context: ChatContext = Field(default_factory=ChatContext)
     # Specialised agents are only used when explicitly requested (F08).
-    agent: Literal["core", "planning", "coaching", "memory"] = "core"
+    agent: Literal["core", "planning", "coaching", "memory", "finance"] = "core"
 
 
 class SendResult(BaseModel):

@@ -10,6 +10,7 @@ x-backend: &backend
   environment:
     LIFEOS_DATABASE_HOST: postgres
     LIFEOS_REDIS_URL: redis://redis:6379/0
+    LIFEOS_DOCUMENTS_DIR: /data/documents
   secrets:
     - lifeos_database_password
     - lifeos_gemini_api_key
@@ -100,6 +101,12 @@ services:
 
   api:
     <<: *backend
+    # Documents (F10, ADR 0008): encrypted originals on a volume, key in its own secret.
+    secrets: &documents-secrets
+      - lifeos_database_password
+      - lifeos_gemini_api_key
+      - lifeos_documents_key
+    volumes: &documents-volume [documents:/data/documents]
     mem_limit: 768m
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -111,6 +118,9 @@ services:
     <<: *backend
     command: ["dramatiq", "lifeos.workers.actors", "--processes", "1", "--threads", "4"]
     healthcheck: { disable: true }
+    # Extraction, sanitized images and retention of the document originals.
+    secrets: *documents-secrets
+    volumes: *documents-volume
     mem_limit: 768m
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -217,6 +227,8 @@ volumes:
   prometheusdata:
   # Embedding model files (re-downloadable: excluded from backups).
   models:
+  # Encrypted document originals (AES-256-GCM, key in the lifeos_documents_key secret).
+  documents:
 
 secrets:
   postgres_superuser_password:
@@ -225,6 +237,9 @@ secrets:
     file: ./secrets/lifeos_database_password
   lifeos_gemini_api_key:
     file: ./secrets/lifeos_gemini_api_key
+  # AES-256-GCM key of the document originals (infra/scripts/init-secrets.sh).
+  lifeos_documents_key:
+    file: ./secrets/lifeos_documents_key
   # Optional (gated models only): a Hugging Face read token, used by ml-download.
   lifeos_hf_token:
     file: ./secrets/lifeos_hf_token

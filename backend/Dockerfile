@@ -38,6 +38,9 @@ FROM runtime AS app
 COPY --from=build /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY migrations ./migrations
+# Encrypted document originals (named volume): owned by the service user so a new, empty
+# volume mounted here is writable (same mechanism as /models in the `ml` target).
+RUN install -d -o lifeos -g lifeos -m 0700 /data/documents
 USER lifeos
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

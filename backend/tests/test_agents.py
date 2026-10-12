@@ -77,7 +77,7 @@ async def test_agent_needs_explicit_access_then_sees_only_its_resources(
     assert "CHARGE DES 7 PROCHAINS JOURS" in request.system
     assert "Courir 10 km" in request.system
     # Facts are not part of the planning agent's permissions.
-    assert "lundi" not in request.system
+    assert "Ma réunion préférée" not in request.system
 
     # Withdrawal is immediate.
     await client.put("/v1/agents/planning/access", json={"space_id": space, "enabled": False})

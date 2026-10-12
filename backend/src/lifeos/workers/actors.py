@@ -1,22 +1,35 @@
 """Dramatiq actors. Run with: dramatiq lifeos.workers.actors"""
 
+import uuid
+from pathlib import Path
+
 import dramatiq
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.config import get_settings
 from lifeos.core.idempotency import purge_expired_keys
-from lifeos.logging import configure_logging
+from lifeos.logging import configure_logging, get_logger
 from lifeos.modules.audit.service import purge_older_than
 from lifeos.modules.chat.service import purge_expired_messages
+from lifeos.modules.documents import processing as documents
 from lifeos.modules.guardian.actions import expire_stale
 from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.notifications.service import dispatch_reminders
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
 from lifeos.workers.broker import broker  # noqa: F401  (must be set before actors)
-from lifeos.workers.jobs import database, embedder, llm, run_job, run_task
+from lifeos.workers.jobs import (
+    database,
+    document_store,
+    embedder,
+    extractor,
+    llm,
+    run_job,
+    run_task,
+)
 
 configure_logging(get_settings())
+log = get_logger("lifeos.actors")
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
@@ -80,3 +93,51 @@ async def index_embeddings() -> None:
     await run_job("drop_other_embedding_models", job)
     # Manages its own short transactions: none is held while the model computes.
     await run_task("index_embeddings", lambda: index_pending(database(), current, batch=64))
+
+
+# --- Documents (F10) -----------------------------------------------------------------------
+# Messages for the "documents" queue are also sent by the API through
+# lifeos.workers.queue.enqueue (by actor name): keep these names stable.
+
+
+@dramatiq.actor(queue_name="documents", max_retries=2, time_limit=15 * 60_000)
+async def process_document(document_id: str) -> None:
+    """Extracts and analyses one uploaded document (sent by the API after an upload)."""
+    try:
+        target = uuid.UUID(document_id)
+    except ValueError:
+        log.warning("invalid_document_id")
+        return
+    # Manages its own short transactions: none is held during the extraction.
+    await run_task(
+        "process_document",
+        lambda: documents.process_document(
+            database(), document_store(), extractor(), target, settings=get_settings()
+        ),
+    )
+
+
+@dramatiq.actor(queue_name="documents", max_retries=0, time_limit=30 * 60_000)
+async def process_pending_documents() -> None:
+    """Safety net and retries: the oldest pending documents, a few at a time."""
+    await run_task(
+        "process_pending_documents",
+        lambda: documents.process_pending(
+            database(), document_store(), extractor(), settings=get_settings()
+        ),
+    )
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3, time_limit=30 * 60_000)
+async def purge_document_originals() -> None:
+    """Encrypted originals past their retention date, then unreferenced files."""
+    store = document_store()
+
+    async def purge(session: AsyncSession) -> int:
+        return await documents.purge_originals(session, store)
+
+    async def sweep(session: AsyncSession) -> int:
+        return await documents.sweep_orphans(session, store, Path(get_settings().documents_dir))
+
+    await run_job("purge_document_originals", purge)
+    await run_job("sweep_document_files", sweep)

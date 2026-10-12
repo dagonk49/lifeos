@@ -17,6 +17,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from lifeos.api.deps import CtxDep
 from lifeos.modules.chat.models import Message
+from lifeos.modules.documents.models import Document
 from lifeos.modules.goals.models import Goal
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.journal.models import JournalEntry
@@ -27,8 +28,16 @@ from lifeos.modules.tasks.models import Task
 
 router = APIRouter(prefix="/search", tags=["search"])
 
-SearchType = Literal["tasks", "journal", "facts", "memories", "messages", "goals"]
-ALL_TYPES: tuple[SearchType, ...] = ("tasks", "journal", "facts", "memories", "messages", "goals")
+SearchType = Literal["tasks", "journal", "facts", "memories", "messages", "goals", "documents"]
+ALL_TYPES: tuple[SearchType, ...] = (
+    "tasks",
+    "journal",
+    "facts",
+    "memories",
+    "messages",
+    "goals",
+    "documents",
+)
 OBJECT_TYPE = {
     "tasks": "task",
     "journal": "journal",
@@ -36,10 +45,12 @@ OBJECT_TYPE = {
     "memories": "memory",
     "messages": "message",
     "goals": "goal",
+    "documents": "document",
 }
 _Column = ColumnElement[Any] | InstrumentedAttribute[Any]
 HEADLINE = "StartSel=«, StopSel=», MaxWords=30, MinWords=10, MaxFragments=2"
 SNIPPET_CHARS = 240
+DOCUMENT_SNIPPET_SOURCE_CHARS = 20_000
 
 
 class SearchHit(BaseModel):
@@ -194,6 +205,24 @@ def _branches(
                 tsquery,
                 object_ids("goals"),
             ).where(Goal.user_id == uid, Goal.space_id.in_(spaces))
+        )
+    if want("documents"):
+        # Documents need the "documents" read right (agents); the owner has it everywhere.
+        readable = [s for s in spaces if ctx.principal.can(s, "documents", "read")]
+        branches.append(
+            _branch(
+                "document",
+                Document,
+                Document.title,
+                # Bounded: highlighting runs on every matching row, documents can be long.
+                func.left(
+                    Document.title + " " + func.coalesce(Document.extracted_text, ""),
+                    DOCUMENT_SNIPPET_SOURCE_CHARS,
+                ),
+                Document.created_at,
+                tsquery,
+                object_ids("documents"),
+            ).where(Document.user_id == uid, Document.space_id.in_(readable))
         )
     return branches
 

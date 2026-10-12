@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.config import get_settings
 from lifeos.db.session import Database
 from lifeos.logging import get_logger
+from lifeos.modules.documents.extraction import Extractor, build_extractor
+from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.llm import build_provider
 from lifeos.modules.llm.base import LLMProvider
 from lifeos.modules.retrieval.embedders import Embedder, build_embedder
@@ -19,6 +21,8 @@ _db: Database | None = None
 _llm: LLMProvider | None = None
 _embedder: Embedder | None = None
 _embedder_built = False
+_extractor: Extractor | None = None
+_extractor_built = False
 
 
 def llm() -> LLMProvider:
@@ -34,6 +38,18 @@ def embedder() -> Embedder | None:
         _embedder = build_embedder(get_settings())
         _embedder_built = True
     return _embedder
+
+
+def extractor() -> Extractor | None:
+    global _extractor, _extractor_built
+    if not _extractor_built:
+        _extractor = build_extractor(get_settings())
+        _extractor_built = True
+    return _extractor
+
+
+def document_store() -> DocumentStore:
+    return DocumentStore(get_settings())
 
 
 def database() -> Database:

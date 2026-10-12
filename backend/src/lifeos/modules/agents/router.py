@@ -18,7 +18,11 @@ class AgentOut(BaseModel):
     label: str
     description: str
     resources: list[str]
+    # Resources the agent cannot do without, still to be granted in this space.
     missing_permissions: list[str]
+    # Optional resources (e.g. receipts for the finance agent) not granted: the agent
+    # works without them, with less context.
+    missing_optional: list[str] = []
 
 
 class AccessUpdate(BaseModel):
@@ -31,15 +35,15 @@ async def _describe(ctx: CtxDep, space_id: uuid.UUID) -> list[AgentOut]:
     result = []
     for spec in AGENT_SPECS.values():
         agent = await agent_principal(ctx.db, ctx.principal.user_id, spec.name)
+        missing = [r for r in spec.resources if not agent.can(space_id, r, "read")]
         result.append(
             AgentOut(
                 name=spec.name,
                 label=spec.label,
                 description=spec.description,
                 resources=list(spec.resources),
-                missing_permissions=[
-                    r for r in spec.resources if not agent.can(space_id, r, "read")
-                ],
+                missing_permissions=[r for r in missing if r not in spec.optional_resources],
+                missing_optional=[r for r in missing if r in spec.optional_resources],
             )
         )
     return result

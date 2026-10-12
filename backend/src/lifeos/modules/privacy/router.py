@@ -1,4 +1,8 @@
-"""Complete export of the owner's data (JSON)."""
+"""Complete export of the owner's data (JSON).
+
+Documents are exported as metadata and extracted text: the encrypted originals are
+downloaded one by one (`GET /v1/documents/{id}/original`), never bundled here.
+"""
 
 from typing import Any
 
@@ -12,6 +16,8 @@ from lifeos.api.deps import CtxDep
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat.models import Conversation, Message
+from lifeos.modules.documents.models import Document
+from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
 from lifeos.modules.guardian.models import AgentPermission
 from lifeos.modules.identity.models import Space
 from lifeos.modules.journal.models import JournalEntry
@@ -54,6 +60,11 @@ async def export(ctx: CtxDep) -> JSONResponse:
     for memory in memories:
         memory["revisions"] = by_memory.get(memory["id"], [])
 
+    documents = await rows(Document)
+    for document in documents:
+        # Where the encrypted original lies on the volume is internal, not personal data.
+        document["original_available"] = document.pop("storage_key") is not None
+
     permissions = await ctx.db.scalars(
         select(AgentPermission).where(AgentPermission.user_id == uid)
     )
@@ -76,6 +87,10 @@ async def export(ctx: CtxDep) -> JSONResponse:
         "memories": memories,
         "conversations": await rows(Conversation),
         "messages": await rows(Message),
+        "documents": documents,
+        "finance_categories": await rows(FinanceCategory),
+        "finance_category_rules": await rows(CategoryRule),
+        "transactions": await rows(Transaction),
         "agent_permissions": [_row(p) for p in permissions],
     }
     await audit.record(

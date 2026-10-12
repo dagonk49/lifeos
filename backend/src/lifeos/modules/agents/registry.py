@@ -16,6 +16,13 @@ class AgentSpec:
     resources: tuple[str, ...]
     instructions: str
     keywords: tuple[str, ...]
+    # Resources the agent can do without: missing ones only shrink its context (e.g. the
+    # finance agent works on transactions alone, receipts need their own permission).
+    optional_resources: tuple[str, ...] = ()
+
+    def required_missing(self, missing: list[str]) -> bool:
+        """True when a missing permission prevents the agent from working at all."""
+        return any(resource not in self.optional_resources for resource in missing)
 
 
 AGENT_SPECS: dict[str, AgentSpec] = {
@@ -85,6 +92,31 @@ AGENT_SPECS: dict[str, AgentSpec] = {
                 "mémoire",
                 "j'avais dit",
                 "sais-tu",
+            ),
+        ),
+        AgentSpec(
+            name="finance",
+            label="Finances",
+            description="Suit le budget du mois, les dépenses par catégorie et les tickets.",
+            resources=("finances", "documents"),
+            optional_resources=("documents",),
+            instructions=(
+                "Rôle : agent finances. Factuel et prudent. Appuie-toi uniquement sur le budget"
+                " du mois, les transactions et les tickets fournis, et cite les chiffres"
+                " utilisés. Pour toute recommandation, expose tes hypothèses et les données sur"
+                " lesquelles elle repose, et indique ton degré d'incertitude ; si les données"
+                " manquent ou sont incomplètes (dépenses non classées, autre devise), dis-le."
+                " Tu ne déplaces jamais d'argent : aucun paiement, virement ni engagement ; tu"
+                " proposes, la personne décide et agit elle-même."
+            ),
+            keywords=(
+                "budget",
+                "dépense",
+                "dépensé",
+                "argent",
+                "économiser",
+                "épargne",
+                "achat",
             ),
         ),
     )
