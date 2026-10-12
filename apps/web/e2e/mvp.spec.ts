@@ -69,7 +69,7 @@ test("MVP journey: enrol, organise, converse, remember, search, sign in again", 
 
   // Assistant with consent: a reply from the (fake) provider.
   await nav(page, "Assistant");
-  await page.getByRole("button", { name: "Nouvelle conversation" }).click();
+  await page.getByRole("button", { name: "Nouvelle conversation", exact: true }).click();
   await page.getByLabel("Votre message").fill("Que dois-je faire aujourd'hui ?");
   await page.getByRole("button", { name: "Envoyer" }).click();
   await expect(messages(page).getByText("[fake] Que dois-je faire aujourd'hui ?")).toBeVisible();
