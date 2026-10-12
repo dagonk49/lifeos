@@ -78,3 +78,14 @@ def test_future_and_ancient_dates_are_ignored() -> None:
 )
 def test_amounts(text: str, value: str | None) -> None:
     assert parse_amount(text) == (Decimal(value) if value else None)
+
+
+def test_words_merged_by_ocr_are_still_understood() -> None:
+    text = "PHARMACIE CENTRALE\n11/10/2026\nSOUSTOTAL 9,10\nTOTALHT 8,63\nTOTALTTC 9,10\nCB 9,10"
+    proposal = parse_receipt(text, TODAY)
+    assert proposal.total is not None
+    assert proposal.total.value == Decimal("9.10")
+    assert proposal.total.line == "TOTALTTC 9,10"
+    assert proposal.confidence == 1.0
+    net = parse_receipt("EPICERIE\n10/10/2026\nNETAPAYER 4,20\nESPECES 5,00", TODAY)
+    assert net.total is not None and net.total.value == Decimal("4.20")

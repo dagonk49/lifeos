@@ -144,7 +144,8 @@ services:
     restart: unless-stopped
     volumes: [models:/models:ro]
     networks: [internal]
-    # EmbeddingGemma-300m (ONNX, fp32): about 1.2 GB on disk, 1.5-2.5 GB in RAM at peak.
+    # EmbeddingGemma-300m (ONNX, fp32): about 1.2 GB on disk, 1.5-2.5 GB in RAM at peak;
+    # OCR adds about 0.3 GB while a document is read (one at a time).
     mem_limit: 3g
     cpus: 4
 

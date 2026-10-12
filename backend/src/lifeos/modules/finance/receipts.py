@@ -14,12 +14,15 @@ from decimal import Decimal, InvalidOperation
 # Amount: 1 234,56 / 1234.56 / 12,5 ; optional € or EUR.
 _AMOUNT = r"(?<![\d,.])(\d{1,3}(?:[ \u00a0.]\d{3})*|\d+)[,.](\d{1,2})(?!\d)"
 _AMOUNT_RE = re.compile(_AMOUNT)
-_TOTAL_WORDS = re.compile(r"\b(total|montant|somme due|a payer)\b")
+# OCR often merges words ("TOTALTTC", "NETAPAYER"): spaces are optional.
+_TOTAL_WORDS = re.compile(r"\b(total|montant|somme\s*due|net\s*a\s*payer|a\s*payer)")
 # Payment lines: the amount paid by card equals the total, but cash tendered may exceed it.
 _PAYMENT_WORDS = re.compile(r"\b(carte bancaire|cb|visa|mastercard|especes|paiement)\b")
 # Lines that look like a total but are not the amount paid.
-_NOT_TOTAL = re.compile(r"\b(sous.total|total ht|ht\b|tva|remise|economie|rendu|fidelite)")
-_STRONG_TOTAL = re.compile(r"\b(net a payer|total ttc|total a payer|montant ttc|a payer)\b")
+_NOT_TOTAL = re.compile(r"\b(sous.?total|total\s*ht|ht\b|tva|remise|economie|rendu|fidelite)")
+_STRONG_TOTAL = re.compile(
+    r"\b(net\s*a\s*payer|total\s*ttc|total\s*a\s*payer|montant\s*ttc|a\s*payer)"
+)
 _DATE_RE = re.compile(r"\b(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2}|\d{4})\b")
 _VAT_RE = re.compile(r"\btva\b\D{0,12}(\d{1,2}(?:[,.]\d{1,2})?)\s*%")
 _SKIP_MERCHANT = re.compile(

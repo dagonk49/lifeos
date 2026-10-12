@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Two images from one Dockerfile (ADR 0005, ADR 0006):
 # - target `app` (default): api, worker, scheduler and migrations;
-# - target `ml`: the internal embedding service (ONNX Runtime, no PyTorch).
+# - target `ml`: the internal embedding and text extraction service (ONNX Runtime, no
+#   PyTorch; Tesseract OCR).
 
 FROM python:3.13-slim AS build
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -21,6 +22,11 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 FROM runtime AS ml
+# OCR (ADR 0008): Tesseract 5 with the French model only (no recommends: no English nor
+# orientation data, no X11 libraries).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=build-ml /app/.venv /app/.venv
 # Owned by the service user: Docker copies this ownership into a new, empty named
 # volume mounted here, so `ml-download` (uid 10001) can write the model.

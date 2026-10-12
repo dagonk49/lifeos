@@ -47,7 +47,8 @@ from lifeos.modules.documents.sniff import sniff
 
 TextSource = Literal["pdf", "ocr", "text"]
 SANITIZED_MIMES = ("image/png", "image/jpeg", "image/webp")
-TIMEOUT_S = 300.0
+# The ml service queues a request up to 90 s, then reads it within 240 s.
+TIMEOUT_S = 360.0
 
 
 @dataclass(frozen=True)

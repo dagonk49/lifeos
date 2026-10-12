@@ -146,7 +146,8 @@ jobs:
 
   ml-model:
     # The real embedding model: downloaded once (cached), then used offline on a read-only
-    # cache, as in production. Also prints calibration distances and throughput.
+    # cache, as in production. Also prints calibration distances and throughput. And the
+    # local text extraction (PDF text layer, Tesseract OCR in French, image sanitizing).
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -162,13 +163,17 @@ jobs:
           enable-cache: true
       - name: Install (with the ml extra)
         run: uv sync --locked --extra ml
+      - name: OCR engine (Tesseract with the French model) and a font with accents
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra fonts-dejavu-core
       - uses: actions/cache@v4
         with:
           path: models
           key: embeddings-google-embeddinggemma-300m-v1
       - name: Download the model
         run: uv run lifeos-ml download
-      - name: Real model tests (offline, read-only cache)
+      - name: Real model and extraction tests (offline, read-only cache)
         run: |
           chmod -R a-w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
           HF_HUB_OFFLINE=1 LIFEOS_TEST_REAL_MODEL=1 uv run pytest -q -s tests_ml
@@ -190,6 +195,8 @@ jobs:
           docker exec ml python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).read())"
           docker logs ml 2>&1 | tail -5
           docker rm -f ml
+      - name: The ml image reads a French receipt (OCR), without network
+        run: docker run --rm --network none --read-only --tmpfs /tmp lifeos-ml:ci lifeos-ml selftest
       - name: Validate Compose file
         working-directory: infra
         run: |
