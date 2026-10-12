@@ -302,7 +302,11 @@ async def update_document(
             raise ProblemError(409, "document_processing", "The document is still being processed")
         text = clean_text(changes["extracted_text"])
         categories, analysis = analyse(
-            text, document.purpose, owner_today(ctx.user.timezone), document.analysis
+            text,
+            document.purpose,
+            owner_today(ctx.user.timezone),
+            document.analysis,
+            title=document.title,
         )
         document.extracted_text = text
         document.text_corrected_at = utcnow()
@@ -312,6 +316,17 @@ async def update_document(
             # The owner typed the text of an unreadable document: it is usable now.
             document.status = "ready"
             document.error = None
+    elif "title" in changes and document.status == "ready":
+        # A new title can reveal what the document is (« Ordonnance »): classified again.
+        categories, analysis = analyse(
+            document.extracted_text or "",
+            document.purpose,
+            owner_today(ctx.user.timezone),
+            document.analysis,
+            title=document.title,
+        )
+        document.sensitivity = categories
+        document.analysis = analysis
     await ctx.db.flush()
     await _audit(ctx, "document.update", document, fields=",".join(sorted(changes)))
     return document

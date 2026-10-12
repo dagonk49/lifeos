@@ -89,3 +89,13 @@ def test_words_merged_by_ocr_are_still_understood() -> None:
     assert proposal.confidence == 1.0
     net = parse_receipt("EPICERIE\n10/10/2026\nNETAPAYER 4,20\nESPECES 5,00", TODAY)
     assert net.total is not None and net.total.value == Decimal("4.20")
+
+
+def test_absurd_totals_are_not_amounts() -> None:
+    from lifeos.modules.finance.service import as_amount
+
+    proposal = parse_receipt("CARREFOUR\nTOTAL TTC 12345678901234567890123456789,99", TODAY)
+    assert proposal.total is None
+    assert as_amount("12345678901234567890123456789.99") is None
+    assert as_amount("1e400") is None and as_amount("NaN") is None and as_amount("-3") is None
+    assert as_amount("12.5") == Decimal("12.50")

@@ -12,7 +12,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 # Amount: 1 234,56 / 1234.56 / 12,5 ; optional € or EUR.
-_AMOUNT = r"(?<![\d,.])(\d{1,3}(?:[ \u00a0.]\d{3})*|\d+)[,.](\d{1,2})(?!\d)"
+# The integer part is bounded: a longer number is not an amount on a receipt.
+_AMOUNT = r"(?<![\d,.])(\d{1,3}(?:[ \u00a0.]\d{3}){0,3}|\d{1,12})[,.](\d{1,2})(?!\d)"
 _AMOUNT_RE = re.compile(_AMOUNT)
 # OCR often merges words ("TOTALTTC", "NETAPAYER"): spaces are optional.
 _TOTAL_WORDS = re.compile(r"\b(total|montant|somme\s*due|net\s*a\s*payer|a\s*payer)")

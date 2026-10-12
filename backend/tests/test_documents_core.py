@@ -39,6 +39,23 @@ CB **** **** **** 1234
 Merci de votre visite"""
 PHARMACY_RECEIPT = "PHARMACIE DU CENTRE\nDentifrice 3,90\nTOTAL 3,90 EUR\nCB"
 NOTE = "Liste de courses : tomates, pâtes, café. Appeler Paul pour le week-end."
+# Documents that do not say what they are (no « ordonnance », no IBAN...).
+PRESCRIPTION_PLAIN = """Docteur Paul Bernard — RPPS 10001234567
+Le 02/10/2026
+Sertraline 50 mg : 1 comprimé le matin pendant 3 mois"""
+ULTRASOUND = """COMPTE RENDU D'ÉCHOGRAPHIE ABDOMINALE
+Indication : douleurs. Conclusion : stéatose hépatique modérée."""
+LAB_PLAIN = """LABORATOIRE DES ALPES
+Hémoglobine 13,2 g/dL — Glycémie 1,02 g/L — HbA1c 6,1 % — Sérologie VIH négative"""
+SICK_LEAVE = "AVIS D'ARRÊT DE TRAVAIL — prolongation jusqu'au 20/10/2026"
+CPAM = """L'Assurance Maladie — Attestation de droits
+Affection de longue durée (ALD) : prise en charge à 100 %"""
+PSY = "Suivi en psychiatrie depuis l'hospitalisation de mars, idées suicidaires en baisse."
+STATEMENT_PLAIN = """RELEVÉ DE VOS COMPTES — Compte chèques n° 0001234
+Ancien solde au 01/09 : 1 020,00 € — PRLV SEPA EDF 82,00 — VIR SEPA SALAIRE 2 100,00"""
+BIRTH = "EXTRAIT D'ACTE DE NAISSANCE — Commune de Lyon"
+TAX = "Avis d'impôt 2026 sur les revenus de 2025 — Numéro fiscal : 12 34 567 890 123"
+DOSED_RECEIPT = "PHARMACIE DU CENTRE\nDoliprane 1000 mg 8 comprimés 2,18\nTOTAL 2,18 EUR"
 MEETING = "Compte rendu de la réunion d'équipe : livraison de la version 2 en novembre."
 
 
@@ -56,6 +73,19 @@ MEETING = "Compte rendu de la réunion d'équipe : livraison de la version 2 en 
         (NOTE, []),
         (MEETING, []),
         ("Carte Vitale : 1 90 02 69 123 456 78", ["health"]),
+        (PRESCRIPTION_PLAIN, ["health"]),
+        (ULTRASOUND, ["health"]),
+        (LAB_PLAIN, ["health"]),
+        (SICK_LEAVE, ["health"]),
+        (CPAM, ["health"]),
+        (PSY, ["health"]),
+        (STATEMENT_PLAIN, ["bank"]),
+        (BIRTH, ["identity"]),
+        (TAX, ["identity"]),
+        # A pharmacy receipt with a medicine: not enough on its own (the finance view needs
+        # receipts), unless more health signals appear.
+        (DOSED_RECEIPT, []),
+        ("Compte rendu du conseil de classe : bons résultats en mathématiques.", []),
     ],
 )
 def test_local_sensitivity_filter(text: str, expected: list[str]) -> None:

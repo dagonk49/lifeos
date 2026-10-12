@@ -76,11 +76,17 @@ def owner_today(timezone: str | None) -> date:
 
 
 def analyse(
-    text: str, purpose: str, today: date, previous: dict[str, Any] | None
+    text: str,
+    purpose: str,
+    today: date,
+    previous: dict[str, Any] | None,
+    *,
+    title: str | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     """Local, deterministic analysis of a document's text: sensitivity categories and
-    reasons, and the receipt proposal for a receipt (stored, never applied)."""
-    found = classify(text)
+    reasons (the title counts too: « Ordonnance Dr X »), and the receipt proposal for a
+    receipt (stored, never applied)."""
+    found = classify(f"{title}\n{text}" if title else text)
     analysis: dict[str, Any] = dict(previous or {})
     analysis["sensitivity_reasons"] = found.reasons
     if purpose == "receipt":
@@ -231,7 +237,11 @@ async def _save(
             document.sha256 = hashlib.sha256(data).hexdigest()
             replaced = True
         categories, analysis = analyse(
-            text, document.purpose, owner_today(timezone), document.analysis
+            text,
+            document.purpose,
+            owner_today(timezone),
+            document.analysis,
+            title=document.title,
         )
         document.extracted_text = text
         document.text_source = extraction.source

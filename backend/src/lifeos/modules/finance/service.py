@@ -660,15 +660,22 @@ async def delete_transaction(ctx: Ctx, transaction_id: uuid.UUID) -> None:
 # --- Receipts --------------------------------------------------------------------------------
 
 
+# numeric(14, 2): anything larger was misread (or forged) and is not proposed.
+_MAX_AMOUNT = Decimal("1e12")
+
+
 def as_amount(value: object) -> Decimal | None:
-    """A positive amount read from a stored analysis (strings), or None."""
+    """A positive amount read from a stored analysis (strings), or None. Never raises:
+    receipts are untrusted input."""
     if value is None:
         return None
     try:
         amount = Decimal(str(value))
+        if not amount.is_finite() or amount <= 0 or amount >= _MAX_AMOUNT:
+            return None
+        return _q(amount)
     except InvalidOperation:
         return None
-    return _q(amount) if amount.is_finite() and amount > 0 else None
 
 
 def as_date(value: object) -> date | None:

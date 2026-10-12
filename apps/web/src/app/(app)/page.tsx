@@ -7,7 +7,7 @@ import { TaskRow } from "@/components/TaskRow";
 import { UsageMeter } from "@/components/UsageMeter";
 import { Alert, Badge, Card, Empty, PageHeader, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
-import { formatMoney, monthLabel, toCents } from "@/lib/finance";
+import { formatMoney, ofMonth, toCents } from "@/lib/finance";
 import { formatDate, formatTime } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { BudgetSnapshot, Dashboard } from "@/lib/types";
@@ -185,7 +185,7 @@ export default function DashboardPage() {
         </Card>
 
         {d.budget && (
-          <Card title={`Budget de ${monthLabel(d.budget.month)}`} footer={asOf}>
+          <Card title={`Budget ${ofMonth(d.budget.month)}`} footer={asOf}>
             <BudgetSummaryCard budget={d.budget} />
           </Card>
         )}

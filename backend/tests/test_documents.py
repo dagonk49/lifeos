@@ -909,3 +909,23 @@ def test_document_jobs_are_scheduled() -> None:
 
     jobs = {job.id: job for job in build_scheduler().get_jobs()}
     assert "process_pending_documents" in jobs and "purge_document_originals" in jobs
+
+
+async def test_the_title_counts_for_sensitivity(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    text = "Paracétamol 1 g, trois fois par jour.".encode()
+    document = await created(client, spaces["personal"], text, title="Notes")
+    assert await process(database, store, extractor, document["id"], doc_settings) == "ready"
+    plain = (await client.get(f"/v1/documents/{document['id']}")).json()
+    assert plain["sensitivity"] == []
+    renamed = await client.patch(
+        f"/v1/documents/{document['id']}", json={"title": "Ordonnance du Dr Petit"}
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["sensitivity"] == ["health"]
