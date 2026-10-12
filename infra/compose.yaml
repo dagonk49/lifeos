@@ -1,0 +1,286 @@
+# LifeOS — Docker Compose (ADR 0005). Usage: see docs/exploitation.md
+# Memory limits are sized for a 10 GB VM (4 cores / 8 threads): see docs/exploitation.md.
+name: lifeos
+
+x-backend: &backend
+  build: { context: ../backend, target: app }
+  image: lifeos-backend:local
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    LIFEOS_DATABASE_HOST: postgres
+    LIFEOS_REDIS_URL: redis://redis:6379/0
+    LIFEOS_DOCUMENTS_DIR: /data/documents
+  secrets:
+    - lifeos_database_password
+    - lifeos_gemini_api_key
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: &logging
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+x-ml: &ml
+  build: { context: ../backend, target: ml }
+  image: lifeos-ml:local
+  env_file: .env
+  environment:
+    # The ml service never calls the LLM nor the database.
+    LIFEOS_LLM_PROVIDER: disabled
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+x-stt: &stt
+  build: { context: ../backend, target: stt }
+  image: lifeos-stt:local
+  env_file: .env
+  environment:
+    # The stt service never calls the LLM nor the database.
+    LIFEOS_LLM_PROVIDER: disabled
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg17
+    restart: unless-stopped
+    # Tuned for a 10 GB VM shared with the other services (SSD storage assumed).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=50
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_parallel_maintenance_workers=2
+    mem_limit: 2g
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: lifeos
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+    secrets: [postgres_superuser_password, lifeos_database_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    # Shared memory for parallel index builds (HNSW): at least maintenance_work_mem.
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lifeos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # Not a source of truth (ADR 0004): the append-only file only limits lost queued jobs.
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    mem_limit: 256m
+    volumes: [redisdata:/data]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    mem_limit: 512m
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+
+  api:
+    <<: *backend
+    # Documents (F10, ADR 0008): encrypted originals on a volume, key in its own secret.
+    secrets: &documents-secrets
+      - lifeos_database_password
+      - lifeos_gemini_api_key
+      - lifeos_documents_key
+    volumes: &documents-volume [documents:/data/documents]
+    mem_limit: 768m
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    # `edge` gives Traefik access and outbound HTTPS (LLM provider).
+    networks: [internal, edge]
+
+  worker:
+    <<: *backend
+    command: ["dramatiq", "lifeos.workers.actors", "--processes", "1", "--threads", "4"]
+    healthcheck: { disable: true }
+    # Extraction, sanitized images and retention of the document originals.
+    secrets: *documents-secrets
+    volumes: *documents-volume
+    mem_limit: 768m
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [internal, egress]
+
+  scheduler:
+    <<: *backend
+    command: ["lifeos-scheduler"]
+    healthcheck: { disable: true }
+    mem_limit: 256m
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [internal]
+
+  # Local embedding model (ADR 0006), loaded once for the api and the worker. No route
+  # to the outside world: the model must have been downloaded first (`ml-download`).
+  ml:
+    <<: *ml
+    restart: unless-stopped
+    volumes: [models:/models:ro]
+    networks: [internal]
+    # EmbeddingGemma-300m (ONNX, fp32): about 1.2 GB on disk, 1.5-2.5 GB in RAM at peak;
+    # OCR adds about 0.3 GB while a document is read (one at a time).
+    mem_limit: 3g
+    cpus: 4
+
+  # One-time download of the embedding model: docker compose --profile setup run --rm ml-download
+  ml-download:
+    <<: *ml
+    profiles: [setup]
+    command: ["lifeos-ml", "download"]
+    restart: "no"
+    environment:
+      LIFEOS_LLM_PROVIDER: disabled
+      HF_HUB_OFFLINE: "0"
+    secrets: [lifeos_hf_token]
+    volumes: [models:/models]
+    networks: [egress]
+    mem_limit: 3g
+
+  # Local speech-to-text (ADR 0009): dictations only. No route to the outside world: the
+  # model must have been downloaded first (`stt-download`). NVIDIA GPU: compose.gpu.yaml.
+  stt:
+    <<: *stt
+    restart: unless-stopped
+    volumes: [stt-models:/models:ro]
+    networks: [internal]
+    # Whisper large-v3-turbo (int8): about 1.6 GB on disk, 1.6-1.9 GB in RAM while loaded;
+    # unloaded after LIFEOS_STT_IDLE_UNLOAD_S without a dictation.
+    mem_limit: 2560m
+    cpus: 4
+
+  # One-time download of the speech model: docker compose --profile setup run --rm stt-download
+  stt-download:
+    <<: *stt
+    profiles: [setup]
+    command: ["lifeos-stt", "download"]
+    restart: "no"
+    environment:
+      LIFEOS_LLM_PROVIDER: disabled
+      HF_HUB_OFFLINE: "0"
+    volumes: [stt-models:/models]
+    networks: [egress]
+    mem_limit: 1g
+
+  web:
+    build: ../apps/web
+    image: lifeos-web:local
+    restart: unless-stopped
+    mem_limit: 512m
+    read_only: true
+    tmpfs: [/tmp, /app/.next/cache]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [edge]
+    logging: *logging
+
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    # File provider only: the Docker socket is never mounted.
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    environment:
+      LIFEOS_DOMAIN: ${LIFEOS_DOMAIN:?set LIFEOS_DOMAIN in infra/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/certs:ro
+    networks: [edge]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_healthy }
+    logging: *logging
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    networks: [internal, monitoring]
+    # Local access only (e.g. through an SSH tunnel).
+    ports: ["127.0.0.1:9090:9090"]
+    mem_limit: 512m
+    logging: *logging
+
+networks:
+  # No route to the outside world: databases are unreachable except from LifeOS services.
+  internal:
+    internal: true
+  edge: {}
+  egress: {}
+  monitoring: {}
+
+volumes:
+  pgdata:
+  redisdata:
+  prometheusdata:
+  # Embedding model files (re-downloadable: excluded from backups).
+  models:
+  # Speech model files (re-downloadable: excluded from backups).
+  stt-models:
+  # Encrypted document originals (AES-256-GCM, key in the lifeos_documents_key secret).
+  documents:
+
+secrets:
+  postgres_superuser_password:
+    file: ./secrets/postgres_superuser_password
+  lifeos_database_password:
+    file: ./secrets/lifeos_database_password
+  lifeos_gemini_api_key:
+    file: ./secrets/lifeos_gemini_api_key
+  # AES-256-GCM key of the document originals (infra/scripts/init-secrets.sh).
+  lifeos_documents_key:
+    file: ./secrets/lifeos_documents_key
+  # Optional (gated models only): a Hugging Face read token, used by ml-download.
+  lifeos_hf_token:
+    file: ./secrets/lifeos_hf_token

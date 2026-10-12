@@ -1,0 +1,20 @@
+# Transcription on an NVIDIA GPU (ADR 0009), e.g. a GTX 1050 Ti (Pascal, 4 GB):
+#   docker compose -f compose.yaml -f compose.gpu.yaml up -d
+# Needs, on the host: the NVIDIA driver (570 or 580 series: the last ones supporting
+# Pascal cards) and the NVIDIA Container Toolkit. If the GPU cannot be used, the service
+# falls back to the CPU on its own. See docs/exploitation.md.
+services:
+  stt:
+    build: { context: ../backend, target: stt-gpu }
+    image: lifeos-stt-gpu:local
+    environment:
+      LIFEOS_STT_DEVICE: cuda
+    # The model lives in the GPU memory (about 1 GB): less RAM needed.
+    mem_limit: 1536m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

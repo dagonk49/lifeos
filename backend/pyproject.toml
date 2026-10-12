@@ -1,0 +1,109 @@
+[project]
+name = "lifeos"
+version = "1.0.0"
+description = "LifeOS backend: API, workers and migrations"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "Apache-2.0"
+dependencies = [
+    "fastapi>=0.143",
+    "uvicorn[standard]>=0.54",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.15",
+    "sqlalchemy[asyncio]>=2.1",
+    "asyncpg>=0.32",
+    "alembic>=1.20",
+    "webauthn>=3.0",
+    "google-genai>=2.29",
+    "dramatiq[redis]>=2.2",
+    "apscheduler>=3.11,<4",
+    "redis>=8.1",
+    "structlog>=26.1",
+    "prometheus-client>=0.26",
+    "pgvector>=0.5",
+    "cryptography>=50.0",
+    "python-multipart>=0.0.20",
+]
+
+[project.optional-dependencies]
+# Only needed by the `ml` service: local embeddings (ONNX Runtime, no PyTorch), and local
+# text extraction (PDF text layer and rendering, image re-encoding; OCR by Tesseract).
+ml = [
+    "fastembed>=0.9,<0.10",
+    "pypdfium2>=5.14,<6",
+    "pillow>=12.3",
+    "pillow-heif>=1.8,<2",
+]
+# Only needed by the `stt` service: local speech-to-text (ADR 0009). Pinned together:
+# PyAV 19 breaks faster-whisper 1.2.1; CTranslate2 4.8 still ships Pascal (sm_61) kernels.
+stt = ["faster-whisper==1.2.1", "ctranslate2==4.8.2", "av==18.1.0"]
+# GPU flavour of the `stt` image (NVIDIA driver >= 570 on the host): cuBLAS only, CTranslate2
+# 4.8 has its own CUDA convolution (no cuDNN).
+stt-gpu = ["nvidia-cublas-cu12==12.8.4.1; sys_platform == 'linux'"]
+
+[project.scripts]
+lifeos-admin = "lifeos.cli:main"
+lifeos-scheduler = "lifeos.workers.scheduler:main"
+lifeos-ml = "lifeos.ml.app:main"
+lifeos-stt = "lifeos.stt.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "httpx>=0.28",
+    "ruff>=0.17",
+    "mypy>=2.4",
+    "cbor2>=5.6",
+    "cryptography>=44",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lifeos"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "RUF", "SIM", "PTH", "N"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+"migrations/**" = ["E501"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["lifeos"]
+
+[[tool.mypy.overrides]]
+module = [
+    "dramatiq.*",
+    "apscheduler.*",
+    # Optional extras (ml, stt): absent from the default environment.
+    "fastembed.*",
+    "pypdfium2.*",
+    "pillow_heif.*",
+    "PIL.*",
+    "faster_whisper.*",
+    "ctranslate2.*",
+    "av.*",
+    "numpy.*",
+]
+ignore_missing_imports = true

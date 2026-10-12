@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+infra/secrets/*
+!infra/secrets/.gitkeep
+!infra/secrets/README.md
+infra/traefik/certs/*
+infra/traefik/dynamic/tls.yml
+!infra/traefik/certs/.gitkeep
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local Redis snapshot (development server started from the repository root)
+dump.rdb

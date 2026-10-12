@@ -1,0 +1,146 @@
+"""Autonomy policy (cahier des charges §5). Deterministic, independent of the LLM.
+
+Instructions found in an e-mail, a web page or an imported document are never an
+authorisation: only the owner's explicit decisions are.
+"""
+
+import uuid
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING
+
+from lifeos.modules.guardian.principal import Principal
+
+if TYPE_CHECKING:
+    from lifeos.modules.guardian.models import Approval
+
+
+class Level(StrEnum):
+    AUTOMATIC = "automatic"  # logged and correctable
+    RULE = "rule"  # under an explicit, revocable standing permission
+    APPROVAL = "approval"  # exact preview + one-off consent
+    REINFORCED = "reinforced"  # adapted authentication; denied by default
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    name: str
+    description: str
+    user_level: Level
+    # None: agents may never perform or propose this action.
+    agent_level: Level | None
+    resource: str | None = None
+    access: str = "write"
+
+
+_SPECS = [
+    ActionSpec("task.create", "Créer une tâche", Level.AUTOMATIC, Level.RULE, "tasks"),
+    ActionSpec("task.update", "Modifier une tâche", Level.AUTOMATIC, Level.RULE, "tasks"),
+    ActionSpec("task.delete", "Supprimer une tâche", Level.AUTOMATIC, Level.APPROVAL, "tasks"),
+    ActionSpec("journal.write", "Écrire dans le journal", Level.AUTOMATIC, None, "journal"),
+    ActionSpec(
+        "journal.apply_proposals",
+        "Enregistrer les tâches et faits proposés à partir du journal",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "journal",
+    ),
+    ActionSpec(
+        "chat.apply_proposals",
+        "Enregistrer les tâches et faits tirés d'une conversation",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "facts",
+    ),
+    ActionSpec(
+        "fact.write", "Enregistrer ou corriger un fait", Level.AUTOMATIC, Level.APPROVAL, "facts"
+    ),
+    ActionSpec(
+        "memory.write", "Créer ou modifier un souvenir", Level.AUTOMATIC, Level.APPROVAL, "memories"
+    ),
+    ActionSpec("memory.delete", "Supprimer un souvenir", Level.AUTOMATIC, None, "memories"),
+    ActionSpec(
+        "goal.write", "Créer ou modifier un objectif", Level.AUTOMATIC, Level.APPROVAL, "goals"
+    ),
+    ActionSpec(
+        "document.write",
+        "Ajouter ou corriger un document",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "documents",
+    ),
+    ActionSpec("document.delete", "Supprimer un document", Level.AUTOMATIC, None, "documents"),
+    # "Classer une dépense" is automatic (cahier des charges §5), logged and correctable.
+    ActionSpec(
+        "finance.write",
+        "Enregistrer ou classer une dépense",
+        Level.AUTOMATIC,
+        Level.APPROVAL,
+        "finances",
+    ),
+    # Data access is checked section by section with the principal's own read rights.
+    ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
+    ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),
+    ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL),
+    ActionSpec(
+        "calendar.update_shared_event",
+        "Modifier un événement partagé",
+        Level.APPROVAL,
+        Level.APPROVAL,
+    ),
+    ActionSpec("document.share", "Partager un document", Level.APPROVAL, Level.APPROVAL),
+    ActionSpec("payment.execute", "Effectuer un paiement", Level.REINFORCED, None),
+    ActionSpec("permission.grant", "Accorder une permission à un agent", Level.REINFORCED, None),
+    ActionSpec("space.cloud_consent", "Modifier le consentement cloud", Level.REINFORCED, None),
+    ActionSpec("data.bulk_delete", "Destruction importante de données", Level.REINFORCED, None),
+]
+
+ACTIONS: dict[str, ActionSpec] = {spec.name: spec for spec in _SPECS}
+
+
+@dataclass(frozen=True)
+class Decision:
+    allowed: bool
+    code: str
+    level: Level | None = None
+
+
+def evaluate(
+    principal: Principal,
+    action: str,
+    space_id: uuid.UUID | None,
+    approval: "Approval | None" = None,
+) -> Decision:
+    spec = ACTIONS.get(action)
+    if spec is None:
+        return Decision(False, "unknown_action")
+    if space_id is not None and space_id not in principal.space_ids:
+        return Decision(False, "space_forbidden")
+
+    if principal.kind == "agent":
+        if spec.agent_level is None:
+            return Decision(False, "forbidden_for_agents")
+        level = spec.agent_level
+        if spec.resource is not None and (
+            space_id is None or not principal.can(space_id, spec.resource, spec.access)
+        ):
+            return Decision(False, "no_permission", level)
+    else:
+        level = spec.user_level
+
+    if level in (Level.AUTOMATIC, Level.RULE):
+        return Decision(True, "allowed", level)
+    if level == Level.APPROVAL:
+        if (
+            approval is not None
+            and approval.status == "approved"
+            and approval.action == action
+            and approval.user_id == principal.user_id
+            and approval.space_id == space_id
+        ):
+            return Decision(True, "approved", level)
+        return Decision(False, "approval_required", level)
+    # REINFORCED: only the owner, with a recent passkey authentication.
+    if principal.kind == "user" and principal.recent_auth:
+        return Decision(True, "allowed", level)
+    return Decision(False, "reauthentication_required", level)

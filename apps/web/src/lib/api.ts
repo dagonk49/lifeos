@@ -1,0 +1,174 @@
+import type { Problem } from "./types";
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly problem: Problem | null;
+
+  constructor(status: number, problem: Problem | null) {
+    super(problem?.detail ?? problem?.title ?? `HTTP ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = problem?.code ?? "http_error";
+    this.problem = problem;
+  }
+}
+
+export interface RequestOptions {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  body?: unknown;
+  headers?: Record<string, string>;
+  /** Adds an Idempotency-Key so that a retried creation is not duplicated. */
+  idempotent?: boolean;
+  signal?: AbortSignal;
+}
+
+export function newIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.idempotent) headers["Idempotency-Key"] = newIdempotencyKey();
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    credentials: "same-origin",
+    signal: options.signal,
+  });
+  if (response.status === 204) return undefined as T;
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(response.status, (data as Problem | null) ?? null);
+  return data as T;
+}
+
+/**
+ * Multipart upload (documents, dictations). The browser sets the Content-Type with its
+ * boundary; the server checks the type by signature, never by name or declared type.
+ */
+export async function upload<T>(
+  path: string,
+  form: FormData,
+  options: { idempotent?: boolean; signal?: AbortSignal } = {},
+): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (options.idempotent) headers["Idempotency-Key"] = newIdempotencyKey();
+  const response = await fetch(path, {
+    method: "POST",
+    headers,
+    body: form,
+    credentials: "same-origin",
+    signal: options.signal,
+  });
+  const data: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(response.status, (data as Problem | null) ?? null);
+  return data as T;
+}
+
+export function isApiError(error: unknown, code?: string): error is ApiError {
+  return error instanceof ApiError && (code === undefined || error.code === code);
+}
+
+/**
+ * Runs `operation`; if the server asks for a recent authentication ("validation
+ * renforcée"), runs `reauthenticate` (a passkey ceremony) and retries once.
+ */
+export async function withReauth<T>(
+  operation: () => Promise<T>,
+  reauthenticate: () => Promise<unknown>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isApiError(error, "reauthentication_required")) throw error;
+    await reauthenticate();
+    return operation();
+  }
+}
+
+const MESSAGES: Record<string, string> = {
+  unauthenticated: "Session expirée : reconnectez-vous.",
+  cloud_consent_required:
+    "L'assistant IA n'est pas activé pour cet espace. Activez-le dans les réglages.",
+  llm_unavailable: "L'assistant IA est indisponible pour le moment. Vos données restent accessibles.",
+  llm_budget_exceeded: "Le budget de l'assistant IA est atteint.",
+  llm_daily_quota_reached:
+    "Le quota gratuit du jour est atteint. Il se renouvelle chaque jour vers 9 h (heure de Paris).",
+  llm_quota_exceeded:
+    "Le quota du fournisseur IA est épuisé pour le moment. Rien n'est facturé ; réessayez plus tard.",
+  llm_billing_exhausted: "Le crédit prépayé de l'assistant IA est épuisé.",
+  llm_paused: "L'assistant IA est en pause (arrêt d'urgence). Réactivez-le dans les réglages.",
+  cloud_call_denied: "Cet appel à l'IA n'est pas autorisé.",
+  agent_permission_required:
+    "Cet agent n'a pas encore accès aux données nécessaires dans cet espace.",
+  nothing_to_consolidate: "Aucun nouveau message à consolider dans cette conversation.",
+  review_in_future: "Cette période n'a pas encore commencé.",
+  goal_target_required: "Un objectif mesurable demande une valeur cible.",
+  goal_not_found: "Cet objectif est introuvable ou a été supprimé.",
+  milestone_not_found: "Ce jalon n'existe plus.",
+  goal_space_mismatch: "La tâche et l'objectif doivent appartenir au même espace.",
+  goal_start_required: "Un objectif mesurable demande une valeur de départ.",
+  goal_dates_invalid: "L'échéance doit être postérieure à la date de début.",
+  fact_not_active: "Ce fait n'est plus actif.",
+  invalid_pair: "Choisissez deux éléments distincts du même espace.",
+  llm_blocked: "Le fournisseur IA a refusé de répondre à cette demande.",
+  llm_invalid_output: "La réponse de l'IA n'a pas pu être validée. Réessayez.",
+  approval_required: "Cette action demande votre approbation explicite.",
+  reauthentication_required: "Confirmez votre identité avec votre passkey.",
+  version_conflict: "Cet élément a été modifié ailleurs : rechargez la page.",
+  memory_protected: "Ce souvenir est protégé : confirmez la suppression.",
+  last_passkey: "Impossible de révoquer votre dernière passkey.",
+  passkey_verification_failed: "La vérification de la passkey a échoué.",
+  enrollment_token_invalid: "Lien d'enrôlement invalide ou expiré.",
+  validation_error: "Certaines valeurs saisies sont invalides.",
+  // Documents, finances, voice (step 4)
+  document_too_large: "Le fichier est trop volumineux.",
+  document_empty: "Le fichier est vide.",
+  unsupported_type:
+    "Type de fichier refusé. Formats acceptés : PDF, images (JPEG, PNG, WebP, HEIC) et texte.",
+  unsupported_media_type: "Envoi invalide : réessayez.",
+  documents_unavailable:
+    "Le stockage des documents n'est pas configuré sur le serveur (clé de chiffrement absente).",
+  document_not_found: "Ce document est introuvable ou a été supprimé.",
+  document_processing: "Le document est encore en cours de lecture.",
+  original_purged: "L'original n'est plus conservé (durée de conservation écoulée).",
+  document_title_required: "Le titre ne peut pas être vide.",
+  document_not_reprocessable: "Ce document ne peut pas être relu.",
+  source_not_found: "L'élément d'origine est introuvable.",
+  source_space_mismatch: "Le document et son origine doivent appartenir au même espace.",
+  receipt_not_ready: "Le ticket est encore en cours de lecture.",
+  not_a_receipt: "Ce document n'est pas un ticket de caisse.",
+  category_not_found: "Cette catégorie n'existe plus.",
+  category_exists: "Une catégorie porte déjà ce nom dans cet espace.",
+  category_archived: "Cette catégorie est archivée.",
+  category_space_mismatch: "La catégorie appartient à un autre espace.",
+  document_space_mismatch: "Le ticket appartient à un autre espace.",
+  receipt_document_required: "Une opération issue d'un ticket doit indiquer ce ticket.",
+  tx_date_in_future: "La date de l'opération ne peut pas être dans le futur.",
+  invalid_month: "Mois invalide.",
+  transaction_not_found: "Cette opération est introuvable ou a été supprimée.",
+  transcription_unavailable: "La dictée n'est pas activée sur ce serveur.",
+  dictation_not_found: "Cette dictée a expiré ou a été supprimée.",
+  attachment_sensitive:
+    "Ce document est sensible : son contenu n'est jamais envoyé à l'assistant IA.",
+  attachment_not_ready: "La pièce jointe est encore en cours de lecture.",
+  attachment_unreadable: "La pièce jointe n'a pas pu être lue : aucun texte à transmettre.",
+  attachment_not_allowed:
+    "Cet agent n'a pas accès aux documents de cet espace : retirez la pièce jointe ou accordez-lui l'accès.",
+  space_not_found: "Cet espace est introuvable.",
+};
+
+export function problemMessage(code: string, fallback: string): string {
+  return MESSAGES[code] ?? fallback;
+}
+
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return problemMessage(error.code, error.message);
+  if (error instanceof DOMException && error.name === "NotAllowedError") {
+    return "Opération annulée ou refusée par l'appareil.";
+  }
+  if (error instanceof Error) return error.message;
+  return "Erreur inattendue.";
+}

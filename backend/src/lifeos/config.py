@@ -1,0 +1,163 @@
+"""Application settings, read from `LIFEOS_*` environment variables and Docker secrets."""
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal, Self
+
+from pydantic import SecretStr, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
+
+_SECRETS_DIR = Path("/run/secrets")
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="LIFEOS_",
+        # Docker secrets: a file named e.g. `lifeos_gemini_api_key` overrides the field.
+        secrets_dir=_SECRETS_DIR if _SECRETS_DIR.is_dir() else None,
+        extra="ignore",
+    )
+
+    environment: Literal["development", "test", "production"] = "development"
+    log_level: str = "INFO"
+    log_format: Literal["json", "console"] = "json"
+
+    # Origin of the web client as seen by the browser; also the WebAuthn expected origin.
+    public_origin: str = "http://localhost:3000"
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "LifeOS"
+    cookie_secure: bool = True
+    expose_openapi: bool = True
+
+    database_host: str = "localhost"
+    database_port: int = 5432
+    database_name: str = "lifeos"
+    database_user: str = "lifeos"
+    database_password: SecretStr = SecretStr("")
+    database_pool_size: int = 5
+
+    redis_url: str = "redis://localhost:6379/0"
+
+    session_ttl_days: int = 30
+    session_idle_days: int = 7
+    recent_auth_minutes: int = 10
+    enrollment_token_minutes: int = 15
+    webauthn_challenge_minutes: int = 5
+
+    # Default time zone for scheduled jobs.
+    timezone: str = "Europe/Paris"
+    audit_retention_days: int = 365
+
+    llm_provider: Literal["disabled", "fake", "gemini"] = "disabled"
+    llm_timeout_seconds: float = 60.0
+    # "free": project WITHOUT billing account (cannot be charged); local daily request caps
+    # keep usage under Google's free quotas. "paid": prepaid billing; local cost budgets.
+    llm_billing: Literal["free", "paid"] = "free"
+    # Local caps per tier and per day (Google's daily quotas reset at midnight Pacific).
+    llm_daily_requests_fast: int = 400
+    llm_daily_requests_deep: int = 15
+    # Paid mode: estimated cost from these prices (USD per 1M tokens) and hard local budgets.
+    llm_price_input_fast: float = 0.30
+    llm_price_output_fast: float = 2.50
+    llm_price_input_deep: float = 0.75
+    llm_price_output_deep: float = 3.75
+    llm_daily_budget_usd: float = 0.50
+    llm_monthly_budget_usd: float = 5.00
+
+    gemini_backend: Literal["developer", "vertex"] = "developer"
+    gemini_api_key: SecretStr | None = None
+    # No default on purpose: pin stable, versioned model names (see ADR 0003).
+    # "fast" tier: chat, extraction, agents. "deep" tier: weekly/monthly reviews.
+    gemini_model: str | None = None
+    gemini_model_deep: str | None = None
+    gemini_thinking_fast: Literal["minimal", "low", "medium", "high"] = "minimal"
+    gemini_thinking_deep: Literal["minimal", "low", "medium", "high"] = "low"
+    # Paid mode: background jobs use the Flex service tier (cheaper, slower).
+    gemini_flex_for_background: bool = True
+    gemini_vertex_project: str | None = None
+    gemini_vertex_location: str | None = None
+
+    # Local embeddings (ADR 0006). "remote": the internal `ml` service (one model in RAM
+    # for the API and the worker); "local": in-process; "fake": tests; "disabled":
+    # full-text search only.
+    embeddings_provider: Literal["disabled", "fake", "local", "remote"] = "disabled"
+    embeddings_model: str = "google/embeddinggemma-300m"
+    embeddings_cache_dir: str = "/models"
+    # ONNX Runtime intra-op threads: physical cores the ml service may use.
+    embeddings_threads: int = 4
+    ml_url: str = "http://ml:8100"
+    # Only for the one-time download of a gated model (`lifeos-ml download`).
+    hf_token: SecretStr | None = None
+
+    # Documents (F10, ADR 0008): encrypted originals on disk, kept for a limited time.
+    documents_dir: str = "/data/documents"
+    documents_max_bytes: int = 20 * 1024 * 1024
+    documents_original_retention_days: int = 90
+    documents_max_pages: int = 30
+    # AES-256-GCM key (base64, 32 bytes), Docker secret `lifeos_documents_key`.
+    documents_key: SecretStr | None = None
+    # Local text extraction and OCR: "remote" = the internal ml service.
+    extraction_provider: Literal["disabled", "fake", "local", "remote"] = "disabled"
+    # ml service: memory of one extraction (a child process), in MiB.
+    extraction_memory_mb: int = 1280
+    # Local speech-to-text (ADR 0009): "remote" = the internal stt service.
+    stt_provider: Literal["disabled", "fake", "remote"] = "disabled"
+    stt_url: str = "http://stt:8200"
+    voice_max_seconds: int = 15 * 60
+    # stt service: Whisper model (faster-whisper name or local path), its cache, and where
+    # it runs. "auto" uses the GPU when one is visible, else (or if it fails) the CPU.
+    stt_model: str = "large-v3-turbo"
+    stt_cache_dir: str = "/models"
+    stt_device: Literal["auto", "cpu", "cuda"] = "auto"
+    stt_threads: int = 4
+    stt_beam_size: int = 5
+    # The model (about 1.6 GB of RAM) is unloaded after this long without a dictation.
+    stt_idle_unload_s: int = 600
+
+    # Memory quality (F07): cosine distances between two facts' vectors. Below the first,
+    # same meaning (duplicate); below the second, related (update or contradiction?).
+    # Depend on the embedding model: check them after changing it.
+    memory_duplicate_distance: float = 0.08
+    memory_related_distance: float = 0.25
+    memory_preference_max_age_days: int = 180
+
+    @model_validator(mode="after")
+    def _check_llm(self) -> Self:
+        if self.llm_provider != "gemini":
+            return self
+        if self.gemini_backend == "vertex" and self.llm_billing == "free":
+            # Vertex AI has no free tier: without cost budgets, spending would be unbounded.
+            raise ValueError(
+                "Vertex AI is always billed: set LIFEOS_LLM_BILLING=paid and cost budgets"
+            )
+        if not self.gemini_model:
+            raise ValueError("LIFEOS_GEMINI_MODEL is required when LIFEOS_LLM_PROVIDER=gemini")
+        if self.gemini_backend == "developer" and not (
+            self.gemini_api_key and self.gemini_api_key.get_secret_value()
+        ):
+            raise ValueError("LIFEOS_GEMINI_API_KEY is required for the Gemini Developer API")
+        if self.gemini_backend == "vertex" and not (
+            self.gemini_vertex_project and self.gemini_vertex_location
+        ):
+            raise ValueError(
+                "LIFEOS_GEMINI_VERTEX_PROJECT and LIFEOS_GEMINI_VERTEX_LOCATION are required "
+                "for Vertex AI"
+            )
+        return self
+
+    @property
+    def database_url(self) -> URL:
+        return URL.create(
+            "postgresql+asyncpg",
+            username=self.database_user,
+            password=self.database_password.get_secret_value() or None,
+            host=self.database_host,
+            port=self.database_port,
+            database=self.database_name,
+        )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

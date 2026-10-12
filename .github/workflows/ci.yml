@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg17
+        env:
+          POSTGRES_USER: lifeos
+          POSTGRES_PASSWORD: lifeos
+          POSTGRES_DB: lifeos_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lifeos -d lifeos_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      LIFEOS_DATABASE_NAME: lifeos_test
+      LIFEOS_DATABASE_USER: lifeos
+      LIFEOS_DATABASE_PASSWORD: lifeos
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy
+      - name: Tests
+        run: uv run pytest -q
+      - name: Migrations match models
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+      - name: Dependency audit
+        run: |
+          uv export --no-dev --all-extras --no-hashes --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit --strict --no-deps --disable-pip -r "$RUNNER_TEMP/requirements.txt"
+
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Dependency audit
+        run: pnpm audit --prod --audit-level high
+
+  e2e:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg17
+        env:
+          POSTGRES_USER: lifeos
+          POSTGRES_PASSWORD: lifeos
+          POSTGRES_DB: lifeos_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lifeos -d lifeos_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Backend dependencies
+        working-directory: backend
+        run: uv sync --locked
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Web dependencies and browser
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Build web
+        working-directory: apps/web
+        run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: End-to-end tests (passkeys, tasks, assistant, journal, memory, search, documents, finances, dictation)
+        working-directory: apps/web
+        run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: apps/web/test-results
+          retention-days: 7
+
+  ml-model:
+    # The real embedding model: downloaded once (cached), then used offline on a read-only
+    # cache, as in production. Also prints calibration distances and throughput. And the
+    # local text extraction (PDF text layer, Tesseract OCR in French, image sanitizing).
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      LIFEOS_EMBEDDINGS_MODEL: google/embeddinggemma-300m
+      LIFEOS_EMBEDDINGS_CACHE_DIR: ${{ github.workspace }}/models
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Install (with the ml and stt extras)
+        run: uv sync --locked --extra ml --extra stt
+      - name: OCR engine (Tesseract with the French model) and a font with accents
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra fonts-dejavu-core
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: embeddings-google-embeddinggemma-300m-v1
+      - name: Download the model
+        run: uv run lifeos-ml download
+      - name: Real model and extraction tests (offline, read-only cache)
+        run: |
+          chmod -R a-w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
+          HF_HUB_OFFLINE=1 LIFEOS_TEST_REAL_MODEL=1 uv run pytest -q -s tests_ml
+          chmod -R u+w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
+      - name: Speech-to-text pipeline (tiny random model, browser formats, offline)
+        run: HF_HUB_OFFLINE=1 uv run pytest -q tests_stt
+
+  infra:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build images
+        run: |
+          docker build --target app -t lifeos-backend:ci backend
+          docker build --target ml -t lifeos-ml:ci backend
+          docker build --target stt -t lifeos-stt:ci backend
+          docker build -t lifeos-web:ci apps/web
+      - name: The ml image starts without network nor model (degraded, healthy API)
+        run: |
+          docker run -d --name ml --network none --read-only --tmpfs /tmp lifeos-ml:ci
+          sleep 8
+          docker exec ml python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2).read())"
+          docker logs ml 2>&1 | tail -5
+          docker rm -f ml
+      - name: The ml image reads a French receipt (OCR), without network
+        run: docker run --rm --network none --read-only --tmpfs /tmp lifeos-ml:ci lifeos-ml selftest
+      - name: The stt image starts without network nor model (loaded on first dictation)
+        run: |
+          docker run -d --name stt --network none --read-only --tmpfs /tmp lifeos-stt:ci
+          sleep 8
+          docker exec stt python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8200/healthz', timeout=2).read())"
+          docker exec stt python -c "import faster_whisper, ctranslate2, av; print(faster_whisper.__version__, ctranslate2.__version__, av.__version__)"
+          docker rm -f stt
+      - name: Validate Compose file
+        working-directory: infra
+        run: |
+          ./scripts/init-secrets.sh
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+      - name: Shellcheck
+        run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh scripts/*.sh apps/web/e2e/*.sh
