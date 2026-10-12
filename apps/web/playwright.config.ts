@@ -61,18 +61,8 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command:
-        "uv run --directory ../../backend uvicorn lifeos.main:create_app --factory --host 127.0.0.1 --port 8000",
-      url: "http://127.0.0.1:8000/healthz",
-      env: backendEnv,
-      reuseExistingServer: false,
-      timeout: 60_000,
-    },
-    {
-      // Background jobs: document reading and dictation transcription (fakes, see above).
-      // Dramatiq has no HTTP endpoint: readiness is the API's.
-      command:
-        "uv run --directory ../../backend dramatiq lifeos.workers.actors --processes 1 --threads 2",
+      // The API and a worker (background jobs: document reading, dictation transcription).
+      command: "bash e2e/backend.sh",
       url: "http://127.0.0.1:8000/healthz",
       env: backendEnv,
       reuseExistingServer: false,

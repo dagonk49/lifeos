@@ -528,7 +528,8 @@ async def test_receipt_proposal_then_owner_records_the_transaction(
     not_ready = await client.get(f"/v1/finance/receipts/{pending}/proposal")
     assert not_ready.status_code == 409
     assert not_ready.json()["code"] == "receipt_not_ready"
-    assert not_ready.json()["status"] == "processing"
+    assert not_ready.json()["status"] == 409
+    assert not_ready.json()["document_status"] == "processing"
     not_receipt = await client.get(f"/v1/finance/receipts/{note}/proposal")
     assert not_receipt.status_code == 422 and not_receipt.json()["code"] == "not_a_receipt"
     missing = await client.get(f"/v1/finance/receipts/{uuid.uuid4()}/proposal")

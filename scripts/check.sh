@@ -24,7 +24,7 @@ pnpm -s test
 NEXT_TELEMETRY_DISABLED=1 pnpm -s build >/dev/null
 
 echo "== infra"
-shellcheck "$root"/infra/scripts/*.sh "$root"/infra/postgres/init/*.sh "$root"/scripts/*.sh
+shellcheck "$root"/infra/scripts/*.sh "$root"/infra/postgres/init/*.sh "$root"/scripts/*.sh "$root"/apps/web/e2e/*.sh
 # On a throw-away copy: services read infra/.env, which a fresh clone does not have.
 infra_copy="$(mktemp -d)"
 cp -r "$root/infra/." "$infra_copy"

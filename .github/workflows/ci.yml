@@ -134,7 +134,7 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-      - name: End-to-end tests (passkeys, tasks, assistant, journal, memory, search)
+      - name: End-to-end tests (passkeys, tasks, assistant, journal, memory, search, documents, finances, dictation)
         working-directory: apps/web
         run: pnpm e2e
       - uses: actions/upload-artifact@v4
@@ -215,4 +215,4 @@ jobs:
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
       - name: Shellcheck
-        run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh
+        run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh scripts/*.sh apps/web/e2e/*.sh

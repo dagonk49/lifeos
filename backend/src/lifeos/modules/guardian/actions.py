@@ -195,7 +195,7 @@ async def _pending(ctx: Ctx, approval_id: uuid.UUID) -> Approval:
             409,
             "approval_not_pending",
             "Approval is not pending",
-            extra={"status": approval.status},
+            extra={"approval_status": approval.status},
         )
     return approval
 

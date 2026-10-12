@@ -731,7 +731,7 @@ async def receipt_proposal(ctx: Ctx, document_id: uuid.UUID) -> ReceiptProposalO
             409,
             "receipt_not_ready",
             "The receipt has not been processed yet",
-            extra={"status": document.status},
+            extra={"document_status": document.status},
         )
     # Stored by the document pipeline (ReceiptProposal.as_dict()); read defensively.
     raw_lines = receipt.get("lines")

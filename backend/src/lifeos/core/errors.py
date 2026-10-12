@@ -44,6 +44,9 @@ def conflict(code: str, title: str, detail: str | None = None) -> ProblemError:
     return ProblemError(409, code, title, detail)
 
 
+_STANDARD_MEMBERS = frozenset({"type", "title", "status", "detail", "instance", "code"})
+
+
 def problem_body(
     status: int,
     code: str,
@@ -63,7 +66,8 @@ def problem_body(
     if request_id:
         body["request_id"] = request_id
     if extra:
-        body.update(extra)
+        # Extensions never replace the standard members (RFC 9457: `status` is the HTTP one).
+        body.update({k: v for k, v in extra.items() if k not in _STANDARD_MEMBERS})
     return body
 
 

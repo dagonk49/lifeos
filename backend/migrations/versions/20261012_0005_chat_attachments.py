@@ -20,9 +20,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column(
         "messages",
-        sa.Column(
-            "attachments", postgresql.ARRAY(sa.Uuid()), server_default="{}", nullable=False
-        ),
+        sa.Column("attachments", postgresql.ARRAY(sa.Uuid()), server_default="{}", nullable=False),
     )
 
 
