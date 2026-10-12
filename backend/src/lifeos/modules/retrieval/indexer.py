@@ -51,11 +51,12 @@ SOURCES: tuple[Source, ...] = (
     # Very short messages ("ok", "merci") carry no retrievable meaning.
     Source("message", Message, _join(Message.content), func.length(Message.content) >= 15),
     # Extracted (or corrected) text, once processing is done. Vectors stay on the server.
+    # Not dictations: transient, their text is indexed where the owner saved it.
     Source(
         "document",
         Document,
         _join(Document.title, Document.extracted_text),
-        Document.status == "ready",
+        and_(Document.status == "ready", Document.purpose != "dictation"),
     ),
 )
 SOURCE_BY_TYPE = {s.object_type: s for s in SOURCES}

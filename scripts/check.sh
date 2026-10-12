@@ -29,7 +29,8 @@ shellcheck "$root"/infra/scripts/*.sh "$root"/infra/postgres/init/*.sh "$root"/s
 infra_copy="$(mktemp -d)"
 cp -r "$root/infra/." "$infra_copy"
 cp "$infra_copy/.env.example" "$infra_copy/.env"
-(cd "$infra_copy" && LIFEOS_DOMAIN=example.lan docker compose config --quiet)
+(cd "$infra_copy" && LIFEOS_DOMAIN=example.lan docker compose config --quiet \
+  && LIFEOS_DOMAIN=example.lan docker compose -f compose.yaml -f compose.gpu.yaml config --quiet)
 rm -rf "$infra_copy"
 
 if [[ "${1:-}" == "--e2e" ]]; then

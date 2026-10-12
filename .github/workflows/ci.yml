@@ -161,8 +161,8 @@ jobs:
         with:
           version: "0.11.32"
           enable-cache: true
-      - name: Install (with the ml extra)
-        run: uv sync --locked --extra ml
+      - name: Install (with the ml and stt extras)
+        run: uv sync --locked --extra ml --extra stt
       - name: OCR engine (Tesseract with the French model) and a font with accents
         run: |
           sudo apt-get update -qq
@@ -178,6 +178,8 @@ jobs:
           chmod -R a-w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
           HF_HUB_OFFLINE=1 LIFEOS_TEST_REAL_MODEL=1 uv run pytest -q -s tests_ml
           chmod -R u+w "$LIFEOS_EMBEDDINGS_CACHE_DIR"
+      - name: Speech-to-text pipeline (tiny random model, browser formats, offline)
+        run: HF_HUB_OFFLINE=1 uv run pytest -q tests_stt
 
   infra:
     runs-on: ubuntu-24.04
@@ -187,6 +189,7 @@ jobs:
         run: |
           docker build --target app -t lifeos-backend:ci backend
           docker build --target ml -t lifeos-ml:ci backend
+          docker build --target stt -t lifeos-stt:ci backend
           docker build -t lifeos-web:ci apps/web
       - name: The ml image starts without network nor model (degraded, healthy API)
         run: |
@@ -197,11 +200,19 @@ jobs:
           docker rm -f ml
       - name: The ml image reads a French receipt (OCR), without network
         run: docker run --rm --network none --read-only --tmpfs /tmp lifeos-ml:ci lifeos-ml selftest
+      - name: The stt image starts without network nor model (loaded on first dictation)
+        run: |
+          docker run -d --name stt --network none --read-only --tmpfs /tmp lifeos-stt:ci
+          sleep 8
+          docker exec stt python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8200/healthz', timeout=2).read())"
+          docker exec stt python -c "import faster_whisper, ctranslate2, av; print(faster_whisper.__version__, ctranslate2.__version__, av.__version__)"
+          docker rm -f stt
       - name: Validate Compose file
         working-directory: infra
         run: |
           ./scripts/init-secrets.sh
           cp .env.example .env
           docker compose config --quiet
+          docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
       - name: Shellcheck
         run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh

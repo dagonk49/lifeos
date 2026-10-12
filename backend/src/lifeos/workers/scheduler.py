@@ -72,6 +72,18 @@ def build_scheduler() -> BlockingScheduler:
         CronTrigger(hour=3, minute=50, timezone=tz),
         id="purge_document_originals",
     )
+    # Voice: waiting dictations (lost messages, retries), and dictations left unused.
+    scheduler.add_job(
+        actors.transcribe_dictations.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="transcribe_dictations",
+        misfire_grace_time=60,
+    )
+    scheduler.add_job(
+        actors.purge_old_dictations.send,
+        IntervalTrigger(hours=1, timezone=tz),
+        id="purge_old_dictations",
+    )
     # Reviews: daily summary (local only), weekly on Sunday evening, monthly on the 1st.
     scheduler.add_job(
         actors.scheduled_reviews.send,

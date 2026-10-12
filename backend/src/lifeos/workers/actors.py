@@ -17,6 +17,8 @@ from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.notifications.service import dispatch_reminders
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
+from lifeos.modules.voice import processing as voice
+from lifeos.modules.voice.service import purge_dictations
 from lifeos.workers.broker import broker  # noqa: F401  (must be set before actors)
 from lifeos.workers.jobs import (
     database,
@@ -26,6 +28,7 @@ from lifeos.workers.jobs import (
     llm,
     run_job,
     run_task,
+    transcriber,
 )
 
 configure_logging(get_settings())
@@ -141,3 +144,30 @@ async def purge_document_originals() -> None:
 
     await run_job("purge_document_originals", purge)
     await run_job("sweep_document_files", sweep)
+
+
+# --- Voice (UC01) --------------------------------------------------------------------------
+# "transcribe_dictations" is also sent by the API (lifeos.workers.queue.enqueue).
+
+
+@dramatiq.actor(queue_name="stt", max_retries=0, time_limit=60 * 60_000)
+async def transcribe_dictations() -> None:
+    """Waiting dictations, one at a time across workers (a concurrent run returns at once:
+    at most one worker thread waits on the stt service)."""
+    await run_task(
+        "transcribe_dictations",
+        lambda: voice.transcribe_pending(
+            database(), document_store(), transcriber(), settings=get_settings()
+        ),
+    )
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3, time_limit=10 * 60_000)
+async def purge_old_dictations() -> None:
+    """Dictations nobody used within a day: row, transcript and any recording."""
+    store = document_store()
+
+    async def purge(session: AsyncSession) -> int:
+        return await purge_dictations(session, store)
+
+    await run_job("purge_dictations", purge)

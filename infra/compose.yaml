@@ -35,6 +35,19 @@ x-ml: &ml
   security_opt: ["no-new-privileges:true"]
   logging: *logging
 
+x-stt: &stt
+  build: { context: ../backend, target: stt }
+  image: lifeos-stt:local
+  env_file: .env
+  environment:
+    # The stt service never calls the LLM nor the database.
+    LIFEOS_LLM_PROVIDER: disabled
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.7-pg17
@@ -163,6 +176,31 @@ services:
     networks: [egress]
     mem_limit: 3g
 
+  # Local speech-to-text (ADR 0009): dictations only. No route to the outside world: the
+  # model must have been downloaded first (`stt-download`). NVIDIA GPU: compose.gpu.yaml.
+  stt:
+    <<: *stt
+    restart: unless-stopped
+    volumes: [stt-models:/models:ro]
+    networks: [internal]
+    # Whisper large-v3-turbo (int8): about 1.6 GB on disk, 1.6-1.9 GB in RAM while loaded;
+    # unloaded after LIFEOS_STT_IDLE_UNLOAD_S without a dictation.
+    mem_limit: 2560m
+    cpus: 4
+
+  # One-time download of the speech model: docker compose --profile setup run --rm stt-download
+  stt-download:
+    <<: *stt
+    profiles: [setup]
+    command: ["lifeos-stt", "download"]
+    restart: "no"
+    environment:
+      LIFEOS_LLM_PROVIDER: disabled
+      HF_HUB_OFFLINE: "0"
+    volumes: [stt-models:/models]
+    networks: [egress]
+    mem_limit: 1g
+
   web:
     build: ../apps/web
     image: lifeos-web:local
@@ -228,6 +266,8 @@ volumes:
   prometheusdata:
   # Embedding model files (re-downloadable: excluded from backups).
   models:
+  # Speech model files (re-downloadable: excluded from backups).
+  stt-models:
   # Encrypted document originals (AES-256-GCM, key in the lifeos_documents_key secret).
   documents:
 

@@ -1,23 +1,17 @@
 import hashlib
 import unicodedata
 import uuid
-from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Header, Query, Request, status
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import ValidationError
-from starlette.datastructures import UploadFile
-from starlette.formparsers import MultiPartException, MultiPartParser
-from starlette.requests import ClientDisconnect
 
 from lifeos.api.deps import CtxDep
 from lifeos.core.errors import ProblemError
 from lifeos.core.idempotency import idempotent
 from lifeos.core.pagination import Page
+from lifeos.core.uploads import read_upload
 from lifeos.modules.documents import service
 from lifeos.modules.documents.schemas import (
     DocumentOut,
@@ -37,8 +31,6 @@ IdempotencyKey = Annotated[str | None, Header(alias="Idempotency-Key")]
 PurposeFilter = Literal["document", "receipt", "attachment", "dictation"]
 StatusFilter = Literal["pending", "processing", "ready", "failed", "rejected"]
 
-# Room for the form fields and multipart boundaries around the file itself.
-FORM_OVERHEAD = 64 * 1024
 EXTENSIONS = {
     "application/pdf": "pdf",
     "image/png": "png",
@@ -88,90 +80,6 @@ UPLOAD_OPENAPI: dict[str, Any] = {
         },
     }
 }
-
-
-@dataclass(frozen=True)
-class Upload:
-    fields: DocumentUploadFields
-    data: bytes
-    filename: str | None
-
-
-def _too_large(max_bytes: int) -> ProblemError:
-    return ProblemError(
-        413, "document_too_large", "The file is too large", extra={"max_bytes": max_bytes}
-    )
-
-
-def _invalid(loc: tuple[str, ...], msg: str, kind: str) -> RequestValidationError:
-    return RequestValidationError([{"loc": ("body", *loc), "msg": msg, "type": kind}])
-
-
-def _parse_fields(values: dict[str, str]) -> DocumentUploadFields:
-    try:
-        return DocumentUploadFields.model_validate(values)
-    except ValidationError as exc:
-        raise RequestValidationError(
-            [{**error, "loc": ("body", *error["loc"])} for error in exc.errors()]
-        ) from exc
-
-
-async def read_upload(request: Request, max_bytes: int) -> Upload:
-    """Parses the multipart body with a hard size limit, counted while it streams in.
-
-    The body is never read past the limit (nor at all if Content-Length announces more),
-    and the file stays in memory: its plaintext never touches the disk.
-    """
-    content_type = request.headers.get("content-type", "")
-    if not content_type.lower().startswith("multipart/form-data"):
-        raise ProblemError(415, "unsupported_media_type", "Expected multipart/form-data")
-    limit = max_bytes + FORM_OVERHEAD
-    declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > limit:
-        raise _too_large(max_bytes)
-
-    async def body() -> AsyncGenerator[bytes]:
-        received = 0
-        async for chunk in request.stream():
-            received += len(chunk)
-            if received > limit:
-                raise _too_large(max_bytes)
-            yield chunk
-
-    parser = MultiPartParser(
-        request.headers, body(), max_files=1, max_fields=10, max_part_size=8 * 1024
-    )
-    parser.spool_max_size = limit
-    try:
-        form = await parser.parse()
-    except MultiPartException as exc:
-        raise ProblemError(400, "invalid_form", "Malformed multipart form") from exc
-    except ClientDisconnect as exc:
-        raise ProblemError(400, "upload_interrupted", "The upload was interrupted") from exc
-    try:
-        values: dict[str, str] = {}
-        upload: UploadFile | None = None
-        for key, value in form.multi_items():
-            if isinstance(value, UploadFile):
-                if key != "file":
-                    raise _invalid((key,), "Unexpected file", "unexpected_file")
-                upload = value
-            elif key in values:
-                raise _invalid((key,), "Field given more than once", "duplicate")
-            elif value != "":  # an empty optional field means "not given"
-                values[key] = value
-        fields = _parse_fields(values)
-        if upload is None:
-            raise _invalid(("file",), "Field required", "missing")
-        data = await upload.read()
-        filename = upload.filename
-    finally:
-        await form.close()
-    if len(data) > max_bytes:
-        raise _too_large(max_bytes)
-    if not data:
-        raise ProblemError(422, "document_empty", "The file is empty")
-    return Upload(fields=fields, data=data, filename=filename)
 
 
 def content_disposition(title: str, mime: str) -> str:
@@ -232,7 +140,7 @@ async def upload_document(
     store = DocumentStore(ctx.settings)
     if not store.available:
         raise ProblemError(503, "documents_unavailable", "Document storage is unavailable")
-    upload = await read_upload(request, ctx.settings.documents_max_bytes)
+    upload = await read_upload(request, ctx.settings.documents_max_bytes, DocumentUploadFields)
     detected = sniff(upload.data)
     # Audio is dictation, handled by the voice module.
     if detected is None or detected.kind == "audio":

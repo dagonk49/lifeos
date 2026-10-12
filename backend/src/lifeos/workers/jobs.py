@@ -14,6 +14,7 @@ from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.llm import build_provider
 from lifeos.modules.llm.base import LLMProvider
 from lifeos.modules.retrieval.embedders import Embedder, build_embedder
+from lifeos.modules.voice.transcriber import Transcriber, build_transcriber
 from lifeos.observability.metrics import JOB_RUNS
 
 log = get_logger("lifeos.jobs")
@@ -23,6 +24,8 @@ _embedder: Embedder | None = None
 _embedder_built = False
 _extractor: Extractor | None = None
 _extractor_built = False
+_transcriber: Transcriber | None = None
+_transcriber_built = False
 
 
 def llm() -> LLMProvider:
@@ -46,6 +49,14 @@ def extractor() -> Extractor | None:
         _extractor = build_extractor(get_settings())
         _extractor_built = True
     return _extractor
+
+
+def transcriber() -> Transcriber | None:
+    global _transcriber, _transcriber_built
+    if not _transcriber_built:
+        _transcriber = build_transcriber(get_settings())
+        _transcriber_built = True
+    return _transcriber
 
 
 def document_store() -> DocumentStore:

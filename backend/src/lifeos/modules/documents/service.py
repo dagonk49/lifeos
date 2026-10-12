@@ -165,6 +165,9 @@ async def list_documents(
     )
     if purpose:
         stmt = stmt.where(Document.purpose == purpose)
+    else:
+        # Dictations are transient (voice module): only listed when asked for.
+        stmt = stmt.where(Document.purpose != "dictation")
     if status:
         stmt = stmt.where(Document.status == status)
     if source_type:

@@ -103,6 +103,15 @@ class Settings(BaseSettings):
     stt_provider: Literal["disabled", "fake", "remote"] = "disabled"
     stt_url: str = "http://stt:8200"
     voice_max_seconds: int = 15 * 60
+    # stt service: Whisper model (faster-whisper name or local path), its cache, and where
+    # it runs. "auto" uses the GPU when one is visible, else (or if it fails) the CPU.
+    stt_model: str = "large-v3-turbo"
+    stt_cache_dir: str = "/models"
+    stt_device: Literal["auto", "cpu", "cuda"] = "auto"
+    stt_threads: int = 4
+    stt_beam_size: int = 5
+    # The model (about 1.6 GB of RAM) is unloaded after this long without a dictation.
+    stt_idle_unload_s: int = 600
 
     # Memory quality (F07): cosine distances between two facts' vectors. Below the first,
     # same meaning (duplicate); below the second, related (update or contradiction?).

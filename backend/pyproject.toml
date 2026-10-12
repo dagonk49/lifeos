@@ -34,11 +34,18 @@ ml = [
     "pillow>=12.3",
     "pillow-heif>=1.8,<2",
 ]
+# Only needed by the `stt` service: local speech-to-text (ADR 0009). Pinned together:
+# PyAV 19 breaks faster-whisper 1.2.1; CTranslate2 4.8 still ships Pascal (sm_61) kernels.
+stt = ["faster-whisper==1.2.1", "ctranslate2==4.8.2", "av==18.1.0"]
+# GPU flavour of the `stt` image (NVIDIA driver >= 570 on the host): cuBLAS only, CTranslate2
+# 4.8 has its own CUDA convolution (no cuDNN).
+stt-gpu = ["nvidia-cublas-cu12==12.8.4.1; sys_platform == 'linux'"]
 
 [project.scripts]
 lifeos-admin = "lifeos.cli:main"
 lifeos-scheduler = "lifeos.workers.scheduler:main"
 lifeos-ml = "lifeos.ml.app:main"
+lifeos-stt = "lifeos.stt.app:main"
 
 [dependency-groups]
 dev = [
@@ -86,5 +93,16 @@ mypy_path = "src"
 packages = ["lifeos"]
 
 [[tool.mypy.overrides]]
-module = ["dramatiq.*", "apscheduler.*", "fastembed.*", "pypdfium2.*", "pillow_heif.*", "PIL.*"]
+module = [
+    "dramatiq.*",
+    "apscheduler.*",
+    # Optional extras (ml, stt): absent from the default environment.
+    "fastembed.*",
+    "pypdfium2.*",
+    "pillow_heif.*",
+    "PIL.*",
+    "faster_whisper.*",
+    "ctranslate2.*",
+    "av.*",
+]
 ignore_missing_imports = true

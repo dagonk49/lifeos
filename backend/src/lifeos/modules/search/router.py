@@ -222,7 +222,12 @@ def _branches(
                 Document.created_at,
                 tsquery,
                 object_ids("documents"),
-            ).where(Document.user_id == uid, Document.space_id.in_(readable))
+            ).where(
+                Document.user_id == uid,
+                Document.space_id.in_(readable),
+                # Dictations are transient: their text lives where the owner put it.
+                Document.purpose != "dictation",
+            )
         )
     return branches
 

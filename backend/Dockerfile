@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
-# Two images from one Dockerfile (ADR 0005, ADR 0006):
+# Images from one Dockerfile (ADR 0005, ADR 0006, ADR 0009):
 # - target `app` (default): api, worker, scheduler and migrations;
 # - target `ml`: the internal embedding and text extraction service (ONNX Runtime, no
-#   PyTorch; Tesseract OCR).
+#   PyTorch; Tesseract OCR);
+# - target `stt`: the internal speech-to-text service (faster-whisper, CPU), and
+#   `stt-gpu`: the same with the CUDA libraries it needs (NVIDIA GPU, see compose.gpu.yaml).
 
 FROM python:3.13-slim AS build
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -15,6 +17,12 @@ RUN uv sync --locked --no-dev --no-editable
 
 FROM build AS build-ml
 RUN uv sync --locked --no-dev --no-editable --extra ml
+
+FROM build AS build-stt
+RUN uv sync --locked --no-dev --no-editable --extra stt
+
+FROM build AS build-stt-gpu
+RUN uv sync --locked --no-dev --no-editable --extra stt --extra stt-gpu
 
 FROM python:3.13-slim AS runtime
 RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin lifeos
@@ -39,6 +47,32 @@ EXPOSE 8100
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2)"]
 CMD ["lifeos-ml"]
+
+FROM runtime AS stt
+COPY --from=build-stt /app/.venv /app/.venv
+# Writable by the service user when Docker initialises a new, empty volume (`stt-download`).
+RUN install -d -o lifeos -g lifeos -m 0755 /models
+# The model is downloaded once into /models (`lifeos-stt download`); the service then
+# runs offline and loads it on the first dictation.
+ENV HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 HF_HOME=/tmp/hf LIFEOS_STT_CACHE_DIR=/models
+USER lifeos
+EXPOSE 8200
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/healthz', timeout=2)"]
+CMD ["lifeos-stt"]
+
+FROM runtime AS stt-gpu
+COPY --from=build-stt-gpu /app/.venv /app/.venv
+RUN install -d -o lifeos -g lifeos -m 0755 /models
+# cuBLAS comes from its wheel; the NVIDIA Container Toolkit provides the driver library.
+ENV HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 HF_HOME=/tmp/hf LIFEOS_STT_CACHE_DIR=/models \
+    LIFEOS_STT_DEVICE=cuda \
+    LD_LIBRARY_PATH=/app/.venv/lib/python3.13/site-packages/nvidia/cublas/lib
+USER lifeos
+EXPOSE 8200
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/healthz', timeout=2)"]
+CMD ["lifeos-stt"]
 
 FROM runtime AS app
 COPY --from=build /app/.venv /app/.venv
