@@ -4,6 +4,12 @@ Assistant personnel et coach, local-first : la mémoire et les décisions d'auto
 sur un serveur personnel ; un LLM cloud (Gemini) n'est sollicité que ponctuellement, avec un
 contexte minimal filtré localement.
 
+**Version 1.0.0** — première version livrable (étapes 0 à 4) : voir le
+[journal des versions](CHANGELOG.md).
+
+- **Installer** : [docs/installation.md](docs/installation.md) (VM Debian/Proxmox, script
+  `infra/scripts/install.sh`)
+- **Utiliser** : [docs/guide-utilisateur.md](docs/guide-utilisateur.md)
 - Cahier des charges et architecture : [docs/cadrage/](docs/cadrage/)
 - Décisions d'architecture, modèle de données, politiques : [docs/](docs/README.md)
 
@@ -16,6 +22,8 @@ contexte minimal filtré localement.
 | 2 — MVP | client web, chat, tâches, journal, mémoire, recherche, Guardian | fait |
 | 3 — Intelligence | recherche hybride (embeddings locaux), qualité de la mémoire, bilans, objectifs, agents spécialisés, maîtrise des coûts Gemini | fait |
 | 4 — Multimodal | documents chiffrés et OCR local, tickets de caisse et finances, dictée et lecture vocale, pièces jointes, filtrage local des documents sensibles | fait |
+| 5 — Connecteurs | calendrier et e-mail (OAuth), approbations d'envoi, notifications mobiles | reporté |
+| 6 — Stabilisation | tests de sécurité complets, CSP à nonces, exercices de restauration, documentation utilisateur avancée | reporté |
 
 ## Structure
 
@@ -29,16 +37,14 @@ docs/      cadrage, ADR, modèle de données, politiques, exploitation
 ## Démarrage rapide
 
 ```bash
-cd infra
-./scripts/init-secrets.sh && cp .env.example .env   # puis adapter .env
-docker compose up -d --build
-docker compose exec api lifeos-admin create-owner --email moi@example.org --name "Moi"
+infra/scripts/install.sh --domain lifeos.mondomaine.fr --email moi@example.org --name "Moi"
 ```
 
-Puis ouvrir le lien d'enrôlement affiché pour créer la première passkey. Détails :
-[docs/exploitation.md](docs/exploitation.md). Recherche par le sens :
-`docker compose --profile setup run --rm ml-download` (une fois) ; dictée vocale :
-`docker compose --profile setup run --rm stt-download` (une fois). Assistant sans frais :
+Le script crée les secrets et la configuration, construit et démarre les services, télécharge
+les modèles locaux (recherche par le sens, dictée), vérifie l'OCR et crée le compte. Ouvrir
+ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à pas :
+[docs/installation.md](docs/installation.md) ; exploitation :
+[docs/exploitation.md](docs/exploitation.md) ; assistant sans frais :
 [docs/guide-gemini.md](docs/guide-gemini.md).
 
 ## Ce que fait le MVP

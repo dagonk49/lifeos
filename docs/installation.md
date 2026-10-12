@@ -1,0 +1,165 @@
+# Installation de LifeOS 1.0 sur la VM
+
+Guide pas à pas pour la machine de référence : VM Debian sur Proxmox, 8 vCPU (i7-6700),
+10 Go de RAM, GTX 1050 Ti en option. Les détails d'exploitation (exposition réseau,
+sauvegardes, dimensionnement, mises à jour) sont dans [exploitation.md](exploitation.md).
+
+Durée : environ 30 minutes, dont la construction des images et le téléchargement des modèles
+(≈ 3 Go).
+
+## 1. Préparer la VM (Proxmox)
+
+| Réglage | Valeur |
+|---|---|
+| Système | Debian 13 (ou 12), installation minimale + serveur SSH |
+| Type de CPU | **`host`** : expose AVX2/FMA, indispensable pour la vitesse des modèles locaux |
+| vCPU / RAM | 8 / 10 Go (ballooning inutile) |
+| Disque | 60 Go minimum (système, images ≈ 4 Go, modèles ≈ 3 Go, base et documents) ; plus selon vos documents |
+| GPU (facultatif) | GTX 1050 Ti en PCI passthrough (VM `q35` + OVMF, VT-d/IOMMU activés) : voir §7 |
+
+Vérification dans la VM : `grep -o -w 'avx2\|fma' /proc/cpuinfo | sort -u` doit afficher
+`avx2` et `fma`.
+
+## 2. Installer Docker
+
+```bash
+sudo apt-get update && sudo apt-get install -y ca-certificates curl git
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker "$USER"     # puis se déconnecter / reconnecter
+```
+
+## 3. Choisir le nom de domaine (avant tout)
+
+Les passkeys sont liées au nom de domaine : **il ne doit plus changer ensuite**.
+
+- **Recommandé** : un sous-domaine d'un domaine que vous possédez (ex.
+  `lifeos.mondomaine.fr`), résolu vers l'IP de la VM par votre DNS local (box, Pi-hole,
+  routeur). Un certificat Let's Encrypt s'obtient par challenge DNS, sans exposer la VM à
+  Internet.
+- Réseau local seulement : un nom interne (ex. `lifeos.maison.lan`) avec une autorité locale
+  (`mkcert`) installée sur vos appareils.
+
+Accès hors de chez vous : passer par un VPN (WireGuard) plutôt qu'ouvrir le port 443.
+
+## 4. Lancer l'installation
+
+```bash
+sudo git clone <url-du-dépôt> /opt/lifeos && sudo chown -R "$USER" /opt/lifeos
+cd /opt/lifeos
+infra/scripts/install.sh --domain lifeos.mondomaine.fr --email moi@exemple.fr --name "Mon prénom"
+```
+
+Le script, que l'on peut relancer sans risque :
+
+1. vérifie Docker, AVX2 et la mémoire ;
+2. crée les secrets dans `infra/secrets/` : mots de passe et **clé de chiffrement des
+   documents** ;
+3. propose de coller la clé Gemini (facultatif, voir §5) ;
+4. crée `infra/.env` avec votre domaine ;
+5. construit et démarre les services ;
+6. télécharge les modèles locaux (recherche par le sens ≈ 1,2 Go, dictée ≈ 1,6 Go) ;
+7. vérifie l'OCR et crée votre compte. Il affiche un **lien d'enrôlement** à usage unique,
+   valable 15 minutes.
+
+Options : `--gpu` (transcription sur la carte, §7), `--no-models` (téléchargements plus
+tard), `--yes` (sans question).
+
+**Tout de suite après** : copiez `infra/secrets/lifeos_documents_key` dans votre gestionnaire
+de mots de passe. Sans cette clé, les originaux des documents sont illisibles, y compris dans
+les sauvegardes.
+
+## 5. Assistant IA (Gemini, sans frais)
+
+Suivre le [guide Gemini](guide-gemini.md) : clé d'un projet Google Cloud **sans compte de
+facturation** (rien ne peut être facturé), à coller dans `infra/secrets/lifeos_gemini_api_key`.
+Ensuite :
+
+```bash
+cd /opt/lifeos/infra
+sed -i 's/^LIFEOS_LLM_PROVIDER=.*/LIFEOS_LLM_PROVIDER=gemini/' .env
+docker compose up -d
+```
+
+Le script le fait seul si la clé est fournie pendant l'installation. Sans clé, LifeOS
+fonctionne entièrement, sans l'assistant.
+
+## 6. Certificat et premier accès
+
+1. Certificat : déposer `fullchain.pem` et `privkey.pem` dans `infra/traefik/certs/`, puis
+   `cp infra/traefik/dynamic/tls.yml.example infra/traefik/dynamic/tls.yml`
+   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)).
+2. Ouvrir le lien d'enrôlement sur l'appareil qui portera la première passkey (téléphone ou
+   ordinateur), nommer l'appareil, valider.
+3. Dans **Réglages → Appareils et passkeys**, ajouter une **deuxième passkey** (autre
+   appareil) : c'est votre secours.
+4. Dans **Réglages**, autoriser l'assistant IA pour les espaces souhaités (personnel,
+   professionnel).
+
+Lien perdu ou appareils perdus :
+`docker compose exec api lifeos-admin enrollment-token --email moi@exemple.fr`.
+
+## 7. GPU pour la dictée (facultatif)
+
+La transcription fonctionne sur le CPU. La GTX 1050 Ti la rend plusieurs fois plus rapide :
+
+1. passer la carte à la VM (Proxmox : VT-d/IOMMU, VM `q35` + OVMF) ;
+2. dans la VM, installer le pilote NVIDIA **570 ou 580** (la 580 est la dernière branche
+   qui gère Pascal) puis le **NVIDIA Container Toolkit**
+   (`sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`) ;
+3. vérifier `nvidia-smi`, puis relancer `infra/scripts/install.sh --gpu`.
+
+Si la carte n'est pas utilisable, le service revient seul sur le CPU.
+
+## 8. Sauvegardes (à faire le premier jour)
+
+```bash
+sudo apt-get install -y restic          # ≥ 0.17, sinon binaire officiel
+export RESTIC_REPOSITORY=sftp:backup@nas:/srv/restic/lifeos
+export RESTIC_PASSWORD_FILE=/root/.config/lifeos/restic-password
+restic init
+/opt/lifeos/infra/scripts/backup.sh          # base + originaux chiffrés
+/opt/lifeos/infra/scripts/restore-check.sh   # vérification
+```
+
+Planifier `backup.sh` chaque nuit et `restore-check.sh` chaque semaine (cron ou timer
+systemd), avec les deux variables ci-dessus. Le mot de passe restic et le contenu de
+`infra/secrets/` se conservent **hors du serveur**.
+
+## 9. Vérifier que tout va bien
+
+```bash
+cd /opt/lifeos/infra
+docker compose ps                         # tous « running » / « healthy »
+docker compose exec ml lifeos-ml selftest # « OCR prêt »
+docker compose logs --tail 50 api worker  # aucun contenu personnel dans les logs
+```
+
+Dans l'application, l'accueil affiche le briefing du jour, et la page **Recherche** montre la
+progression de l'index sémantique.
+
+## 10. Mettre à jour
+
+```bash
+cd /opt/lifeos && git pull
+cd infra && ./scripts/init-secrets.sh && docker compose up -d --build
+```
+
+Faire une sauvegarde avant toute mise à jour (les migrations de base s'appliquent seules).
+
+## Problèmes fréquents
+
+| Symptôme | Cause probable |
+|---|---|
+| « Opération annulée ou refusée par l'appareil » à l'enrôlement | domaine différent de `LIFEOS_WEBAUTHN_RP_ID`, ou pas de HTTPS |
+| Le micro n'apparaît pas | dictée désactivée (`LIFEOS_STT_PROVIDER`), navigateur sans enregistrement audio, ou page non servie en HTTPS |
+| Dictée « en attente » sans fin | modèle de transcription absent : `docker compose --profile setup run --rm stt-download` |
+| Documents « lecture locale indisponible » | service `ml` arrêté : `docker compose up -d ml` puis `docker compose logs ml` |
+| « Le stockage des documents n'est pas configuré » | `infra/secrets/lifeos_documents_key` absent : relancer `./scripts/init-secrets.sh` |
+| L'assistant répond « quota du jour atteint » | plafond gratuit Gemini : il se renouvelle chaque jour vers 9 h (heure de Paris) |

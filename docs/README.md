@@ -2,6 +2,8 @@
 
 | Document | Contenu |
 |---|---|
+| [installation.md](installation.md) | **Installation pas à pas** de la version 1.0 sur la VM (Docker, domaine, script, Gemini, GPU, sauvegardes) |
+| [guide-utilisateur.md](guide-utilisateur.md) | **Guide d'utilisation** : pages, principes, ce que l'assistant voit et ne voit jamais |
 | [cadrage/cahier-des-charges.md](cadrage/cahier-des-charges.md) | Cahier des charges v1.0 (source : document de cadrage du 11/10/2026) |
 | [cadrage/architecture-specifications.md](cadrage/architecture-specifications.md) | Architecture et spécifications techniques v1.0 (source) |
 | [adr/](adr/) | Décisions d'architecture (ADR) prises au démarrage |
