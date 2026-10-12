@@ -76,8 +76,9 @@ et la stabilisation complète (étape 6) sont reportés : voir « Limites connue
 ### Qualité
 
 - Tests :
-  - backend : 250 tests sur une vraie base PostgreSQL ;
-  - web : 228 tests unitaires et de composants ;
+  - backend : 266 tests sur une vraie base PostgreSQL, plus 26 pour la lecture (OCR) et la
+    transcription ;
+  - web : 234 tests unitaires et de composants ;
   - 3 parcours de bout en bout Playwright : MVP, intelligence, multimodal.
 - Chaîne complète d'OCR et de transcription testée hors ligne en CI ; images Docker
   construites et démarrées sans réseau.
