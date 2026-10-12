@@ -107,7 +107,12 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
         started = time.monotonic()
         try:
             result = await asyncio.to_thread(
-                extraction.extract, data, mime, purpose=purpose, max_pages=max_pages
+                extraction.run_isolated,
+                data,
+                mime,
+                purpose=purpose,
+                max_pages=max_pages,
+                memory_mb=settings.extraction_memory_mb,
             )
         except extraction.ExtractFailure as exc:
             log.info("extraction_refused", mime=mime, code=exc.code)

@@ -47,7 +47,8 @@ chat (F01). Les contraintes sont les suivantes :
      décompression). L'orientation EXIF est appliquée.
    - **Ré-encodage des images.** L'image est ré-encodée à partir des seuls pixels :
      EXIF, GPS, XMP, ICC et commentaires disparaissent. Le résultat (4 096 px au plus,
-     HEIC converti en JPEG) **remplace** le fichier envoyé.
+     HEIC converti en JPEG) **remplace** le fichier envoyé. Une image illisible ne peut pas
+     être nettoyée : son original n'est pas conservé.
    - **OCR** : Tesseract 5 avec le modèle français, dans un sous-processus avec un budget
      de temps.
      - Mode « colonne » pour les tickets.
@@ -56,6 +57,15 @@ chat (F01). Les contraintes sont les suivantes :
        texte quand elle est basse.
    - Une extraction à la fois, avec une file bornée : au-delà, `503 busy` et nouvel essai
      plus tard.
+   - **Chaque extraction tourne dans un processus enfant à mémoire bornée** (1,25 Gio par
+     défaut, `LIFEOS_EXTRACTION_MEMORY_MB`). Un fichier hostile, par exemple une image
+     énorme décrite en quelques kilo-octets dans un PDF, échoue au lieu d'épuiser le
+     service, qui porte aussi le modèle d'embeddings.
+     - Les images trop grandes d'un PDF sont refusées avant le rendu.
+     - Les grandes photos JPEG sont décodées à échelle réduite.
+   - Un document sur lequel le service plante trois fois de suite échoue définitivement
+     (`extraction_crashed`) au lieu d'être réessayé sans fin. La règle vaut aussi pour les
+     dictées (`transcription_crashed`).
    - Un document illisible échoue définitivement (`unreadable`, `too_many_pages`,
      `encrypted`, `too_slow`…) au lieu d'être réessayé sans fin.
    - Le propriétaire peut toujours corriger le texte ou le saisir lui-même.
@@ -65,10 +75,12 @@ chat (F01). Les contraintes sont les suivantes :
    - Une suppression n'attend jamais une lecture.
    - Une tâche périodique rattrape les messages perdus et les nouvelles tentatives.
 5. **Sensibilité détectée localement.**
-   - Trois catégories : identité, santé, banque.
+   - Trois catégories : identité, santé, banque. Le titre est classé avec le texte.
    - Signaux pondérés et explicables :
      - signaux forts : bande MRZ, IBAN valide, numéro de carte (contrôle de Luhn), NIR ;
-     - mots-clés pour le reste.
+     - indices faibles qui s'additionnent pour le reste : une ordonnance qui ne dit pas
+       « ordonnance » (RPPS, posologie, dosage), un compte rendu d'imagerie, un relevé
+       « de vos comptes », un acte d'état civil, un avis d'impôt.
    - Les raisons affichées ne contiennent jamais les valeurs détectées.
    - **Un document sensible n'est jamais envoyé au cloud**, ni comme pièce jointe, ni dans
      le contexte d'un agent. La détection penche du côté de la prudence.

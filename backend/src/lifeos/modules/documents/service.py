@@ -360,6 +360,7 @@ async def reprocess_document(ctx: Ctx, document_id: uuid.UUID) -> Document:
         raise ProblemError(422, "document_not_reprocessable", "Audio is handled by dictation")
     document.status = "pending"
     document.error = None
+    document.failures = 0
     await ctx.db.flush()
     await _audit(ctx, "document.reprocess", document)
     return document

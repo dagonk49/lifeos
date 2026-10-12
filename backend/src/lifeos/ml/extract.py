@@ -14,12 +14,16 @@ Nothing is stored and no content is logged. The HTTP contract is described in
 
 import csv
 import io
+import multiprocessing
 import os
+import resource
 import shutil
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from multiprocessing.connection import Connection
+from typing import Any
 
 import pypdfium2 as pdfium
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -50,6 +54,11 @@ OCR_LANGUAGE = "fra"
 PSM_DOCUMENT = 3
 PSM_RECEIPT = 4
 JPEG_QUALITY = 90
+
+# Memory of one extraction (child process): a hostile file (huge image inside a small PDF)
+# fails with `too_large` instead of exhausting the service, which also holds the embedding
+# model.
+DEFAULT_MEMORY_MB = 1280
 
 # Checked by `_decode_image` on the header, with its own error (instead of a warning).
 Image.MAX_IMAGE_PIXELS = None
@@ -193,6 +202,12 @@ def _fit(image: Image.Image, max_side: int) -> Image.Image:
 def _decode_image(data: bytes, mime: str) -> Image.Image:
     try:
         image = Image.open(io.BytesIO(data), formats=[PIL_FORMATS[mime]])
+        if mime == "image/jpeg" and max(image.size) > MAX_IMAGE_SIDE:
+            # JPEG decodes at 1/2, 1/4 or 1/8 scale: a 50-200 Mpx phone photo is read
+            # directly at about the size kept, without allocating the full picture.
+            # (The requested box keeps the aspect ratio: Pillow scales by the smaller ratio.)
+            factor = MAX_IMAGE_SIDE / max(image.size)
+            image.draft(None, (int(image.width * factor), int(image.height * factor)))
         if image.width * image.height > MAX_PIXELS:
             raise ExtractFailure("image_too_large")
         image.seek(0)  # animations, bursts, HEIF collections: the first picture only
@@ -268,7 +283,17 @@ def _page_text(page: pdfium.PdfPage) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+def _check_images(page: pdfium.PdfPage) -> None:
+    """Refuses a page holding an image too large to decode (a few kB of compressed zeros
+    can describe gigabytes of pixels), before PDFium decodes it to render the page."""
+    for obj in page.get_objects(filter=(pdfium.raw.FPDF_PAGEOBJ_IMAGE,)):
+        width, height = obj.get_px_size()
+        if width * height > MAX_PIXELS:
+            raise ExtractFailure("image_too_large")
+
+
 def _render(page: pdfium.PdfPage) -> Image.Image:
+    _check_images(page)
     width, height = page.get_size()  # points (1/72 inch)
     scale = min(OCR_DPI / 72, MAX_RENDER_SIDE / max(1.0, width, height))
     bitmap = page.render(scale=scale, grayscale=True)
@@ -336,3 +361,68 @@ def extract(
     if mime == "application/pdf":
         return extract_pdf(data, purpose=purpose, max_pages=max_pages, deadline=deadline)
     return extract_image(data, mime, purpose=purpose, deadline=deadline)
+
+
+# --- Isolation -----------------------------------------------------------------------------
+# Each extraction runs in a child process with a memory limit: the decoders (PDFium,
+# libheif, libjpeg...) parse untrusted files, and the limit (not only the pixel checks above,
+# which cannot see everything, e.g. a PDF soft mask) keeps one file from exhausting the
+# service. The fork server preloads this module: a child starts in milliseconds.
+_context = multiprocessing.get_context("forkserver")
+_context.set_forkserver_preload([__name__])
+
+
+def _child(
+    conn: Connection, data: bytes, mime: str, purpose: str, max_pages: int, memory: int
+) -> None:
+    # Data segment and private mappings: what the decoders allocate. (The address space
+    # limit would break PDFium, which reserves large virtual ranges up front.)
+    resource.setrlimit(resource.RLIMIT_DATA, (memory, memory))
+    message: tuple[Any, ...]
+    try:
+        message = ("ok", extract(data, mime, purpose=purpose, max_pages=max_pages))
+    except ExtractFailure as exc:
+        message = ("fail", exc.code, exc.status)
+    except MemoryError:
+        message = ("fail", "too_large", 422)
+    except Exception as exc:  # a decoder bug on this file: not worth retrying
+        message = ("fail", "unreadable", 422, type(exc).__name__)
+    conn.send(message)
+    conn.close()
+
+
+def run_isolated(
+    data: bytes,
+    mime: str,
+    *,
+    purpose: str,
+    max_pages: int,
+    memory_mb: int = DEFAULT_MEMORY_MB,
+    timeout_s: float = DEADLINE_S + 30,
+) -> Result:
+    """`extract` in a child process limited to `memory_mb`. Blocking: run it in a thread."""
+    receiver, sender = _context.Pipe(duplex=False)
+    process = _context.Process(
+        target=_child,
+        args=(sender, data, mime, purpose, max_pages, memory_mb * 1024 * 1024),
+        daemon=True,
+    )
+    process.start()
+    sender.close()
+    try:
+        if not receiver.poll(timeout_s):
+            raise ExtractFailure("too_slow")
+        try:
+            message = receiver.recv()
+        except EOFError as exc:  # killed (memory) or crashed without an answer
+            raise ExtractFailure("too_large") from exc
+    finally:
+        receiver.close()
+        process.join(timeout=2)
+        if process.is_alive():
+            process.kill()
+            process.join()
+    if message[0] == "ok":
+        result: Result = message[1]
+        return result
+    raise ExtractFailure(message[1], status=message[2])

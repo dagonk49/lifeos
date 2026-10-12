@@ -27,6 +27,9 @@ SAMPLE_RATE = 16_000
 LANGUAGE = "fr"
 # Below this, there is nothing to transcribe (a tap on the record button).
 MIN_SECONDS = 0.3
+# A recording stopped automatically at the maximum length overshoots it by a fraction of a
+# second (more in a background tab): accepted, never a lost dictation.
+TOLERANCE_S = 5.0
 VAD_PARAMETERS = {"min_silence_duration_ms": 700, "speech_pad_ms": 300}
 # Normalised (lowercase, no accents) fragments of sentences Whisper hallucinates in French.
 _PHANTOMS = re.compile(
@@ -70,14 +73,53 @@ def clean_segments(texts: list[str]) -> str:
     return " ".join(kept)
 
 
-def decode(data: bytes) -> Any:
-    """The audio as 16 kHz mono float32 samples (PyAV, i.e. FFmpeg, in this sandbox)."""
-    from faster_whisper.audio import decode_audio  # the `stt` extra
+def decode(data: bytes, *, max_seconds: float) -> Any:
+    """The audio as 16 kHz mono float32 samples (PyAV, i.e. FFmpeg, in this sandbox).
 
+    Decoded progressively and refused as soon as it exceeds `max_seconds` (plus the
+    tolerance): a small file can hold hours of (silent) audio, which must never be
+    expanded in memory first.
+    """
+    import gc
+
+    import av  # the `stt` extra
+    import numpy as np
+    from faster_whisper.audio import (
+        _group_frames,
+        _ignore_invalid_frames,
+        _resample_frames,
+    )
+
+    allowed = max_seconds + TOLERANCE_S
+    limit = int(allowed * SAMPLE_RATE)
+    chunks: list[Any] = []
+    count = 0
     try:
-        return decode_audio(io.BytesIO(data), sampling_rate=SAMPLE_RATE)
+        with av.open(io.BytesIO(data), mode="r", metadata_errors="ignore") as container:
+            if container.duration is not None and container.duration / av.time_base > allowed:
+                raise SttFailure("too_long")
+            resampler = av.audio.resampler.AudioResampler(
+                format="s16", layout="mono", rate=SAMPLE_RATE
+            )
+            frames = _ignore_invalid_frames(container.decode(audio=0))
+            for frame in _resample_frames(_group_frames(frames, 500_000), resampler):
+                samples = frame.to_ndarray().reshape(-1)
+                count += samples.shape[0]
+                if count > limit:
+                    raise SttFailure("too_long")
+                chunks.append(samples)
+            del resampler
+    except SttFailure:
+        raise
     except Exception as exc:  # av.error.*: corrupt, truncated or not audio at all
         raise SttFailure("unreadable") from exc
+    finally:
+        gc.collect()  # PyAV resampler objects are only freed by the collector
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    audio = np.concatenate(chunks).astype(np.float32)
+    audio /= 32768.0
+    return audio
 
 
 class Engine:
@@ -138,10 +180,8 @@ class Engine:
         raise SttFailure("model_unavailable", status=503) from RuntimeError("; ".join(errors))
 
     def transcribe(self, data: bytes, *, max_seconds: float) -> Transcript:
-        audio = decode(data)
+        audio = decode(data, max_seconds=max_seconds)
         duration = len(audio) / SAMPLE_RATE
-        if duration > max_seconds:
-            raise SttFailure("too_long")
         if duration < MIN_SECONDS:
             return Transcript(text="", duration=duration, speech=0.0)
         with self._lock:

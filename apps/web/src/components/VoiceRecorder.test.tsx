@@ -9,6 +9,7 @@ type Call = { url: string; method: string; body: BodyInit | null | undefined };
 class FakeRecorder {
   static isTypeSupported = (type: string) => type.startsWith("audio/webm");
   static last: FakeRecorder | null = null;
+  static created = 0;
   state: "inactive" | "recording" = "inactive";
   mimeType: string;
   ondataavailable: ((event: { data: Blob }) => void) | null = null;
@@ -17,6 +18,7 @@ class FakeRecorder {
   constructor(_stream: unknown, options?: { mimeType?: string }) {
     this.mimeType = options?.mimeType ?? "";
     FakeRecorder.last = this;
+    FakeRecorder.created += 1;
   }
 
   start() {
@@ -32,14 +34,14 @@ class FakeRecorder {
 
 const stopTrack = vi.fn();
 
-function mockApi(dictation: Record<string, unknown>): Call[] {
+function mockApi(dictation: Record<string, unknown>, maxSeconds = 900): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? "GET";
       calls.push({ url, method, body: init.body });
-      if (url === "/v1/voice/status") return Response.json({ transcription: true, max_seconds: 900 });
+      if (url === "/v1/voice/status") return Response.json({ transcription: true, max_seconds: maxSeconds });
       if (method === "POST") {
         return Response.json({ ...dictation, status: "pending", text: null }, { status: 202 });
       }
@@ -80,6 +82,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   stopTrack.mockClear();
+  FakeRecorder.created = 0;
 });
 
 describe("VoiceRecorder", () => {
@@ -144,5 +147,33 @@ describe("VoiceRecorder", () => {
     renderRecorder(vi.fn());
     fireEvent.click(await screen.findByRole("button", { name: "Dicter" }));
     expect(await screen.findByText(/Accès au micro refusé/)).toBeTruthy();
+  });
+
+  it("stops on its own before the server's limit, so the recording is never refused", async () => {
+    const calls = mockApi({ ...base, status: "ready", text: "Une dictée longue." }, 3);
+    renderRecorder(vi.fn());
+    fireEvent.click(await screen.findByRole("button", { name: "Dicter" }));
+    await screen.findByRole("button", { name: "Terminer la dictée" });
+    // Limit 3 s, margin 2 s: stopped after 1 s without any click, then sent.
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true), { timeout: 3000 });
+    expect(stopTrack).toHaveBeenCalled();
+  });
+
+  it("opens the microphone once, even when clicked twice, and releases it if the page is left", async () => {
+    mockApi({ ...base, status: "ready", text: "x" });
+    let grant: (stream: unknown) => void = () => {};
+    const getUserMedia = vi.fn(() => new Promise((resolve) => (grant = resolve)));
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+    renderRecorder(vi.fn());
+    const button = await screen.findByRole("button", { name: "Dicter" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("button", { name: "Accès au micro…" })).toHaveProperty("disabled", true);
+    // The page is left while the permission prompt is open: the late stream is released.
+    cleanup();
+    grant({ getTracks: () => [{ stop: stopTrack }] });
+    await waitFor(() => expect(stopTrack).toHaveBeenCalled());
+    expect(FakeRecorder.created).toBe(0);
   });
 });

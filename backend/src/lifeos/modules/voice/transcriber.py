@@ -40,6 +40,11 @@ class TranscriptionError(Exception):
     """Transcription is unavailable right now (service down, model missing): retry later."""
 
 
+class TranscriptionCrashError(TranscriptionError):
+    """The service failed while transcribing THIS recording (connection lost, hang,
+    server error): retried, but the dictation fails after a few such failures in a row."""
+
+
 class UntranscribableAudio(Exception):  # noqa: N818  (name used by the stt contract)
     """The recording cannot be transcribed (corrupt, too long): do not retry."""
 
@@ -112,6 +117,9 @@ class RemoteTranscriber:
                 data={"mime": mime, "max_seconds": str(max_seconds)},
                 timeout=TIMEOUT_S,
             )
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout) as exc:
+            # The request reached the service, which died or hung on this recording.
+            raise TranscriptionCrashError(f"stt service failed: {type(exc).__name__}") from exc
         except httpx.HTTPError as exc:
             raise TranscriptionError(f"stt service unavailable: {type(exc).__name__}") from exc
         if response.status_code == 422:
@@ -120,6 +128,8 @@ class RemoteTranscriber:
             raise UntranscribableAudio("too_large")
         if response.status_code == 415:
             raise UntranscribableAudio("unsupported_type")
+        if response.status_code == 500:
+            raise TranscriptionCrashError("stt service failed on this recording")
         if response.status_code != 200:
             raise TranscriptionError(f"stt service answered {response.status_code}")
         try:

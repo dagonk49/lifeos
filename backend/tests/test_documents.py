@@ -929,3 +929,57 @@ async def test_the_title_counts_for_sensitivity(
     )
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["sensitivity"] == ["health"]
+
+
+async def test_a_document_that_crashes_the_reader_fails_after_a_few_attempts(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    doc_settings: Settings,
+) -> None:
+    from lifeos.modules.documents.extraction import ExtractionCrashError
+
+    def crash(data: bytes, mime: str, purpose: str) -> Extraction:
+        raise ExtractionCrashError("ml service failed: RemoteProtocolError")
+
+    document = await created(client, spaces["personal"], JPEG, filename="photo.jpg")
+    crashing = FakeExtractor(handler=crash)
+    for attempt in range(processing.MAX_FAILURES):
+        outcome = await process(database, store, crashing, document["id"], doc_settings)
+        expected = "failed" if attempt == processing.MAX_FAILURES - 1 else "deferred"
+        assert outcome == expected
+        async with database.sessionmaker() as session, session.begin():
+            await session.execute(
+                update(Document)
+                .where(Document.id == uuid.UUID(document["id"]))
+                .values(updated_at=utcnow() - timedelta(minutes=10))
+            )
+    failed = (await client.get(f"/v1/documents/{document['id']}")).json()
+    assert (failed["status"], failed["error"]) == ("failed", "extraction_crashed")
+    # A picture that could not be read could not be cleaned either: not kept.
+    assert failed["original_available"] is False
+    assert _stored_files(doc_settings.documents_dir) == []
+
+
+async def test_an_unreadable_picture_is_not_kept_with_its_metadata(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    doc_settings: Settings,
+) -> None:
+    def too_large(data: bytes, mime: str, purpose: str) -> Extraction:
+        raise UnreadableDocument("image_too_large")
+
+    photo = await created(client, spaces["personal"], JPEG, filename="photo.jpg")
+    pdf = await created(client, spaces["personal"], PDF, filename="scan.pdf")
+    refusing = FakeExtractor(handler=too_large)
+    assert await process(database, store, refusing, photo["id"], doc_settings) == "failed"
+    assert await process(database, store, refusing, pdf["id"], doc_settings) == "failed"
+    kept = {
+        d["id"]: d["original_available"]
+        for d in (await client.get("/v1/documents")).json()["items"]
+    }
+    # The picture is dropped; a PDF original holds no photo metadata and stays downloadable.
+    assert kept == {photo["id"]: False, pdf["id"]: True}

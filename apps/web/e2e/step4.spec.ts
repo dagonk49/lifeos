@@ -103,6 +103,8 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   // UC01: the day is dictated, transcribed on the server, reviewed, then saved.
   await nav(page, "Journal");
   await page.getByRole("button", { name: "Dicter ma journée" }).click();
+  // Speak for a moment (the fake microphone plays a tone) before stopping.
+  await expect(page.getByText(/Enregistrement 0:0[1-9]/)).toBeVisible({ timeout: 10_000 });
   await page.getByRole("button", { name: "Terminer la dictée" }).click();
   const content = page.getByLabel("Faits, accomplissements, difficultés…");
   await expect(content).toHaveValue(/Dictée de test\./, { timeout: 30_000 });

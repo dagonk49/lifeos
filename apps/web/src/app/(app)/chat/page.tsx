@@ -13,8 +13,13 @@ import { SpeakButton } from "@/components/SpeakButton";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Alert, Badge, Button, Card, Empty, PageHeader, Spinner, Textarea, cx } from "@/components/ui";
 import { CORE_AGENT, agentLabel, agentsKey, missingPermissions, suggestedAgent, type AgentChoice } from "@/lib/agents";
-import { api, errorMessage, problemMessage } from "@/lib/api";
-import { attachmentState, attachmentsReading, sendableAttachments } from "@/lib/attachments";
+import { api, errorMessage, isApiError, problemMessage } from "@/lib/api";
+import {
+  attachmentPollInterval,
+  attachmentState,
+  attachmentsReading,
+  sendableAttachments,
+} from "@/lib/attachments";
 import { formatDate, formatTime } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
 import type {
@@ -102,6 +107,9 @@ interface SendVars {
   agent: AgentChoice;
   /** Documents whose extracted text goes with the message. */
   attachments?: string[];
+  /** Every attachment shown when the message was sent (sent or left out): cleared once
+   * the message is saved, unlike attachments added while it was being sent. */
+  shown?: string[];
   /** Resending a message after granting access: the draft is left untouched. */
   resend?: boolean;
 }
@@ -120,6 +128,7 @@ export default function ChatPage() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   const conversations = useQuery({
@@ -144,12 +153,16 @@ export default function ChatPage() {
     queries: attachmentIds.map((id) => ({
       queryKey: ["document", id],
       queryFn: () => api<DocumentSummary>(`/v1/documents/${id}`),
-      refetchInterval: (query: { state: { data?: DocumentSummary } }) =>
-        attachmentState(query.state.data) === "reading" ? 1500 : false,
+      refetchInterval: (query: { state: { data?: DocumentSummary; status: string } }) =>
+        query.state.status === "error" ? false : attachmentPollInterval(attachmentState(query.state.data)),
     })),
   });
   const attachmentDocs = attachmentQueries.map((q) => q.data);
-  const readingAttachments = attachmentsReading(attachmentDocs);
+  // Gone: deleted meanwhile, or never loaded. Left out of the message, never waited for.
+  const attachmentStates = attachmentQueries.map((q) =>
+    attachmentState(q.data, q.isError && (!q.data || isApiError(q.error, "document_not_found"))),
+  );
+  const readingAttachments = attachmentsReading(attachmentStates);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -209,16 +222,24 @@ export default function ChatPage() {
       if (!resend) setPermission(null);
       setSuggestion(null);
     },
-    onSuccess: ({ result, spaceId: space }, { content, resend }) => {
+    onSuccess: ({ result, spaceId: space }, { content, resend, attachments = [], shown = [] }) => {
       if (!resend) {
         setDraft("");
-        setAttachmentIds([]);
+        // Only those shown at sending time: one attached meanwhile is for the next message.
+        setAttachmentIds((ids) => ids.filter((id) => !shown.includes(id)));
       }
       const missing = missingPermissions(result);
       if (missing !== null && result.agent !== "core") {
         // The message is saved; the agent first needs read access in this space.
         setDegraded(null);
-        setPermission({ agent: result.agent, spaceId: space, missing, content, messageId: result.user_message.id });
+        setPermission({
+          agent: result.agent,
+          spaceId: space,
+          missing,
+          content,
+          attachments,
+          messageId: result.user_message.id,
+        });
       } else {
         setDegraded(result.error);
         setPermission(null);
@@ -243,8 +264,13 @@ export default function ChatPage() {
   const submit = () => {
     const content = draft.trim();
     // Wait for a conversation being created: sending now would open a second one.
-    if (content && !send.isPending && !create.isPending && !readingAttachments) {
-      send.mutate({ content, agent, attachments: sendableAttachments(attachmentDocs) });
+    if (content && !send.isPending && !create.isPending && !readingAttachments && !uploading) {
+      send.mutate({
+        content,
+        agent,
+        attachments: sendableAttachments(attachmentIds, attachmentStates),
+        shown: attachmentIds,
+      });
     }
   };
 
@@ -325,7 +351,12 @@ export default function ChatPage() {
                 resending={send.isPending}
                 onResend={() => {
                   setAgent(permission.agent);
-                  send.mutate({ content: permission.content, agent: permission.agent, resend: true });
+                  send.mutate({
+                    content: permission.content,
+                    agent: permission.agent,
+                    attachments: permission.attachments ?? [],
+                    resend: true,
+                  });
                 }}
                 onDismiss={() => setPermission(null)}
               />
@@ -353,6 +384,8 @@ export default function ChatPage() {
                 conversationId={current}
                 ids={attachmentIds}
                 documents={attachmentDocs}
+                states={attachmentStates}
+                onUploadingChange={setUploading}
                 onAdd={(id) => setAttachmentIds((ids) => (ids.includes(id) ? ids : [...ids, id]))}
                 onRemove={(id) => setAttachmentIds((ids) => ids.filter((other) => other !== id))}
               />
@@ -384,9 +417,13 @@ export default function ChatPage() {
                 <Button
                   type="submit"
                   className="self-end sm:mt-6"
-                  disabled={send.isPending || create.isPending || readingAttachments || !draft.trim()}
+                  disabled={send.isPending || create.isPending || readingAttachments || uploading || !draft.trim()}
                 >
-                  {readingAttachments ? "Lecture de la pièce jointe…" : "Envoyer"}
+                  {uploading
+                    ? "Envoi de la pièce jointe…"
+                    : readingAttachments
+                      ? "Lecture de la pièce jointe…"
+                      : "Envoyer"}
                 </Button>
               </div>
             </form>

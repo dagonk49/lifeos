@@ -49,7 +49,6 @@ export function DocumentUpload({ onUploaded }: { onUploaded: (document: Document
       setKeepOriginal(false);
       setInputKey((k) => k + 1);
       setDone(document);
-      onUploaded(document);
     },
   });
 
@@ -72,7 +71,8 @@ export function DocumentUpload({ onUploaded }: { onUploaded: (document: Document
             setInvalid(result.error);
             return;
           }
-          send.mutate(result.value);
+          // Per call: no navigation if the owner left the page during the upload.
+          send.mutate(result.value, { onSuccess: (document) => onUploaded(document) });
         }}
       >
         <Field label="Fichier" hint="PDF, image (JPEG, PNG, WebP, HEIC) ou fichier texte.">

@@ -2,34 +2,46 @@
 
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 import { Alert, Badge, Button } from "@/components/ui";
 import { errorMessage, upload } from "@/lib/api";
-import { MAX_ATTACHMENTS, attachmentState, attachmentStateLabel } from "@/lib/attachments";
+import { MAX_ATTACHMENTS, attachmentStateLabel, type AttachmentState } from "@/lib/attachments";
 import type { DocumentDetail, DocumentSummary } from "@/lib/types";
 
-const TONES = { reading: "neutral", ready: "teal", sensitive: "red", unreadable: "amber" } as const;
+const TONES = {
+  reading: "neutral",
+  postponed: "amber",
+  ready: "teal",
+  sensitive: "red",
+  unreadable: "amber",
+  unavailable: "amber",
+} as const;
 
 /**
  * Attachments of the message being written: each file is uploaded as a document (encrypted,
  * read locally), and only its extracted text goes with the message, never a sensitive one.
- * The parent polls the attached documents and passes them in `documents` (same order).
+ * The parent polls the attached documents and passes them, and their states, in the order
+ * of `ids`; it also learns when an upload is in flight, to hold the message until then.
  */
 export function ChatAttachments({
   spaceId,
   conversationId,
   ids,
   documents,
+  states,
   onAdd,
   onRemove,
+  onUploadingChange,
 }: {
   spaceId: string | null;
   conversationId: string | null;
   ids: string[];
   documents: (DocumentSummary | undefined)[];
+  states: AttachmentState[];
   onAdd: (id: string) => void;
   onRemove: (id: string) => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const inputId = useId();
@@ -45,8 +57,13 @@ export function ChatAttachments({
       form.append("file", file, file.name);
       return upload<DocumentDetail>("/v1/documents", form, { idempotent: true });
     },
-    onSuccess: (document) => onAdd(document.id),
   });
+  // The page holds the message while a file is on its way (it would be left out).
+  const uploading = add.isPending;
+  useEffect(() => {
+    onUploadingChange?.(uploading);
+  }, [uploading, onUploadingChange]);
+  useEffect(() => () => onUploadingChange?.(false), [onUploadingChange]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -54,7 +71,7 @@ export function ChatAttachments({
         <ul aria-label="Pièces jointes" className="flex flex-col gap-1">
           {ids.map((id, index) => {
             const document = documents[index];
-            const state = attachmentState(document);
+            const state = states[index] ?? "reading";
             return (
               <li
                 key={id}
@@ -62,8 +79,14 @@ export function ChatAttachments({
               >
                 <span className="font-medium">{document?.title ?? "Document"}</span>
                 <Badge tone={TONES[state]}>{attachmentStateLabel(state, document?.sensitivity)}</Badge>
-                <Link className="text-xs underline" href={`/documents?id=${encodeURIComponent(id)}`}>
-                  Vérifier le texte
+                {/* A new tab: the message being written stays as it is. */}
+                <Link
+                  className="text-xs underline"
+                  href={`/documents?id=${encodeURIComponent(id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Vérifier le texte<span className="sr-only"> (nouvel onglet)</span>
                 </Link>
                 <button type="button" className="text-xs underline" onClick={() => onRemove(id)}>
                   Retirer
@@ -83,7 +106,8 @@ export function ChatAttachments({
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            if (file) add.mutate(file);
+            // Per call: not run if the composer is gone by the end of the upload.
+            if (file) add.mutate(file, { onSuccess: (document) => onAdd(document.id) });
           }}
         />
         <Button

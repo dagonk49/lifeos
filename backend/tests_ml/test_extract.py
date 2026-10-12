@@ -312,3 +312,92 @@ async def test_service_checks_type_and_size() -> None:
         assert response.status_code == 415
         response = await post(base64.b64encode(bytes(4096)), "text/plain")
         assert (response.status_code, response.json()) == (413, {"code": "too_large"})
+
+
+# --- Hostile or huge files -----------------------------------------------------------------
+
+
+def image_pdf(width: int, height: int, mask: int = 0) -> bytes:
+    """A small PDF whose single page draws a huge image of zeros (Flate compressed), and
+    optionally a huge soft mask: kilobytes on disk, gigabytes once decoded."""
+    import zlib
+
+    def flate(w: int, h: int, channels: int) -> bytes:
+        compressor = zlib.compressobj(9)
+        row = b"\x00" * (w * channels)
+        return b"".join(compressor.compress(row) for _ in range(h)) + compressor.flush()
+
+    smask = b" /SMask 6 0 R" if mask else b""
+    picture = flate(width, height, 3)
+    content = b"q 612 0 0 792 0 0 cm /Im0 Do Q"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+        b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB "
+        b"/BitsPerComponent 8%s /Filter /FlateDecode /Length %d >>\nstream\n"
+        % (width, height, smask, len(picture))
+        + picture
+        + b"\nendstream",
+    ]
+    if mask:
+        alpha = flate(mask, mask, 1)
+        objects.append(
+            b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray "
+            b"/BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n"
+            % (mask, mask, len(alpha))
+            + alpha
+            + b"\nendstream"
+        )
+    out = bytearray(b"%PDF-1.7\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    return bytes(out)
+
+
+def test_huge_image_inside_a_pdf_is_refused_before_rendering() -> None:
+    with pytest.raises(ExtractFailure) as error:
+        extract(image_pdf(8000, 8000), "application/pdf", purpose="document", max_pages=30)
+    assert error.value.code == "image_too_large"
+
+
+def test_an_extraction_cannot_use_more_memory_than_its_limit() -> None:
+    from lifeos.ml.extract import run_isolated
+
+    # The soft mask alone decodes to 400 MB: over the limit, PDFium gives up on drawing
+    # it; the service survives and the document is read (blank page here).
+    data = image_pdf(500, 500, mask=20_000)
+    result = run_isolated(data, "application/pdf", purpose="document", max_pages=30, memory_mb=320)
+    assert result.pages == 1
+    # A normal document goes through the isolated path unchanged.
+    normal = run_isolated(
+        text_pdf(["Bonjour"]), "application/pdf", purpose="document", max_pages=30
+    )
+    assert (normal.source, normal.text) == ("pdf", "Bonjour")
+    with pytest.raises(ExtractFailure) as error:
+        run_isolated(b"%PDF-1.7\nbroken", "application/pdf", purpose="document", max_pages=30)
+    assert (error.value.code, error.value.status) == ("unreadable", 422)
+
+
+@needs_tesseract
+def test_large_phone_photos_are_decoded_at_reduced_scale() -> None:
+    # 9600 x 7200 = 69 Mpx: over the decoding limit, but a JPEG is read at 1/2 scale.
+    photo = render(RECEIPT, size=36).resize((9600, 7200))
+    result = extract(
+        encode(photo, "JPEG", quality=80), "image/jpeg", purpose="receipt", max_pages=1
+    )
+    assert result.sanitized is not None
+    with Image.open(io.BytesIO(result.sanitized)) as clean:
+        assert max(clean.size) == MAX_IMAGE_SIDE

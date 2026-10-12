@@ -15,7 +15,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Embeddings | durée de l'objet source | calculés localement (jamais transmis) ; supprimés avec l'objet par trigger, retirés si le fait est retiré |
 | Bilans (faits + lecture) | tant que le propriétaire ne les supprime pas | régénérables à la demande |
 | Paires « garder les deux » (qualité mémoire) | durée des faits concernés | supprimées avec les faits |
-| Documents : fichier original | **90 jours** par défaut, ou sans limite si le propriétaire choisit « conserver » | chiffré AES-256-GCM ; `original_until` ; purge quotidienne et suppression des fichiers orphelins ([ADR 0008](adr/0008-documents-ocr-local.md)) |
+| Documents : fichier original | **90 jours** par défaut, ou sans limite si le propriétaire choisit « conserver » ; une image illisible n'est pas conservée (elle n'a pas pu être nettoyée de ses métadonnées) | chiffré AES-256-GCM ; `original_until` ; purge quotidienne et suppression des fichiers orphelins ([ADR 0008](adr/0008-documents-ocr-local.md)) |
 | Documents : texte extrait, sensibilité, lecture d'un ticket | tant que le propriétaire ne supprime pas le document | supprimer le document efface aussi le fichier et les vecteurs |
 | Opérations financières, catégories, règles apprises | tant que le propriétaire ne les supprime pas | montants en décimal exact ; aucune connexion bancaire |
 | Sessions | expiration + 30 jours | purge quotidienne |

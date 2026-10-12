@@ -193,15 +193,18 @@ def test_browser_recordings_are_transcribed_offline(settings: Settings, mime: st
 def test_limits_and_unreadable_audio(settings: Settings) -> None:
     engine = Engine(settings)
     with pytest.raises(SttFailure) as error:
-        engine.transcribe(record("audio/ogg", seconds=3.0), max_seconds=2)
+        engine.transcribe(record("audio/ogg", seconds=8.0), max_seconds=2)
     assert (error.value.code, error.value.status) == ("too_long", 422)
+    # A recording stopped at the limit overshoots it slightly: accepted.
+    assert engine.transcribe(record("audio/ogg", seconds=3.0), max_seconds=2).duration > 2
     webm = record("audio/webm")
     with pytest.raises(SttFailure) as error:
         engine.transcribe(webm[:40] + bytes(len(webm) - 40), max_seconds=60)
     assert error.value.code == "unreadable"
     # A tap on the button: nothing to transcribe, the model is not even loaded.
-    tap = engine.transcribe(record("audio/wav", seconds=0.1), max_seconds=60)
-    assert tap.text == "" and not engine.loaded
+    fresh = Engine(settings)
+    tap = fresh.transcribe(record("audio/wav", seconds=0.1), max_seconds=60)
+    assert tap.text == "" and not fresh.loaded
 
 
 def test_model_is_unloaded_when_idle(settings: Settings) -> None:
@@ -232,7 +235,7 @@ async def test_http_contract_and_api_client(settings: Settings) -> None:
         assert isinstance(result.text, str)
 
         with pytest.raises(UntranscribableAudio) as error:
-            await remote.transcribe(record("audio/ogg"), "audio/ogg", max_seconds=1)
+            await remote.transcribe(record("audio/ogg", seconds=8.0), "audio/ogg", max_seconds=1)
         assert error.value.code == "too_long"
 
         # The declared type must match the signature; images are not audio.
@@ -244,3 +247,33 @@ async def test_http_contract_and_api_client(settings: Settings) -> None:
         assert (response.status_code, response.json()) == (415, {"code": "unsupported_type"})
         health = (await client.get("/healthz")).json()
         assert health["loaded"] is True and health["device"] == "cpu"
+
+
+def test_long_audio_is_refused_while_decoding(settings: Settings) -> None:
+    """Ten minutes of silence in a small file: refused once the decoded part passes the
+    limit, never expanded in memory first."""
+    from av.audio.resampler import AudioResampler
+
+    rate, seconds = 8000, 600
+    buffer = io.BytesIO()
+    with av.open(buffer, "w", format="ogg") as container:
+        stream = container.add_stream("flac", rate=rate)
+        stream.layout = "mono"
+        resampler = AudioResampler(format="s16", layout="mono", rate=rate)
+        silence = np.zeros((1, rate), dtype=np.int16)
+        for second in range(seconds):
+            frame = av.AudioFrame.from_ndarray(silence, format="s16", layout="mono")
+            frame.sample_rate, frame.pts = rate, second * rate
+            for converted in resampler.resample(frame):
+                for packet in stream.encode(converted):
+                    container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+    data = buffer.getvalue()
+    assert len(data) < 200_000
+    from lifeos.stt.engine import decode
+
+    with pytest.raises(SttFailure) as error:
+        decode(data, max_seconds=30)
+    assert error.value.code == "too_long"
+    assert len(decode(data, max_seconds=900)) == rate * seconds * 2  # resampled to 16 kHz

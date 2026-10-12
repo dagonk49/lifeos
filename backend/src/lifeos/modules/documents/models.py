@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Index, Integer, Numeric, Text
+from sqlalchemy import CheckConstraint, Index, Integer, Numeric, SmallInteger, Text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +42,9 @@ class Document(UUIDPrimaryKey, Owned, Timestamps, Base):
     purpose: Mapped[str] = mapped_column(Text, default="document", server_default="document")
     status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
     error: Mapped[str | None] = mapped_column(Text)
+    # Consecutive times the reading (or transcription) service failed on this document
+    # (crash, hang): after a few, the document fails instead of being retried forever.
+    failures: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     sensitivity: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
     # Extracted (or transcribed) text, correctable by the owner.
     extracted_text: Mapped[str | None] = mapped_column(Text)

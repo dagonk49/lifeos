@@ -59,7 +59,6 @@ function UploadStep({ defaultSpaceId, onUploaded }: { defaultSpaceId?: string | 
     onSuccess: (document) => {
       queryClient.setQueryData(financeKeys.document(document.id), document);
       void queryClient.invalidateQueries({ queryKey: ["documents", "list"] });
-      onUploaded(document.id);
     },
   });
 
@@ -72,7 +71,8 @@ function UploadStep({ defaultSpaceId, onUploaded }: { defaultSpaceId?: string | 
         const spaceId = selected ?? space;
         if (!spaceId) return setInvalid("Choisissez l'espace du ticket.");
         if (!file) return setInvalid("Choisissez une photo ou un PDF du ticket.");
-        send.mutate({ file, spaceId });
+        // Per call: no navigation if the import was closed during the upload.
+        send.mutate({ file, spaceId }, { onSuccess: (document) => onUploaded(document.id) });
       }}
     >
       {!selected && (

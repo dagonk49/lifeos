@@ -20,10 +20,13 @@ restic backup --host lifeos --tag lifeos --tag db \
 
 # Document originals (F10): already encrypted (AES-256-GCM) with lifeos_documents_key, which
 # is NOT part of these backups: keep a copy of that key apart (docs/exploitation.md).
+# Files created or removed while tar reads (uploads, purges) make it exit with status 1:
+# harmless here (originals are written atomically), only status 2 or more is a failure.
 restic backup --host lifeos --tag lifeos --tag documents \
   --stdin-filename lifeos-documents.tar \
   --stdin-from-command -- \
-  docker compose exec -T worker tar -C /data/documents -cf - .
+  docker compose exec -T worker sh -c \
+  'tar -C /data/documents --exclude="*.tmp" --warning=no-file-changed --warning=no-file-removed -cf - .; [ "$?" -le 1 ]'
 
 # Retention (docs/politique-de-donnees.md): 14 daily + 4 weekly. Deleted data leaves the
 # backups when the last snapshot that contains it is pruned (about 35 days at most).

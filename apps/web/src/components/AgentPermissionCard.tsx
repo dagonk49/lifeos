@@ -18,6 +18,8 @@ export interface AgentPermissionNeed {
   missing: string[];
   /** Content of the message to resend once access is granted. */
   content: string;
+  /** Documents attached to that message, resent with it. */
+  attachments?: string[];
 }
 
 export function AgentPermissionCard({

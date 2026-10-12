@@ -264,6 +264,10 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         spec = AGENT_SPECS[data.agent]
         missing = [r for r in spec.resources if not agent.can(space.id, r, "read")]
         if spec.required_missing(missing):
+            # Nothing is sent: the message does not claim attachments it did not carry
+            # (the client resends them with the message once access is granted).
+            user_message.attachments = []
+            await ctx.db.flush()
             return degraded(
                 "agent_permission_required",
                 "This agent has no access to this space",

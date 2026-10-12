@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     documents_key: SecretStr | None = None
     # Local text extraction and OCR: "remote" = the internal ml service.
     extraction_provider: Literal["disabled", "fake", "local", "remote"] = "disabled"
+    # ml service: memory of one extraction (a child process), in MiB.
+    extraction_memory_mb: int = 1280
     # Local speech-to-text (ADR 0009): "remote" = the internal stt service.
     stt_provider: Literal["disabled", "fake", "remote"] = "disabled"
     stt_url: str = "http://stt:8200"

@@ -81,7 +81,14 @@ et la stabilisation complète (étape 6) sont reportés : voir « Limites connue
   - 3 parcours de bout en bout Playwright : MVP, intelligence, multimodal.
 - Chaîne complète d'OCR et de transcription testée hors ligne en CI ; images Docker
   construites et démarrées sans réseau.
-- Deux revues adversariales (étapes 3 et 4), corrections incluses.
+- Deux revues adversariales (étapes 3 et 4), corrections incluses. Pour l'étape 4 :
+  - détection locale des documents sensibles élargie ;
+  - extraction isolée dans un processus à mémoire bornée (PDF piégés) ;
+  - décodage audio progressif ;
+  - échec définitif après trois plantages ;
+  - restauration qui vérifie les archives avant de remplacer quoi que ce soit ;
+  - dictée arrêtée avant la limite ;
+  - pièces jointes jamais perdues ni envoyées à moitié.
 
 ### Limites connues
 

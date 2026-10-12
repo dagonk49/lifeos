@@ -31,6 +31,7 @@ from lifeos.logging import get_logger
 from lifeos.modules.audit import service as audit
 from lifeos.modules.documents.extraction import (
     Extraction,
+    ExtractionCrashError,
     ExtractionError,
     Extractor,
     UnreadableDocument,
@@ -55,6 +56,9 @@ STALE_PROCESSING = timedelta(minutes=30)
 # A document whose extraction was unavailable waits this long before the next attempt
 # by the periodic job (no retry storm while the ml service is down).
 RETRY_AFTER = timedelta(minutes=5)
+# A document on which the reading service failed this many times in a row fails for good
+# (the owner can still type its text, or ask for a new reading).
+MAX_FAILURES = 3
 # Files on the volume that no document references (failed transaction, deleted space)
 # are removed once older than this.
 ORPHAN_AGE = timedelta(days=1)
@@ -169,25 +173,61 @@ async def _release(database: Database, job: _Job, *, error: str) -> Outcome:
     return "deferred"
 
 
-async def _fail(database: Database, job: _Job, *, error: str) -> Outcome:
+async def _fail(
+    database: Database,
+    job: _Job,
+    *,
+    error: str,
+    drop_original: DocumentStore | None = None,
+) -> Outcome:
+    """Failed for good. With `drop_original`, the stored file is deleted too: a picture
+    that could not be read could not be cleaned of its metadata (GPS...) either."""
     now = utcnow()
+    values: dict[str, Any] = {
+        "status": "failed",
+        "error": error,
+        "processed_at": now,
+        "updated_at": now,
+        "version": Document.version + 1,
+    }
+    if drop_original is not None:
+        values.update(storage_key=None, original_until=None)
     async with database.sessionmaker() as session, session.begin():
         result = await session.execute(
             update(Document)
             .where(Document.id == job.id, Document.status == "processing")
-            .values(
-                status="failed",
-                error=error,
-                processed_at=now,
-                updated_at=now,
-                version=Document.version + 1,
-            )
+            .values(**values)
             .execution_options(synchronize_session=False)
         )
-        if result.rowcount:  # type: ignore[attr-defined]
+        failed = bool(result.rowcount)  # type: ignore[attr-defined]
+        if failed:
             await _audit(session, job, "failed", reason=error)
+    if failed and drop_original is not None and job.storage_key is not None:
+        # After the commit: if this fails, the orphan sweep removes the file.
+        try:
+            await asyncio.to_thread(drop_original.delete, job.storage_key)
+        except (StorageError, OSError) as exc:
+            log.error("document_file_delete_failed", error=type(exc).__name__)
     log.info("document_failed", document=str(job.id), reason=error)
     return "failed"
+
+
+async def _crashed(database: Database, store: DocumentStore, job: _Job, *, error: str) -> Outcome:
+    """The service failed on this document: retried later, failed after MAX_FAILURES."""
+    async with database.sessionmaker() as session, session.begin():
+        failures = await session.scalar(
+            update(Document)
+            .where(Document.id == job.id, Document.status == "processing")
+            .values(failures=Document.failures + 1)
+            .returning(Document.failures)
+            .execution_options(synchronize_session=False)
+        )
+    if failures is None:
+        return "skipped"
+    if failures >= MAX_FAILURES:
+        drop = store if job.kind == "image" else None
+        return await _fail(database, job, error=error, drop_original=drop)
+    return await _release(database, job, error="extraction_unavailable")
 
 
 def _replacement(job: _Job, extraction: Extraction) -> tuple[bytes, str] | None:
@@ -252,6 +292,7 @@ async def _save(
         document.analysis = analysis
         document.status = "ready"
         document.error = None
+        document.failures = 0
         document.processed_at = utcnow()
         await session.flush()
         await _audit(
@@ -293,11 +334,15 @@ async def _process(
             extraction = await extractor.extract(
                 data, job.mime, purpose=job.purpose, max_pages=max_pages
             )
+        except ExtractionCrashError as exc:
+            log.warning("extraction_crashed", document=str(job.id), error=str(exc)[:200])
+            return await _crashed(database, store, job, error="extraction_crashed")
         except ExtractionError as exc:
             log.warning("extraction_unavailable", document=str(job.id), error=str(exc)[:200])
             return await _release(database, job, error="extraction_unavailable")
         except UnreadableDocument as exc:
-            return await _fail(database, job, error=exc.code)
+            drop = store if job.kind == "image" else None
+            return await _fail(database, job, error=exc.code, drop_original=drop)
     if extraction.pages is not None and extraction.pages > max_pages:
         return await _fail(database, job, error="too_many_pages")
     return await _save(database, store, job, extraction)

@@ -326,3 +326,32 @@ def test_lock_is_not_the_documents_one() -> None:
     from lifeos.modules.documents import processing as documents
 
     assert processing.TRANSCRIBE_LOCK != documents.PROCESS_LOCK
+
+
+async def test_a_recording_that_crashes_the_service_fails_after_a_few_attempts(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    voice_settings: Settings,
+) -> None:
+    from lifeos.modules.documents.processing import MAX_FAILURES
+    from lifeos.modules.voice.transcriber import TranscriptionCrashError
+
+    def crash(data: bytes, mime: str) -> Transcription:
+        raise TranscriptionCrashError("stt service failed: RemoteProtocolError")
+
+    dictation = await dictate(client, spaces["personal"])
+    crashing = FakeTranscriber(handler=crash)
+    for attempt in range(MAX_FAILURES):
+        expected = "failed" if attempt == MAX_FAILURES - 1 else "deferred"
+        assert await run(database, store, crashing, voice_settings) == {expected: 1}
+        async with database.sessionmaker() as session, session.begin():
+            await session.execute(
+                update(Document)
+                .where(Document.id == uuid.UUID(str(dictation["id"])))
+                .values(updated_at=utcnow() - timedelta(minutes=5))
+            )
+    failed = (await client.get(f"/v1/voice/dictations/{dictation['id']}")).json()
+    assert (failed["status"], failed["error"]) == ("failed", "transcription_crashed")
+    assert _files(voice_settings.documents_dir) == []  # the recording is deleted

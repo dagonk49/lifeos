@@ -66,6 +66,11 @@ class ExtractionError(Exception):
     """Extraction is unavailable right now (service down, timeout): retry later."""
 
 
+class ExtractionCrashError(ExtractionError):
+    """The service failed while reading THIS document (connection lost, hang, server
+    error): retried, but the document fails after a few such failures in a row."""
+
+
 class UnreadableDocument(Exception):  # noqa: N818  (name used by the ml contract)
     """The document cannot be read (corrupt, encrypted, too many pages): do not retry."""
 
@@ -208,6 +213,9 @@ class RemoteExtractor:
                 data={"mime": mime, "purpose": purpose, "max_pages": str(max_pages)},
                 timeout=TIMEOUT_S,
             )
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout) as exc:
+            # The request reached the service, which died or hung while reading the file.
+            raise ExtractionCrashError(f"ml service failed: {type(exc).__name__}") from exc
         except httpx.HTTPError as exc:
             raise ExtractionError(f"ml service unavailable: {type(exc).__name__}") from exc
         if response.status_code == 422:
@@ -216,6 +224,8 @@ class RemoteExtractor:
             raise UnreadableDocument("too_large")
         if response.status_code == 415:
             raise UnreadableDocument("unsupported_type")
+        if response.status_code == 500:
+            raise ExtractionCrashError("ml service failed on this document")
         if response.status_code != 200:
             raise ExtractionError(f"ml service answered {response.status_code}")
         try:

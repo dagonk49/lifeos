@@ -23,11 +23,12 @@ from lifeos.db.session import Database
 from lifeos.logging import get_logger
 from lifeos.modules.audit import service as audit
 from lifeos.modules.documents.models import Document
-from lifeos.modules.documents.processing import clean_text
+from lifeos.modules.documents.processing import MAX_FAILURES, clean_text
 from lifeos.modules.documents.storage import DocumentStore, OriginalMissingError, StorageError
 from lifeos.modules.voice.service import PURPOSE
 from lifeos.modules.voice.transcriber import (
     Transcriber,
+    TranscriptionCrashError,
     TranscriptionError,
     UntranscribableAudio,
 )
@@ -176,6 +177,24 @@ async def _release(database: Database, job: _Job, *, error: str) -> Outcome:
     return "deferred"
 
 
+async def _crashed(database: Database, store: DocumentStore, job: _Job) -> Outcome:
+    """The service failed on this recording: retried later, failed after MAX_FAILURES (a
+    recording that kills the service must not do so every few minutes for a day)."""
+    async with database.sessionmaker() as session, session.begin():
+        failures = await session.scalar(
+            update(Document)
+            .where(Document.id == job.id, Document.status == "processing")
+            .values(failures=Document.failures + 1)
+            .returning(Document.failures)
+            .execution_options(synchronize_session=False)
+        )
+    if failures is None:
+        return "skipped"
+    if failures >= MAX_FAILURES:
+        return await _finish(database, store, job, status="failed", error="transcription_crashed")
+    return await _release(database, job, error="transcription_unavailable")
+
+
 async def _transcribe(
     database: Database,
     store: DocumentStore,
@@ -198,6 +217,9 @@ async def _transcribe(
         result = await transcriber.transcribe(
             data, job.mime, max_seconds=settings.voice_max_seconds
         )
+    except TranscriptionCrashError as exc:
+        log.warning("transcription_crashed", dictation=str(job.id), error=str(exc)[:200])
+        return await _crashed(database, store, job)
     except TranscriptionError as exc:
         log.warning("transcription_unavailable", dictation=str(job.id), error=str(exc)[:200])
         return await _release(database, job, error="transcription_unavailable")
