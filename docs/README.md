@@ -27,6 +27,7 @@
 | [0007](adr/0007-couts-gemini-niveau-gratuit.md) | Coûts Gemini : niveau gratuit sans facturation possible, quotas côté LifeOS | Acceptée |
 | [0008](adr/0008-documents-ocr-local.md) | Documents : originaux chiffrés, lecture et OCR en local | Acceptée |
 | [0009](adr/0009-voix-locale.md) | Voix : dictée transcrite en local, lecture par les voix de l'appareil | Acceptée |
+| [0010](adr/0010-reservation-des-quotas-llm.md) | Plafonds IA fiables : réservation atomique des quotas avant l'appel | Acceptée |
 
 ## Points encore ouverts
 

@@ -52,8 +52,10 @@ Conditions cumulatives pour tout appel cloud (vérifiées par le Guardian, hors 
 2. l'espace concerné a le consentement cloud activé (`spaces.cloud_ai_enabled`) ;
 3. l'appelant (utilisateur ou agent) a accès aux données incluses ;
 4. l'assistant n'est pas en pause (arrêt d'urgence) ;
-5. le budget mensuel de jetons et le plafond quotidien de requêtes du palier ne sont pas
-   atteints (ou, en facturation payante, les budgets en dollars).
+5. l'appel tient dans le budget mensuel de jetons et dans le plafond quotidien de requêtes du
+   palier, marge déduite (ou, en facturation payante, dans les budgets en dollars). Sa part
+   est réservée atomiquement avant l'envoi, appels en cours compris
+   ([ADR 0010](adr/0010-reservation-des-quotas-llm.md)).
 
 Contenu transmis :
 

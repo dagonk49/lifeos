@@ -62,7 +62,17 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 - `429 rate_limited` avec `Retry-After` (Traefik sur `/v1/auth`).
 - `503 llm_unavailable` : fournisseur LLM désactivé ou injoignable (mode dégradé ; les données
   locales restent consultables).
-- `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint.
+- `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint ou, en facturation
+  payante, budget en dollars du jour ou du mois atteint.
+- `429 llm_daily_quota_reached` : plafond quotidien de requêtes du palier atteint
+  (facturation gratuite). Extensions `tier` (`fast` \| `deep`) et `limit` (limite appliquée,
+  marge déduite).
+- Ces deux refus ont lieu **avant** tout envoi, dès que la réservation de l'appel ne tient
+  plus dans la limite, appels en cours compris (ADR 0010).
+- `GET /v1/guardian/llm-usage` :
+  - `requests_today` compte les appels en cours ; `in_flight` les détaille par palier ;
+  - `daily_request_caps`, `daily_budget_usd` et `monthly_budget_usd` sont les limites
+    appliquées, marges déduites (`daily_request_margin`, `budget_margin_ratio`).
 
 ## Approbations
 

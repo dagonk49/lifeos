@@ -210,6 +210,16 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
 - **`users.llm_paused`** : arrêt d'urgence de tout appel cloud.
 - **`llm_calls`** : + `tier` (`fast` \| `deep`), `cost_usd numeric(12,6)` (estimé),
   `cached_tokens`. Toujours **aucun contenu**.
+- **`llm_calls`**, migration 0007 ([ADR 0010](adr/0010-reservation-des-quotas-llm.md)) :
+  - `outcome` s'étend à `reserved` (quota réservé pendant l'appel) et `abandoned`
+    (réservation libérée après la mort de son processus ; la requête reste comptée) ;
+  - `reserved_tokens integer` et `reserved_cost_usd numeric(12,6)` : estimation réservée
+    avant l'appel, comptée seulement tant que la ligne est `reserved`, conservée ensuite
+    pour comparaison ;
+  - `settled_at timestamptz null` : rapprochement avec la consommation réelle, ou
+    libération ;
+  - `correlation_id uuid null` : exécution à l'origine de l'appel (sans clé étrangère) ;
+  - index partiel `ix_llm_calls_reserved (user_id, created_at) WHERE outcome = 'reserved'`.
 
 ## 5. Étape 4 — multimodal (migrations 0004 et 0005)
 
