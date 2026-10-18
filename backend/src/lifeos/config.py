@@ -1,10 +1,11 @@
 """Application settings, read from `LIFEOS_*` environment variables and Docker secrets."""
 
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -64,6 +65,22 @@ class Settings(BaseSettings):
     llm_price_output_deep: float = 3.75
     llm_daily_budget_usd: float = 0.50
     llm_monthly_budget_usd: float = 5.00
+    # Quota reservation (ADR 0010): every call reserves its share of the caps in a short
+    # locked transaction before reaching the provider, then settles it with real usage.
+    # Requests kept below each daily cap: covers the thinking-level retry (two Google
+    # requests for one call) and calls whose outcome was lost.
+    llm_quota_margin_requests: int = Field(default=2, ge=0)
+    # Share of the USD budgets kept in reserve (paid billing: Google's billing data lags
+    # about ten minutes and real usage may exceed the reserved estimate).
+    llm_budget_margin_ratio: float = Field(default=0.05, ge=0, lt=1)
+    # Output tokens reserved when a request sets no max_output_tokens (thinking tokens are
+    # billed as output). Real usage replaces the reservation after the call.
+    llm_reserve_output_tokens_fast: int = Field(default=2048, ge=1)
+    llm_reserve_output_tokens_deep: int = Field(default=8192, ge=1)
+    # A reservation older than this (process killed during the call) is released: its
+    # tokens and cost no longer count, the request still does. Never shorter than two
+    # provider timeouts plus a minute (see `llm_reservation_ttl`).
+    llm_reservation_ttl_seconds: int = Field(default=600, ge=1)
 
     gemini_backend: Literal["developer", "vertex"] = "developer"
     gemini_api_key: SecretStr | None = None
@@ -145,6 +162,16 @@ class Settings(BaseSettings):
                 "for Vertex AI"
             )
         return self
+
+    @property
+    def llm_reservation_ttl(self) -> timedelta:
+        """Age after which a pending reservation is released as abandoned.
+
+        A live call makes at most two provider requests (thinking-level retry), each
+        bounded by the timeout: it is never released while it may still be running.
+        """
+        floor = 2 * self.llm_timeout_seconds + 60
+        return timedelta(seconds=max(float(self.llm_reservation_ttl_seconds), floor))
 
     @property
     def database_url(self) -> URL:

@@ -47,6 +47,14 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(
         actors.expire_approvals.send, CronTrigger(minute=5, timezone=tz), id="expire_approvals"
     )
+    # Abandoned LLM quota reservations: also released before each new reservation; this
+    # keeps the usage panel right when no call follows.
+    scheduler.add_job(
+        actors.release_llm_reservations.send,
+        IntervalTrigger(minutes=5, timezone=tz),
+        id="release_llm_reservations",
+        misfire_grace_time=300,
+    )
     # Reminders are "real time": checked every minute, never coalesced into the past.
     scheduler.add_job(
         actors.send_reminders.send,

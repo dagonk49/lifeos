@@ -102,8 +102,13 @@ class LLMUsageOut(BaseModel):
     paused: bool
     billing: str
     models: dict[str, str | None]
+    # Includes calls still running (reserved, ADR 0010) and released reservations.
     requests_today: dict[str, int]
+    # Calls currently holding a reservation, per tier.
+    in_flight: dict[str, int]
+    # Enforced limits: configured caps minus the margin, budgets minus the reserved share.
     daily_request_caps: dict[str, int]
+    daily_request_margin: int
     quota_resets_at: datetime
     month_tokens_used: int
     month_token_budget: int
@@ -111,6 +116,7 @@ class LLMUsageOut(BaseModel):
     cost_month_usd: str
     daily_budget_usd: float
     monthly_budget_usd: float
+    budget_margin_ratio: float
     recent_calls: list[LLMCallOut]
 
 

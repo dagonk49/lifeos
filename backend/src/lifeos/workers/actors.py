@@ -13,6 +13,7 @@ from lifeos.modules.audit.service import purge_older_than
 from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.documents import processing as documents
 from lifeos.modules.guardian.actions import expire_stale
+from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.notifications.service import dispatch_reminders
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
@@ -64,6 +65,17 @@ async def purge_idempotency_keys() -> None:
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def expire_approvals() -> None:
     await run_job("expire_approvals", expire_stale)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def release_llm_reservations() -> None:
+    """LLM quota reservations whose process died during the call (ADR 0010)."""
+    ttl = get_settings().llm_reservation_ttl
+
+    async def job(session: AsyncSession) -> int:
+        return await release_stale_reservations(session, ttl=ttl)
+
+    await run_job("release_llm_reservations", job)
 
 
 @dramatiq.actor(queue_name="realtime", max_retries=5, time_limit=60_000)
