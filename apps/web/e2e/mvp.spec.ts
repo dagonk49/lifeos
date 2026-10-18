@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
+import { expect, test } from "./fixtures";
 import { TOKEN_FILE } from "./global-setup";
 
 /** Chromium virtual authenticator: a platform passkey with user verification. */

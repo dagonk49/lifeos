@@ -62,8 +62,23 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T22 | Agent spécialisé qui lit trop | accès en lecture seulement aux ressources de l'agent, par espace, 90 jours, accordé avec réauthentification, révocable ; contexte construit hors LLM avec les droits de l'agent | 3 |
 | T23 | Mémoire polluée par une extraction erronée (consolidation, journal) | propositions soumises à approbation avec aperçu exact ; seuls les messages du propriétaire sont analysés ; file « À vérifier » (doublons, contradictions) | 3 |
 
-Limite connue : la CSP autorise `'unsafe-inline'` pour les scripts (hydratation Next.js) ;
-passer à des nonces CSP est prévu à l'étape 6 (stabilisation).
+Injection de script (XSS) dans le client web, en défense en profondeur derrière l'affichage
+en texte brut (T14) : la CSP est produite à chaque requête, avec un nonce aléatoire de
+128 bits (`apps/web/src/proxy.ts`, règles dans `apps/web/src/lib/csp.ts`). Les scripts sont
+limités par `script-src 'self' 'nonce-…' 'strict-dynamic'`, sans `'unsafe-inline'` ni, en
+production, `'unsafe-eval'` : un script ou un gestionnaire d'événement injecté dans la page
+n'a pas le nonce et ne s'exécute pas. Toutes les pages sont rendues à chaque requête et
+jamais mises en cache (`no-store`). Limites restantes :
+
+- `style-src` garde `'unsafe-inline'` : un attribut `style` ne peut pas porter de nonce, et
+  Next.js en utilise dans ses pages 404 et 500 intégrées. Un style injecté ne peut ni
+  exécuter de code ni joindre un autre site (`img-src`, `font-src`, `connect-src` limités à
+  l'origine) ;
+- `'strict-dynamic'` fait confiance aux scripts créés par un script déjà autorisé : une faille
+  DOM dans le code même de l'application resterait exploitable (d'où l'interdiction du HTML
+  interprété, T14) ;
+- un reverse proxy en amont ne doit ni ajouter ni réécrire de CSP, ni mettre les pages en
+  cache ([exploitation.md §3](exploitation.md#politique-de-sécurité-du-contenu-csp)).
 
 ## 4. Tests de sécurité associés
 
@@ -81,3 +96,8 @@ passer à des nonces CSP est prévu à l'étape 6 (stabilisation).
   agent sans droit `documents` refusé ; corpus synthétique de détection de sensibilité.
 - Voix : enregistrement supprimé après transcription comme après refus ; dictées hors
   recherche et index ; une seule transcription à la fois.
+- Client web (CSP) : chaque page, publique, authentifiée ou 404, reçoit un nonce différent à
+  chaque réponse, porté par tous ses scripts, sans `'unsafe-inline'` ; un nonce envoyé par le
+  client est ignoré ; script en ligne, nonce deviné, script de même origine et gestionnaire
+  d'événement injectés → bloqués, la page restant fonctionnelle ; aucun parcours de bout en
+  bout (passkeys, navigation, assistant, documents, dictée) ne provoque de violation de CSP.

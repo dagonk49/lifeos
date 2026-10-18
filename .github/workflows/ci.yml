@@ -191,6 +191,21 @@ jobs:
           docker build --target ml -t lifeos-ml:ci backend
           docker build --target stt -t lifeos-stt:ci backend
           docker build -t lifeos-web:ci apps/web
+      - name: The web image sends a script policy with a new nonce for every page (src/proxy.ts)
+        run: |
+          docker run -d --name web --read-only --tmpfs /tmp --tmpfs /app/.next/cache --cap-drop ALL \
+            --memory 512m -p 127.0.0.1:3000:3000 lifeos-web:ci
+          for _ in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:3000/login && break; sleep 1; done
+          scripts() {
+            curl -fsS -D - -o /dev/null http://127.0.0.1:3000/login | tr -d '\r' \
+              | sed -n "s/^content-security-policy:.*\(script-src [^;]*\).*/\1/Ip"
+          }
+          first="$(scripts)"
+          second="$(scripts)"
+          echo "$first"
+          grep -qx "script-src 'self' 'nonce-[A-Za-z0-9+/]*=*' 'strict-dynamic'" <<<"$first"
+          test "$first" != "$second"
+          docker rm -f web
       - name: The ml image starts without network nor model (degraded, healthy API)
         run: |
           docker run -d --name ml --network none --read-only --tmpfs /tmp lifeos-ml:ci

@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { backendEnv } from "../playwright.config";
+import { expect, test } from "./fixtures";
 
 const backend = join(import.meta.dirname, "..", "..", "..", "backend");
 
