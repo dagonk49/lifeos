@@ -340,15 +340,22 @@ export interface LLMUsage {
   /** free: daily request caps (no billing account); paid: cost budgets in USD. */
   billing: "free" | "paid";
   models: Record<LLMTier, string | null>;
+  /** Includes the calls still running (their quota is reserved, ADR 0010). */
   requests_today: Record<LLMTier, number>;
+  /** Calls currently holding a reservation. */
+  in_flight: Record<LLMTier, number>;
+  /** Enforced caps: the configured ones minus `daily_request_margin`. */
   daily_request_caps: Record<LLMTier, number>;
+  daily_request_margin: number;
   quota_resets_at: string;
   month_tokens_used: number;
   month_token_budget: number;
   cost_today_usd: string;
   cost_month_usd: string;
+  /** Enforced budgets: the configured ones minus the `budget_margin_ratio` share. */
   daily_budget_usd: number;
   monthly_budget_usd: number;
+  budget_margin_ratio: number;
   recent_calls: {
     id: Uuid;
     space_id: Uuid | null;
