@@ -36,8 +36,8 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T1 | Phishing / vol d'identifiants | passkeys (résistantes au phishing), aucun mot de passe | 1 |
 | T2 | Vol de cookie de session | `HttpOnly`, `Secure`, `SameSite=Strict`, empreinte seule en base, expiration absolue et d'inactivité, révocation, liste des sessions | 1 |
 | T3 | CSRF | `SameSite=Strict` + vérification `Origin` sur les requêtes non sûres | 1 |
-| T4 | Force brute / déni sur l'auth | limitation de débit Traefik, jetons d'enrôlement 256 bits à durée courte | 1 |
-| T5 | Exposition des services internes | réseau Docker `internal`, seul Traefik publie 80/443, `/metrics` non routé | 1 |
+| T4 | Force brute / déni sur l'auth | limitation de débit Traefik par adresse du client (derrière un reverse proxy : la dernière adresse de `X-Forwarded-For`, celle que le proxy ajoute lui-même, jamais une valeur écrite par le client), jetons d'enrôlement 256 bits à durée courte | 1 |
+| T5 | Exposition des services internes | réseau Docker `internal`, seul Traefik publie 80/443 (derrière un reverse proxy existant : aucun port, joignable par le seul réseau `lifeos-proxy`), `/metrics` non routé | 1 |
 | T6 | Secrets dans Git | `.gitignore`, secrets Docker, `.env.example` sans valeur | 1 |
 | T7 | Fuite de données dans les logs | logs sans corps ni prompts ; audit sans contenu | 1 |
 | T8 | Vol ou perte des sauvegardes | chiffrement restic, clé séparée des sauvegardes, copie hors machine | 1 |

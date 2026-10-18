@@ -214,5 +214,11 @@ jobs:
           cp .env.example .env
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+          # Behind an existing reverse proxy: Traefik publishes no port at all.
+          docker compose -f compose.yaml -f compose.gpu.yaml -f compose.proxy.yaml config --quiet
+          test "$(docker compose -f compose.yaml -f compose.proxy.yaml config --format json \
+            | jq -c '.services.traefik.ports')" = null
+      - name: Traefik routing, headers and rate limit (standard and behind a reverse proxy)
+        run: scripts/test-traefik.sh
       - name: Shellcheck
         run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh scripts/*.sh apps/web/e2e/*.sh

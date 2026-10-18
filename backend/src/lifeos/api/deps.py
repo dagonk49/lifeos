@@ -46,6 +46,16 @@ DbSession = Annotated[AsyncSession, Depends(get_db, scope="function")]
 
 
 def client_ip(request: Request) -> str | None:
+    """Address of the client, as seen by the first proxy (shown in the list of sessions).
+
+    Only Traefik reaches the API, and it always sets X-Real-Ip: to the peer address when it
+    faces the Internet (a client-sent value is dropped), or to the value of the reverse proxy
+    in front of it (compose.proxy.yaml). The leftmost X-Forwarded-For entry, which uvicorn
+    reports, can be written by the client itself in that second case.
+    """
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
     return request.client.host if request.client else None
 
 

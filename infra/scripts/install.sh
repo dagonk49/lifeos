@@ -8,6 +8,11 @@
 #   --email ADDR     owner's e-mail (account created once)
 #   --name NAME      owner's display name
 #   --gpu            transcription on the NVIDIA GPU (compose.gpu.yaml, see docs/exploitation.md)
+#   --behind-proxy   an existing reverse proxy (e.g. Nginx Proxy Manager) owns ports 80/443 and
+#                    terminates TLS: Traefik publishes no port (compose.proxy.yaml)
+#   --proxy-network NAME
+#                    Docker network shared with that proxy (default: lifeos-proxy, created if
+#                    needed); implies --behind-proxy
 #   --no-models      do not download the embedding (1.2 GB) and speech (1.6 GB) models now
 #   --yes            no question: keep the Gemini key file as it is
 #
@@ -17,16 +22,18 @@ set -euo pipefail
 script="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$script")/.."
 
-domain="" email="" name="" gpu=0 models=1 assume_yes=0
+domain="" email="" name="" gpu=0 models=1 assume_yes=0 behind_proxy=0 proxy_network=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) domain="${2:?--domain needs a value}"; shift 2 ;;
     --email) email="${2:?--email needs a value}"; shift 2 ;;
     --name) name="${2:?--name needs a value}"; shift 2 ;;
     --gpu) gpu=1; shift ;;
+    --behind-proxy) behind_proxy=1; shift ;;
+    --proxy-network) proxy_network="${2:?--proxy-network needs a value}"; behind_proxy=1; shift 2 ;;
     --no-models) models=0; shift ;;
     --yes) assume_yes=1; shift ;;
-    -h|--help) sed -n '2,16p' "$script"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$script"; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -45,6 +52,12 @@ fi
 memory_gb=$(awk '/MemTotal/ {printf "%d", $2 / 1048576}' /proc/meminfo 2>/dev/null || echo 0)
 if [[ "$memory_gb" -lt 8 ]]; then
   echo "Warning: ${memory_gb} GB of RAM detected; 10 GB are recommended (docs/exploitation.md §7)."
+fi
+if [[ "$behind_proxy" -eq 0 ]] && ! grep -qs '^COMPOSE_FILE=.*compose\.proxy\.yaml' .env \
+  && [[ -z "$(docker compose ps -q traefik 2>/dev/null)" ]] && command -v ss >/dev/null \
+  && [[ -n "$(ss -Hltn '( sport = :80 or sport = :443 )' 2>/dev/null)" ]]; then
+  echo "Warning: ports 80/443 are already in use on this machine. If a reverse proxy (e.g. Nginx"
+  echo "Proxy Manager) serves other sites there, run again with --behind-proxy."
 fi
 if [[ "$gpu" -eq 1 ]]; then
   docker info --format '{{json .Runtimes}}' | grep -q nvidia \
@@ -90,11 +103,41 @@ if [[ -s "$gemini_key" ]] && grep -q '^LIFEOS_LLM_PROVIDER=disabled' .env; then
   set_env LIFEOS_LLM_PROVIDER gemini
   echo "Gemini enabled (free tier, daily caps: see LIFEOS_LLM_DAILY_REQUESTS_* in .env)."
 fi
-if [[ "$gpu" -eq 1 ]]; then
-  # Every later `docker compose` command (updates, backups) then uses the GPU overlay too.
-  set_env COMPOSE_FILE "compose.yaml:compose.gpu.yaml"
-fi
+# Overlays (GPU, reverse proxy) are kept in COMPOSE_FILE: every later `docker compose`
+# command (updates, backups) then uses them too. Running the script again only adds overlays.
+compose_files="$(sed -n 's/^COMPOSE_FILE=//p' .env)"
+compose_files="${compose_files:-compose.yaml}"
+add_overlay() { [[ ":$compose_files:" == *":$1:"* ]] || compose_files="$compose_files:$1"; }
+[[ "$gpu" -eq 1 ]] && add_overlay compose.gpu.yaml
+[[ "$behind_proxy" -eq 1 ]] && add_overlay compose.proxy.yaml
+[[ "$compose_files" != "compose.yaml" ]] && set_env COMPOSE_FILE "$compose_files"
+[[ ":$compose_files:" == *":compose.proxy.yaml:"* ]] && behind_proxy=1
 echo "domain: $current_domain"
+
+if [[ "$behind_proxy" -eq 1 ]]; then
+  step "Reverse proxy network"
+  [[ -n "$proxy_network" ]] && set_env LIFEOS_PROXY_NETWORK "$proxy_network"
+  proxy_network="$(sed -n 's/^LIFEOS_PROXY_NETWORK=//p' .env)"
+  proxy_network="${proxy_network:-lifeos-proxy}"
+  if ! docker network inspect "$proxy_network" >/dev/null 2>&1; then
+    docker network create "$proxy_network" >/dev/null
+    echo "created Docker network: $proxy_network"
+  fi
+  npm_container="$(docker ps --format '{{.Names}}\t{{.Image}}' \
+    | awk -F '\t' '$2 ~ /nginx-proxy-manager/ { print $1; exit }')"
+  if [[ -z "$npm_container" ]]; then
+    echo "No Nginx Proxy Manager container found: connect your proxy to the network yourself:"
+    echo "  docker network connect $proxy_network <proxy-container>"
+  elif docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' \
+    "$npm_container" | tr ' ' '\n' | grep -qx "$proxy_network"; then
+    echo "$npm_container is already on $proxy_network."
+  else
+    docker network connect "$proxy_network" "$npm_container"
+    echo "connected $npm_container to $proxy_network."
+    echo "To keep it when that container is recreated, add the network to its compose file"
+    echo "(docs/installation.md, « Derrière un reverse proxy existant »)."
+  fi
+fi
 
 step "Build and start (first build: several minutes)"
 docker compose build
@@ -124,9 +167,17 @@ else
 fi
 
 step "Done"
+if [[ "$behind_proxy" -eq 1 ]]; then
+  cat <<EOF
+In your reverse proxy, add a proxy host (Nginx Proxy Manager: Hosts > Proxy Hosts > Add):
+- Domain: $current_domain ; Scheme: http ; Forward host: lifeos-traefik ; Port: 80
+- SSL: request a Let's Encrypt certificate, enable "Force SSL" and "HTTP/2".
+EOF
+else
+  echo "TLS certificate: docs/exploitation.md §2 (without it, Traefik serves a self-signed one)."
+fi
 cat <<EOF
 LifeOS runs on https://$current_domain
-- TLS certificate: docs/exploitation.md §2 (without it, Traefik serves a self-signed one).
 - Keep a copy of infra/secrets/lifeos_documents_key OUTSIDE this server.
 - Backups: docs/exploitation.md §4 (restic, then schedule infra/scripts/backup.sh nightly).
 EOF

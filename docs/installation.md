@@ -68,8 +68,50 @@ Le script, que l'on peut relancer sans risque :
 7. vérifie l'OCR et crée votre compte. Il affiche un **lien d'enrôlement** à usage unique,
    valable 15 minutes.
 
-Options : `--gpu` (transcription sur la carte, §7), `--no-models` (téléchargements plus
-tard), `--yes` (sans question).
+Options : `--gpu` (transcription sur la carte, §7), `--behind-proxy` (voir ci-dessous),
+`--no-models` (téléchargements plus tard), `--yes` (sans question).
+
+### Derrière un reverse proxy existant (Nginx Proxy Manager)
+
+Si un reverse proxy occupe déjà les ports 80 et 443 de la machine et sert d'autres sites, le
+Traefik de LifeOS ne peut pas les prendre : il redémarre en boucle et LifeOS reste
+injoignable. Dans ce cas, le proxy existant reste **la seule porte d'entrée** :
+
+```
+navigateur → Nginx Proxy Manager (HTTPS, certificat Let's Encrypt) → Traefik de LifeOS → web / api
+```
+
+Le Traefik de LifeOS ne publie alors aucun port. Il garde le routage, les en-têtes de sécurité
+et la limite des tentatives de connexion (par adresse du client, transmise par le proxy).
+
+1. Installer, ou relancer l'installation, avec l'option :
+
+   ```bash
+   infra/scripts/install.sh --domain lifeos.mondomaine.fr --behind-proxy
+   ```
+
+   Le script ajoute `compose.proxy.yaml` à `COMPOSE_FILE` dans `infra/.env`, crée le réseau
+   Docker `lifeos-proxy` et y connecte le conteneur de Nginx Proxy Manager s'il le trouve.
+   Pour utiliser un réseau existant du proxy : `--proxy-network nom_du_reseau`.
+2. Dans Nginx Proxy Manager, **Hosts → Proxy Hosts → Add Proxy Host** :
+   - *Domain Names* : `lifeos.mondomaine.fr` ;
+   - *Scheme* : `http` ; *Forward Hostname / IP* : `lifeos-traefik` ; *Forward Port* : `80` ;
+   - onglet *SSL* : *Request a new SSL Certificate*, puis cocher *Force SSL* et *HTTP/2
+     Support*.
+3. Rendre la connexion au réseau permanente (sinon elle disparaît quand le conteneur de Nginx
+   Proxy Manager est recréé, par exemple à sa mise à jour). Dans son `docker-compose.yml` :
+
+   ```yaml
+   services:
+     app:   # le service de Nginx Proxy Manager
+       networks: [default, lifeos-proxy]
+   networks:
+     lifeos-proxy:
+       external: true
+   ```
+
+Le certificat est alors celui de Nginx Proxy Manager : l'étape « Certificat » du §6 ne
+s'applique pas.
 
 **Tout de suite après** : copiez `infra/secrets/lifeos_documents_key` dans votre gestionnaire
 de mots de passe. Sans cette clé, les originaux des documents sont illisibles, y compris dans
@@ -94,7 +136,8 @@ fonctionne entièrement, sans l'assistant.
 
 1. Certificat : déposer `fullchain.pem` et `privkey.pem` dans `infra/traefik/certs/`, puis
    `cp infra/traefik/dynamic/tls.yml.example infra/traefik/dynamic/tls.yml`
-   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)).
+   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)). Derrière Nginx Proxy
+   Manager, c'est lui qui fournit le certificat (§4).
 2. Ouvrir le lien d'enrôlement sur l'appareil qui portera la première passkey (téléphone ou
    ordinateur), nommer l'appareil, valider.
 3. Dans **Réglages → Appareils et passkeys**, ajouter une **deuxième passkey** (autre
@@ -157,7 +200,9 @@ Faire une sauvegarde avant toute mise à jour (les migrations de base s'applique
 
 | Symptôme | Cause probable |
 |---|---|
-| « Opération annulée ou refusée par l'appareil » à l'enrôlement | domaine différent de `LIFEOS_WEBAUTHN_RP_ID`, ou pas de HTTPS |
+| `traefik` redémarre sans cesse, colonne PORTS vide dans `docker compose ps` | les ports 80/443 sont déjà pris par un autre reverse proxy : relancer avec `--behind-proxy` (§4) |
+| Nginx Proxy Manager affiche « 502 Bad Gateway » pour LifeOS | conteneur de Nginx Proxy Manager absent du réseau `lifeos-proxy` : `docker network connect lifeos-proxy <conteneur>` (§4, étape 3) |
+| « Opération annulée ou refusée par l'appareil » à l'enrôlement | domaine différent de `LIFEOS_WEBAUTHN_RP_ID`, ou pas de HTTPS (certificat autosigné : Chrome refuse alors les passkeys) |
 | Le micro n'apparaît pas | dictée désactivée (`LIFEOS_STT_PROVIDER`), navigateur sans enregistrement audio, ou page non servie en HTTPS |
 | Dictée « en attente » sans fin | modèle de transcription absent : `docker compose --profile setup run --rm stt-download` |
 | Documents « lecture locale indisponible » | service `ml` arrêté : `docker compose up -d ml` puis `docker compose logs ml` |

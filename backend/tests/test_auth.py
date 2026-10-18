@@ -3,7 +3,9 @@ from datetime import timedelta
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
+from lifeos.api.deps import client_ip
 from lifeos.core.security import utcnow
 from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.identity.models import EnrollmentToken, UserSession
@@ -229,3 +231,21 @@ async def test_session_token_is_stored_hashed(
     assert token
     stored = await db.scalar(select(UserSession.token_hash))
     assert stored is not None and token.encode() not in stored
+
+
+def _request(
+    headers: dict[str, str], peer: tuple[str, int] | None = ("172.19.0.3", 40000)
+) -> Request:
+    raw = [(key.lower().encode(), value.encode()) for key, value in headers.items()]
+    return Request({"type": "http", "headers": raw, "client": peer})
+
+
+def test_client_address_is_the_one_traefik_vouches_for() -> None:
+    # Behind a reverse proxy, X-Forwarded-For starts with whatever the client wrote.
+    spoofed = _request(
+        {"X-Real-Ip": "203.0.113.7", "X-Forwarded-For": "6.6.6.6, 203.0.113.7, 172.19.0.4"},
+        peer=("6.6.6.6", 0),
+    )
+    assert client_ip(spoofed) == "203.0.113.7"
+    assert client_ip(_request({})) == "172.19.0.3"
+    assert client_ip(_request({}, peer=None)) is None
