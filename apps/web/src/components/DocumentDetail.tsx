@@ -276,6 +276,9 @@ function LocalOnlyControl({ document }: { document: DocumentDetail }) {
   const queryClient = useQueryClient();
   const inputId = useId();
   const hintId = useId();
+  // The box follows the click at once (a controlled input would otherwise flick back until
+  // the mutation reports itself pending); the server's answer then replaces this value.
+  const [requested, setRequested] = useState<boolean | null>(null);
   const change = useMutation({
     mutationFn: (localOnly: boolean) =>
       withReauth(
@@ -293,10 +296,13 @@ function LocalOnlyControl({ document }: { document: DocumentDetail }) {
         void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
       }
     },
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: documentKeys.lists }),
+    onSettled: () => {
+      setRequested(null);
+      void queryClient.invalidateQueries({ queryKey: documentKeys.lists });
+    },
   });
-  // Optimistic while the change is being saved.
-  const checked = change.isPending ? Boolean(change.variables) : document.local_only;
+  // Optimistic while the change is being saved; back to the server's value on failure.
+  const checked = requested ?? document.local_only;
   const sensitive = document.sensitivity.length > 0;
   const hint = checked
     ? "Son contenu n'est jamais envoyé à l'assistant IA, même après une correction du texte ou une nouvelle lecture. Le décocher demande une confirmation par passkey."
@@ -313,7 +319,10 @@ function LocalOnlyControl({ document }: { document: DocumentDetail }) {
           checked={checked}
           disabled={change.isPending}
           aria-describedby={hintId}
-          onChange={(e) => change.mutate(e.target.checked)}
+          onChange={(e) => {
+            setRequested(e.target.checked);
+            change.mutate(e.target.checked);
+          }}
         />
         <div>
           <label htmlFor={inputId} className="font-medium">
