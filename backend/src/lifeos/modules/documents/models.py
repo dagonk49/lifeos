@@ -46,6 +46,9 @@ class Document(UUIDPrimaryKey, Owned, Timestamps, Base):
     # (crash, hang): after a few, the document fails instead of being retried forever.
     failures: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     sensitivity: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    # « Toujours garder en local »: the owner's own refusal, on top of the detection. Never
+    # changed by a new reading, a correction or a new classification.
+    local_only: Mapped[bool] = mapped_column(default=False, server_default="false")
     # Extracted (or transcribed) text, correctable by the owner.
     extracted_text: Mapped[str | None] = mapped_column(Text)
     text_source: Mapped[str | None] = mapped_column(Text)

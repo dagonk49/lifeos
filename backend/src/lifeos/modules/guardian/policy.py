@@ -70,6 +70,13 @@ _SPECS = [
         "documents",
     ),
     ActionSpec("document.delete", "Supprimer un document", Level.AUTOMATIC, None, "documents"),
+    # Lifting « Toujours garder en local »: the document may go to the assistant again.
+    ActionSpec(
+        "document.allow_cloud",
+        "Autoriser l'envoi à l'IA d'un document gardé en local",
+        Level.REINFORCED,
+        None,
+    ),
     # "Classer une dépense" is automatic (cahier des charges §5), logged and correctable.
     ActionSpec(
         "finance.write",

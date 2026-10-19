@@ -10,6 +10,7 @@ export type AttachmentState =
   | "postponed"
   | "ready"
   | "sensitive"
+  | "local"
   | "unreadable"
   | "unavailable";
 
@@ -19,7 +20,7 @@ export type AttachmentState =
  * document is left out of the message.
  */
 export function attachmentState(
-  document: Pick<DocumentSummary, "status" | "sensitivity" | "error"> | undefined,
+  document: (Pick<DocumentSummary, "status" | "sensitivity" | "error"> & { local_only?: boolean }) | undefined,
   gone = false,
 ): AttachmentState {
   if (gone) return "unavailable";
@@ -29,7 +30,9 @@ export function attachmentState(
     return document.error ? "postponed" : "reading";
   }
   if (document.status !== "ready") return "unreadable";
-  return document.sensitivity.length > 0 ? "sensitive" : "ready";
+  if (document.sensitivity.length > 0) return "sensitive";
+  // « Toujours garder en local »: the owner's choice.
+  return document.local_only ? "local" : "ready";
 }
 
 /** Polling of an attached document, in ms (false: no more polling). */
@@ -64,10 +67,12 @@ export function attachmentStateLabel(
       const kinds = sensitivity.map((s) => SENSITIVITY_LABELS[s] ?? s).join(", ");
       return `Document sensible${kinds ? ` (${kinds})` : ""} : jamais envoyé à l'IA`;
     }
+    case "local":
+      return "Gardé en local (votre choix) : jamais envoyé à l'IA";
   }
 }
 
-/** Ids that go with the message: ready and not sensitive, in the order attached. */
+/** Ids that go with the message: ready and not kept local, in the order attached. */
 export function sendableAttachments(ids: readonly string[], states: readonly AttachmentState[]): string[] {
   return ids.filter((_, index) => states[index] === "ready");
 }

@@ -16,15 +16,19 @@ from lifeos.modules.audit import service as audit
 from lifeos.modules.chat import attachments
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.chat.schemas import (
+    AttachmentPreview,
     ConversationCreate,
     ConversationOut,
     MessageOut,
+    PreviewRequest,
     SendMessage,
+    SendPreview,
     SendResult,
 )
 from lifeos.modules.guardian import gateway
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.guardian.principal import agent_principal
+from lifeos.modules.guardian.privacy import mask
 from lifeos.modules.identity.models import Space
 from lifeos.modules.llm.base import LLMMessage, LLMRequest
 from lifeos.modules.memory import service as memory
@@ -324,6 +328,37 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         agent=data.agent,
         suggested_agent=suggestion,
     )
+
+
+async def preview_message(ctx: Ctx, data: PreviewRequest) -> SendPreview:
+    """The control shown before sending: which attachments stay on the server (and why),
+    and which identifiers the gateway will mask, by kind. Same rules as `send_message`
+    (same reader, same checks, same masking); nothing is saved, nothing is sent.
+
+    The rest of the request (instructions, memory or agent context) is masked the same
+    way when sent; it is not the owner's input, so it is not part of this control.
+    """
+    ctx.principal.require_space(data.space_id)
+    reader = (
+        await agent_principal(ctx.db, ctx.principal.user_id, data.agent)
+        if data.agent != "core"
+        else ctx.principal
+    )
+    items = []
+    for item in await attachments.check(ctx.db, reader, data.space_id, data.attachments):
+        masked: dict[str, int] = {}
+        if item.refusal is None and item.document is not None:
+            masked = mask(attachments.block([item.document])).kinds()
+        items.append(
+            AttachmentPreview(
+                document_id=item.document_id,
+                sent=item.refusal is None,
+                reason=item.refusal,
+                sensitivity=item.sensitivity,
+                masked=masked,
+            )
+        )
+    return SendPreview(masked=mask(data.content).kinds(), attachments=items)
 
 
 async def get_message(ctx: Ctx, message_id: uuid.UUID) -> Message:

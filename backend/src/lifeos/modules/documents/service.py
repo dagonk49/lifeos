@@ -75,6 +75,7 @@ def _fields(document: Document) -> dict[str, Any]:
         "status": document.status,
         "error": document.error,
         "sensitivity": list(document.sensitivity or []),
+        "local_only": document.local_only,
         "text_source": document.text_source,
         "text_confidence": (
             float(document.text_confidence) if document.text_confidence is not None else None
@@ -285,6 +286,12 @@ async def update_document(
     await authorize(ctx, "document.write", document.space_id)
     _check_version(document, if_match)
     changes = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
+    if changes.get("local_only") is False and document.local_only:
+        # Letting the document go to the assistant again: reinforced (recent passkey). A
+        # category found by the detection stays: only a corrected text can remove it.
+        await authorize(ctx, "document.allow_cloud", document.space_id)
+    if "local_only" in changes:
+        document.local_only = changes["local_only"]
     if "title" in changes:
         title = " ".join(changes["title"].split())
         if not title:
@@ -328,7 +335,10 @@ async def update_document(
         document.sensitivity = categories
         document.analysis = analysis
     await ctx.db.flush()
-    await _audit(ctx, "document.update", document, fields=",".join(sorted(changes)))
+    details: dict[str, Any] = {"fields": ",".join(sorted(changes))}
+    if "local_only" in changes:
+        details["local_only"] = document.local_only
+    await _audit(ctx, "document.update", document, **details)
     return document
 
 

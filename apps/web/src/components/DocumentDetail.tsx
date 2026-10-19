@@ -6,7 +6,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { DocumentStatusBadge } from "@/components/DocumentList";
 import { Alert, Badge, Button, Field, Input, Spinner, Textarea } from "@/components/ui";
-import { api, errorMessage, isApiError } from "@/lib/api";
+import { api, errorMessage, isApiError, withReauth } from "@/lib/api";
 import {
   canEditText,
   detailPollInterval,
@@ -33,6 +33,7 @@ import {
   validateText,
 } from "@/lib/documents";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { loginWithPasskey } from "@/lib/passkeys";
 import { useSpace } from "@/lib/space";
 import type { DocumentDetail } from "@/lib/types";
 
@@ -266,6 +267,68 @@ function OriginalControl({ document }: { document: DocumentDetail }) {
   );
 }
 
+/**
+ * « Toujours garder en local »: the owner's own refusal, on top of the detection. Adding it
+ * is immediate; lifting it lets the document go to the assistant again, so the server asks
+ * for a passkey (reinforced operation). A new reading or a correction never changes it.
+ */
+function LocalOnlyControl({ document }: { document: DocumentDetail }) {
+  const queryClient = useQueryClient();
+  const inputId = useId();
+  const hintId = useId();
+  const change = useMutation({
+    mutationFn: (localOnly: boolean) =>
+      withReauth(
+        () =>
+          api<DocumentDetail>(documentPath(document.id), {
+            method: "PATCH",
+            body: { local_only: localOnly },
+            headers: { "If-Match": String(document.version) },
+          }),
+        loginWithPasskey,
+      ),
+    onSuccess: (updated) => queryClient.setQueryData(documentKeys.detail(document.id), updated),
+    onError: (error) => {
+      if (isApiError(error, "version_conflict")) {
+        void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
+      }
+    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: documentKeys.lists }),
+  });
+  // Optimistic while the change is being saved.
+  const checked = change.isPending ? Boolean(change.variables) : document.local_only;
+  const sensitive = document.sensitivity.length > 0;
+  const hint = checked
+    ? "Son contenu n'est jamais envoyé à l'assistant IA, même après une correction du texte ou une nouvelle lecture. Le décocher demande une confirmation par passkey."
+    : sensitive
+      ? "Déjà détecté comme sensible : il reste sur votre serveur. Cochez pour qu'il y reste même si une correction du texte lève la détection."
+      : "Sinon, son texte peut accompagner un message à l'assistant IA quand vous le joignez (identifiants masqués).";
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start gap-2 text-sm">
+        <input
+          id={inputId}
+          type="checkbox"
+          className="mt-0.5 size-4 shrink-0 accent-teal-700"
+          checked={checked}
+          disabled={change.isPending}
+          aria-describedby={hintId}
+          onChange={(e) => change.mutate(e.target.checked)}
+        />
+        <div>
+          <label htmlFor={inputId} className="font-medium">
+            Toujours garder en local
+          </label>
+          <p id={hintId} className="mt-0.5 text-xs text-stone-500">
+            {hint}
+          </p>
+        </div>
+      </div>
+      {change.error && <Alert tone="error">{errorMessage(change.error)}</Alert>}
+    </div>
+  );
+}
+
 function TextEditor({ document }: { document: DocumentDetail }) {
   const patch = usePatchDocument(document.id);
   // null = not edited: the field shows the server's text (which polling may update).
@@ -468,6 +531,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
                 {SENSITIVITY_LABELS[category] ?? category}
               </Badge>
             ))}
+            {document.local_only && <Badge tone="violet">Gardé en local</Badge>}
           </div>
         </div>
         {closeButton}
@@ -548,6 +612,9 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
       )}
 
       <SensitivityBlock document={document} />
+      <Section title="Assistant IA">
+        <LocalOnlyControl document={document} />
+      </Section>
       {document.purpose === "receipt" && <ReceiptBlock document={document} />}
 
       <Section title="Texte extrait">

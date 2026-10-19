@@ -32,6 +32,7 @@ const document: DocumentDetail = {
   original_available: true,
   original_until: null,
   keep_original: false,
+  local_only: false,
   source_type: null,
   source_id: null,
   analysis: null,

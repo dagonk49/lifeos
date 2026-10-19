@@ -14,6 +14,7 @@ const TONES = {
   postponed: "amber",
   ready: "teal",
   sensitive: "red",
+  local: "red",
   unreadable: "amber",
   unavailable: "amber",
 } as const;

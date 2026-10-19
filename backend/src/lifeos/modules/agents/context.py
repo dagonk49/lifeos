@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from lifeos.core.security import utcnow
 from lifeos.modules.agents.registry import AgentSpec
 from lifeos.modules.documents.models import Document
+from lifeos.modules.documents.sensitivity import keeps_local
 from lifeos.modules.finance import service as finance
 from lifeos.modules.finance.models import FinanceCategory, Transaction
 from lifeos.modules.goals.models import Goal
@@ -245,8 +246,8 @@ async def _finances(ctx: Ctx, space_id: uuid.UUID) -> list[str]:
 
 
 async def _receipts(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
-    """Receipt titles and totals only; sensitive documents never appear, and no
-    extracted text is ever included."""
+    """Receipt titles and totals only; documents kept local (sensitive, or by the
+    owner's choice) never appear, and no extracted text is ever included."""
     rows = [
         document
         for document in await ctx.db.scalars(
@@ -256,11 +257,12 @@ async def _receipts(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
                 Document.space_id == space_id,
                 Document.purpose == "receipt",
                 func.cardinality(Document.sensitivity) == 0,
+                Document.local_only.is_(False),
             )
             .order_by(Document.created_at.desc())
             .limit(RECENT_RECEIPTS)
         )
-        if not document.sensitivity
+        if not keeps_local(document)
     ]
     if not rows:
         return ["TICKETS DE CAISSE : aucun."]

@@ -4,6 +4,7 @@ Only formats LifeOS can process safely are accepted; everything else (executable
 archives, HTML/SVG, Office macros...) is refused before being stored.
 """
 
+import unicodedata
 from dataclasses import dataclass
 
 
@@ -39,7 +40,10 @@ def _looks_like_text(data: bytes) -> bool:
     # Markup could be rendered by a browser: refused as "text".
     if lowered.startswith(("<!doctype", "<html", "<svg", "<?xml", "<script")):
         return False
-    printable = sum(1 for c in text if c.isprintable() or c in "\n\r\t")
+    # Spaces of French typography (non-breaking U+00A0, narrow U+202F...) are text too.
+    printable = sum(
+        1 for c in text if c.isprintable() or c in "\n\r\t" or unicodedata.category(c) == "Zs"
+    )
     return not text or printable / len(text) > 0.97
 
 

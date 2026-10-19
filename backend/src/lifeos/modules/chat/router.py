@@ -15,8 +15,10 @@ from lifeos.modules.chat.schemas import (
     ConversationOut,
     ConversationUpdate,
     MessageOut,
+    PreviewRequest,
     RetainRequest,
     SendMessage,
+    SendPreview,
     SendResult,
 )
 from lifeos.modules.memory.schemas import MemoryOut
@@ -87,6 +89,13 @@ async def send_message(
         body=body,
         run=run,
     )
+
+
+@router.post("/preview")
+async def preview_message(body: PreviewRequest, ctx: CtxDep) -> SendPreview:
+    """Control before sending: attachments left out and identifiers masked, by kind.
+    Local only: nothing is saved, nothing goes to the AI provider."""
+    return await service.preview_message(ctx, body)
 
 
 @router.post("/conversations/{conversation_id}/consolidate")

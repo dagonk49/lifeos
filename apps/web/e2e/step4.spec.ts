@@ -91,6 +91,9 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   const rib = page.getByRole("region", { name: "rib" });
   await expect(rib.getByText("Banque", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await expect(rib.getByText(/jamais envoyé à l'assistant IA/).first()).toBeVisible();
+  // « Toujours garder en local »: the owner's own refusal, on top of the detection.
+  await rib.getByRole("checkbox", { name: "Toujours garder en local" }).check();
+  await expect(rib.getByText("Gardé en local", { exact: true })).toBeVisible();
 
   await nav(page, "Assistant");
   const chooser = page.waitForEvent("filechooser");
@@ -100,6 +103,15 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   await expect(attachments.getByText(/Document sensible \(banque\) : jamais envoyé à l'IA/)).toBeVisible({
     timeout: 30_000,
   });
+  // The control before sending: the sensitive attachment stays on the server, and the
+  // message goes without it once confirmed.
+  await page.getByLabel("Votre message").fill("Peux-tu vérifier ce RIB ?");
+  await page.getByRole("button", { name: "Envoyer", exact: true }).click();
+  const review = page.getByRole("region", { name: "Avant l'envoi à l'assistant IA" });
+  await expect(review).toContainText("« rib-chat » : reste sur votre serveur (document sensible (banque))");
+  await review.getByRole("button", { name: "Confirmer l'envoi" }).click();
+  await expect(page.getByRole("list", { name: "Messages" }).getByText("[fake] Peux-tu vérifier ce RIB ?")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Pièces jointes envoyées" })).toHaveCount(0);
 
   // UC01: the day is dictated, transcribed on the server, reviewed, then saved.
   await nav(page, "Journal");

@@ -26,6 +26,7 @@ const created: DocumentDetail = {
   original_available: true,
   original_until: "2027-01-10T10:00:00Z",
   keep_original: false,
+  local_only: false,
   source_type: null,
   source_id: null,
   analysis: null,

@@ -70,22 +70,74 @@ Contenu transmis :
 
 - uniquement le **paquet de contexte minimal** construit pour la requête (message courant,
   derniers échanges de la conversation, souvenirs pertinents du même espace) ;
-- après **masquage local** des données détectées : adresses e-mail, numéros de téléphone,
-  IBAN, numéros de carte bancaire (contrôle de Luhn), numéros de sécurité sociale ;
+- après **masquage local** des données détectées, remplacées par une étiquette (`[IBAN]`,
+  `[TÉLÉPHONE]`…) : adresses e-mail (y compris écrites « jean . dupont @ example . org »,
+  « (at) », « arobase »), numéros de téléphone (`0…`, `+33`, `0033`, `+33 (0)`, numéros
+  internationaux), IBAN (clé mod 97 vérifiée, minuscules acceptées), numéros de carte bancaire
+  (contrôle de Luhn ; un SIRET annoncé comme tel n'en est pas un), numéros de sécurité
+  sociale, mots de passe et codes annoncés (« mot de passe : … », « mot de passe hunter2 »,
+  « code PIN 1234 »), et les numéros de passeport, de pièce d'identité, de titre de séjour,
+  de permis et fiscaux **écrits juste après le nom du document** (ils n'ont pas de clé de
+  contrôle : seuls, ils seraient confondus avec des références ordinaires) ;
+- ces identifiants sont reconnus dans les formes des vrais documents : groupés par des
+  espaces, des espaces insécables ou fines (typographie française), des points ou des
+  tirets, et lus par OCR avec les confusions habituelles (`O` pour `0`, `l` ou `I` pour
+  `1`). Seuls les identifiants sont remplacés : le reste du texte part tel qu'il est écrit ;
 - jamais : identifiants, mots de passe, jetons, clés d'API, secrets.
 
+**Contrôle avant l'envoi** : avant d'envoyer un message, la page demande au serveur ce qui
+sera masqué et ce qui restera local (`POST /v1/chat/preview` : mêmes règles que l'envoi,
+rien n'est enregistré ni transmis). Si un identifiant sera masqué ou si une pièce jointe
+reste sur le serveur, un récapitulatif l'indique — par catégorie et par nombre, jamais les
+valeurs — et le message attend la confirmation ; le propriétaire peut aussi retirer une
+pièce jointe ou annuler. Sinon, le message part sans étape de plus. Le récapitulatif porte
+sur ce que le propriétaire ajoute (son message et ses pièces jointes) ; le reste de la
+requête (consignes, souvenirs, contexte d'un agent) est masqué de la même façon à l'envoi.
+
 **Documents sensibles, jamais transmis, même masqués** : un document est classé sensible
-**localement**, avant tout usage, s'il relève de l'une de ces catégories :
+**localement**, avant tout usage, sur son titre et son texte, s'il relève de l'une de ces
+catégories :
 
-- identité : pièce d'identité, passeport, titre de séjour, bande MRZ ;
-- santé : ordonnance, compte rendu, analyses, numéro de sécurité sociale ;
-- banque : RIB, IBAN valide, relevé de compte, numéro de carte.
+- identité : pièce d'identité, passeport, titre de séjour, permis, état civil, bande MRZ,
+  carte grise (certificat d'immatriculation), avis d'impôt, de taxe foncière, de taxe
+  d'habitation et autres documents fiscaux ;
+- santé : ordonnance, compte rendu, analyses, arrêt de travail, attestation de droits,
+  décompte de mutuelle ou de remboursement de soins, numéro de sécurité sociale ;
+- banque : RIB, IBAN valide, relevé de compte, numéro de carte, bulletin de paie, offre ou
+  contrat de prêt.
 
-Un tel document n'est ni joint à un message, ni lu par un agent. La détection penche du côté
-de la prudence ; ses raisons sont affichées sans les valeurs détectées.
+Les mots-clés sont aussi reconnus lus par OCR (`0RD0NNANCE`, `CARTE NATI0NALE`) et les
+identifiants dans toutes les formes ci-dessus. Un tel document n'est ni joint à un message,
+ni lu par un agent. La détection penche du côté de la prudence (le mot « passeport » suffit,
+même dans une note de voyage) ; ses raisons sont affichées sans les valeurs détectées.
 
-**Pièces jointes du chat** : seul le **texte extrait localement** d'un document non sensible
-est transmis, et seulement avec le message auquel il est joint. Il est limité à 12 000
+**Garder en local** : le propriétaire peut aussi cocher « Toujours garder en local » sur
+n'importe quel document (`documents.local_only`). Ce choix s'ajoute à la détection et n'est
+jamais modifié par une nouvelle lecture, une correction du texte ou un nouveau classement.
+Le propriétaire ne peut qu'**ajouter** de la protection : il ne peut pas lever une catégorie
+détectée (corriger le texte relance la détection, c'est la seule voie), et décocher « Toujours
+garder en local » est une opération à validation renforcée (passkey récente,
+`document.allow_cloud`).
+
+**Détection retestée** : une correction du texte (ou un nouveau titre) relance la détection
+avec les règles en vigueur. Au moment de l'envoi, chaque pièce jointe est classée à nouveau
+avec les règles en vigueur, en plus de sa catégorie enregistrée : un document lu avant une
+amélioration de la détection est protégé tout de suite. Une tâche horaire
+(`reclassify_documents`) reclasse ensuite les documents lus par une version antérieure des
+règles (`analysis.sensitivity_version`) : elle **ajoute** les catégories trouvées, sans
+jamais en retirer, et l'audite sans contenu (`document.reclassify`).
+
+**Mesure sur ses propres documents** : `lifeos-admin sensitivity-check <dossier>` lit des
+fichiers sur le serveur (texte ; PDF et images par le service `ml`), les classe et les
+masque comme un envoi, et n'affiche que les noms de fichiers, les catégories, les raisons et
+le nombre d'identifiants masqués par type — jamais une valeur ni une ligne de texte. Avec
+`--expect manifest.json`, il liste les écarts (faux négatifs, faux positifs). Un faux
+négatif trouvé sur un vrai document est ajouté au corpus de test sous forme de
+**reproduction synthétique** (`backend/tests/fixtures/sensitivity`), jamais le document
+lui-même.
+
+**Pièces jointes du chat** : seul le **texte extrait localement** d'un document ni sensible
+ni gardé en local est transmis, et seulement avec le message auquel il est joint. Il est limité à 12 000
 caractères par document et à 3 documents, présenté comme des données (jamais des
 instructions), puis masqué comme le reste. Chaque envoi est audité (`document.attach`). Les
 fichiers eux-mêmes (images, PDF) ne quittent jamais le serveur.
@@ -114,7 +166,7 @@ sont enregistrés qu'après approbation. Agents spécialisés : ils ne lisent qu
 pour lesquelles le propriétaire leur a donné un accès explicite (90 jours, révocable).
 L'agent Finances voit les opérations et budgets de l'espace ; avec l'accès « documents », il
 voit aussi ce qui a été lu sur les tickets (marchand, date, total), jamais le texte extrait
-ni un document sensible.
+ni un document sensible ou gardé en local.
 
 ## 4. Séparation des espaces
 

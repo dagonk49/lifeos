@@ -45,12 +45,12 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T10 | Injection de prompt indirecte (document, e-mail, contenu mémorisé) | les contenus importés ne valent jamais autorisation ; le Guardian décide hors LLM ; sorties structurées validées ; actions importantes soumises à approbation avec aperçu exact | 2 |
 | T11 | Escalade d'agent | un agent ne peut pas s'octroyer de permission ; `agent_permissions` gérées uniquement par l'utilisateur avec réauthentification récente | 2 |
 | T12 | Fuite inter-espaces | filtrage par espace dans chaque service ; tests dédiés ; RLS prévu en défense en profondeur | 2 |
-| T13 | Fuite vers le fournisseur LLM | consentement par espace, paquet minimal, masquage local, budget, journal des appels | 2 |
+| T13 | Fuite vers le fournisseur LLM | consentement par espace, paquet minimal, masquage local des identifiants (y compris espaces insécables, points, tirets, minuscules, confusions d'OCR, e-mails déguisés, numéros de pièces annoncés), contrôle avant l'envoi (ce qui sera masqué, ce qui reste local, confirmation ou annulation), budget, journal des appels | 2 |
 | T14 | Exfiltration via la sortie du LLM (liens/images Markdown vers un domaine tiers) | réponses affichées en texte brut (aucun HTML ni Markdown interprété) ; CSP `img-src 'self' data:` et `connect-src 'self'` | 2 |
 | T15 | Coût LLM incontrôlé (boucle, abus) | projet Gemini **sans compte de facturation** (rien ne peut être facturé, ADR 0007) ; plafonds quotidiens par palier et budget mensuel ; arrêt d'urgence ; aucune nouvelle tentative automatique ; limites de profondeur et d'appels par requête | 2, 3 |
 | T16 | Hallucination présentée comme un fait | `origin` + `confidence` ; distinction fait / inférence dans l'interface ; corrections prioritaires | 2 |
 | T17 | Fichiers malveillants (bombe de décompression, PDF ou image piégés, HTML/SVG actifs) | liste blanche par **signature** ; taille bornée pendant la lecture ; analyse dans `ml` ou `stt` isolés (sans sortie, lecture seule, sans privilèges), chaque extraction dans un processus enfant à mémoire bornée ; décodeur imposé par le type détecté ; contrôle des dimensions avant décodage (images, images d'un PDF) ; audio décodé progressivement et refusé dès la durée maximale dépassée ; trois plantages de suite → échec définitif ; images ré-encodées à partir des pixels ; originaux servis en téléchargement (`nosniff`, `CSP sandbox`, `no-store`). Pas d'antivirus (coût RAM ; voir ADR 0008), à revoir avec l'e-mail | 4 |
-| T24 | Fuite d'un document sensible vers le cloud (pièce jointe, agent) | classement local identité / santé / banque avant tout usage ; refus côté serveur avant enregistrement du message ; agents limités aux métadonnées des tickets ; audit `document.attach` | 4 |
+| T24 | Fuite d'un document sensible vers le cloud (pièce jointe, agent) | classement local identité / santé / banque avant tout usage, retesté à chaque correction et de nouveau à l'envoi avec les règles en vigueur, reclassement des documents lus par d'anciennes règles (catégories seulement ajoutées) ; refus manuel « Toujours garder en local », jamais levé par une relecture et levé seulement avec une passkey récente ; refus côté serveur avant enregistrement du message ; agents limités aux métadonnées des tickets ; audit `document.attach` | 4 |
 | T25 | Injection de prompt par le contenu d'un document joint | texte présenté comme données délimitées ; le Guardian décide hors LLM ; aucune action sans approbation (T10) | 4 |
 | T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; une image illisible (donc non nettoyable) n'est pas conservée | 4 |
 | T27 | Conservation abusive de la voix | enregistrement chiffré puis supprimé dès la transcription (ou le refus) ; dictées effacées après 24 h ; transcription locale ; lecture à voix haute avec les seules voix locales de l'appareil | 4 |
@@ -89,11 +89,20 @@ jamais mises en cache (`no-store`). Limites restantes :
 - Espaces : aucune recherche ni aucun paquet de contexte ne contient de donnée d'un autre
   espace.
 - Cloud : espace sans consentement → aucun appel ; budget atteint → aucun appel ; données
-  sensibles masquées dans le paquet envoyé.
+  sensibles masquées dans le paquet envoyé ; variantes d'identifiants (espaces insécables et
+  fines, points, tirets, minuscules, OCR `O`/`0` et `l`/`1`, `0033` et `+33 (0)`, e-mails
+  déguisés, mots de passe et codes sans « : », numéros de pièces annoncés) masquées, textes
+  ordinaires (SIRET, montants, dates) intacts ; le contrôle avant l'envoi n'enregistre et
+  n'envoie rien et ne montre aucune valeur.
 - Documents : formats dangereux refusés (SVG, HTML, exécutables, archives) ; bombe de
   décompression refusée avant décodage ; EXIF/GPS absents de l'image conservée ; chiffrement
-  lié au document ; document sensible refusé comme pièce jointe sans message enregistré ;
-  agent sans droit `documents` refusé ; corpus synthétique de détection de sensibilité.
+  lié au document ; document sensible ou gardé en local refusé comme pièce jointe sans
+  message enregistré, y compris un document classé non sensible par d'anciennes règles ;
+  agent sans droit `documents` refusé ; « Toujours garder en local » conservé après
+  correction, renommage et relecture, levé seulement avec une passkey récente ; catégorie
+  détectée jamais retirée par le propriétaire ni par le reclassement ; corpus synthétique de
+  documents français (`backend/tests/fixtures/sensitivity`, bruit d'OCR et variantes
+  typographiques) ; `lifeos-admin sensitivity-check` n'affiche aucune valeur.
 - Voix : enregistrement supprimé après transcription comme après refus ; dictées hors
   recherche et index ; une seule transcription à la fois.
 - Client web (CSP) : chaque page, publique, authentifiée ou 404, reçoit un nonce différent à

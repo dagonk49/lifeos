@@ -1,12 +1,15 @@
 import base64
+import json
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
 
+from lifeos import cli
 from lifeos.config import Settings
-from lifeos.modules.documents.sensitivity import classify
+from lifeos.modules.documents.sensitivity import REASONS, classify
 from lifeos.modules.documents.sniff import sniff
 from lifeos.modules.documents.storage import DocumentStore, StorageError
 
@@ -96,6 +99,82 @@ def test_local_sensitivity_filter(text: str, expected: list[str]) -> None:
     assert "FR76" not in flat and "MARTIN" not in flat
 
 
+# French corpus (tests/fixtures/sensitivity): one synthetic document per file, with OCR
+# noise and typographic variants, and the categories expected in manifest.json.
+CORPUS = Path(__file__).parent / "fixtures" / "sensitivity"
+MANIFEST: dict[str, list[str]] = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
+# Values of the corpus that no report may repeat (see the corpus README).
+CORPUS_VALUES = (
+    "FR76",
+    "3000 6000",
+    "90 02 69",
+    "006 084",
+    "4111",
+    "990000000001",
+    "99XX99999",
+    "9900000001",
+    "30 99 999",
+    "01 99 00",
+    "06 39 98",
+    "example.org",
+    "example.com",
+    "EXEMPLE",
+    "Camille",
+)
+
+
+def test_the_corpus_covers_every_category_and_ordinary_documents() -> None:
+    expected = [tuple(categories) for categories in MANIFEST.values()]
+    for category in ("identity", "health", "bank"):
+        assert sum(1 for c in expected if c == (category,)) >= 8, category
+    assert sum(1 for c in expected if c == ()) >= 6
+    assert sorted(MANIFEST) == sorted(p.name for p in CORPUS.iterdir() if p.suffix == ".txt"), (
+        "each corpus file has an expectation, and each expectation a file"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(MANIFEST))
+def test_french_corpus(name: str) -> None:
+    # The text alone (the file name would give the answer away).
+    result = classify((CORPUS / name).read_text("utf-8"))
+    assert result.categories == MANIFEST[name]
+    # Reasons are fixed labels: never a value read in the document.
+    for reasons in result.reasons.values():
+        assert set(reasons) <= REASONS
+
+
+def test_the_admin_command_measures_a_folder_without_showing_values(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = str(CORPUS / "manifest.json")
+    assert cli.main(["sensitivity-check", str(CORPUS), "--expect", manifest]) == 0
+    out = capsys.readouterr().out
+    assert "banque-iban-nbsp.txt: bank (IBAN" in out and "masked: iban=1" in out
+    assert "ordinaire-facture-siret.txt: not sensitive | masked: email=1, phone=1" in out
+    assert "False negatives: 0; false positives: 0." in out
+    for value in CORPUS_VALUES:
+        assert value not in out, value
+
+    # A wrong expectation is reported (and fails), still without any value.
+    wrong = tmp_path / "manifest.json"
+    wrong.write_text(json.dumps({**MANIFEST, "banque-rib.txt": ["health"]}), "utf-8")
+    assert cli.main(["sensitivity-check", str(CORPUS), "--expect", str(wrong)]) == 1
+    out = capsys.readouterr().out
+    assert "banque-rib.txt: bank (" in out and "MISSED: health | EXTRA: bank" in out
+    assert "False negatives: 1; false positives: 1." in out
+    assert "FR76" not in out
+
+    # Without a manifest: a plain report; an unknown path is an error.
+    (tmp_path / "note.txt").write_text("Rappel : appeler le 06 39 98 12 34.", "utf-8")
+    (tmp_path / "binaire.bin").write_bytes(b"\x7fELF binary")
+    assert cli.main(["sensitivity-check", str(tmp_path / "note.txt"), str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "note.txt: not sensitive | masked: phone=1" in out
+    assert "binaire.bin: skipped, unsupported type" in out
+    assert "06 39 98" not in out
+    assert cli.main(["sensitivity-check", str(tmp_path / "absent")]) == 1
+
+
 # --- Encrypted storage -----------------------------------------------------------------------
 
 
@@ -148,6 +227,8 @@ def test_storage_requires_a_valid_key(tmp_path: object) -> None:
         (b"OggS\x00....", "audio"),
         (b"\x00\x00\x00\x20ftypM4A ....", "audio"),
         ("Notes de réunion\nAccents : é è à ç".encode(), "text"),
+        # French typography: non-breaking and narrow spaces are text.
+        ("IBAN\u00a0:\u00a0FR76\u00a03000\u00a06000\u202f€".encode(), "text"),
     ],
 )
 def test_allowed_types_are_detected_by_signature(data: bytes, kind: str) -> None:

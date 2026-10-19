@@ -25,6 +25,10 @@ describe("attachments", () => {
     expect(attachmentState(doc("pending", [], "extraction_unavailable"))).toBe("postponed");
     expect(attachmentState(doc("ready"))).toBe("ready");
     expect(attachmentState(doc("ready", ["bank"]))).toBe("sensitive");
+    // « Toujours garder en local »: the owner's choice, whatever the detection says.
+    expect(attachmentState({ ...doc("ready"), local_only: true })).toBe("local");
+    expect(attachmentState({ ...doc("ready", ["health"]), local_only: true })).toBe("sensitive");
+    expect(attachmentState({ ...doc("pending"), local_only: true })).toBe("reading");
     expect(attachmentState(doc("failed"))).toBe("unreadable");
     expect(attachmentState(doc("ready"), true)).toBe("unavailable");
     expect(attachmentState(undefined, true)).toBe("unavailable");
@@ -47,7 +51,7 @@ describe("attachments", () => {
   it("polls fast while reading, slowly when postponed, never once settled", () => {
     expect(attachmentPollInterval("reading")).toBe(1500);
     expect(attachmentPollInterval("postponed")).toBe(10_000);
-    for (const state of ["ready", "sensitive", "unreadable", "unavailable"] as const) {
+    for (const state of ["ready", "sensitive", "local", "unreadable", "unavailable"] as const) {
       expect(attachmentPollInterval(state)).toBe(false);
     }
   });
@@ -56,6 +60,7 @@ describe("attachments", () => {
     expect(attachmentStateLabel("sensitive", ["identity", "bank"])).toBe(
       "Document sensible (identité, banque) : jamais envoyé à l'IA",
     );
+    expect(attachmentStateLabel("local")).toBe("Gardé en local (votre choix) : jamais envoyé à l'IA");
     expect(attachmentStateLabel("reading")).toBe("Lecture locale en cours…");
     expect(attachmentStateLabel("unavailable")).toMatch(/introuvable/);
   });

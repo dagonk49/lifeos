@@ -37,9 +37,9 @@ from lifeos.modules.documents.extraction import (
     UnreadableDocument,
     decode_text,
 )
-from lifeos.modules.documents.models import Document
+from lifeos.modules.documents.models import SENSITIVITY_CATEGORIES, Document
 from lifeos.modules.documents.schemas import MAX_TEXT_CHARS
-from lifeos.modules.documents.sensitivity import classify
+from lifeos.modules.documents.sensitivity import CLASSIFIER_VERSION, classify_document
 from lifeos.modules.documents.sniff import sniff
 from lifeos.modules.documents.storage import DocumentStore, OriginalMissingError, StorageError
 from lifeos.modules.finance.receipts import parse_receipt
@@ -90,9 +90,10 @@ def analyse(
     """Local, deterministic analysis of a document's text: sensitivity categories and
     reasons (the title counts too: « Ordonnance Dr X »), and the receipt proposal for a
     receipt (stored, never applied)."""
-    found = classify(f"{title}\n{text}" if title else text)
+    found = classify_document(title, text)
     analysis: dict[str, Any] = dict(previous or {})
     analysis["sensitivity_reasons"] = found.reasons
+    analysis["sensitivity_version"] = CLASSIFIER_VERSION
     if purpose == "receipt":
         proposal = parse_receipt(text, today).as_dict()
         earlier = analysis.get("receipt")
@@ -418,6 +419,75 @@ async def process_pending(
         finally:
             await guard.execute(select(func.pg_advisory_unlock(PROCESS_LOCK)))
     return counts
+
+
+# --- Classification with improved rules -------------------------------------------------------
+
+
+def _classified_before(version: int) -> ColumnElement[bool]:
+    stored = func.coalesce(Document.analysis["sensitivity_version"].as_integer(), 0)
+    return stored < version
+
+
+async def reclassify_documents(database: Database, *, batch: int = 100) -> dict[str, int]:
+    """Classifies again the documents read with older rules (`CLASSIFIER_VERSION`), so
+    that a corrected false negative also protects the documents already stored.
+
+    A category is only ever added: improved rules never release a document (correcting
+    its text does). Everything runs locally; the audit keeps the categories only. One
+    short transaction per batch; documents being edited (locked) wait for the next run.
+    """
+    counts = {"checked": 0, "protected": 0}
+    while True:
+        async with database.sessionmaker() as session, session.begin():
+            documents = list(
+                await session.scalars(
+                    select(Document)
+                    .where(
+                        Document.status == "ready",
+                        Document.purpose != "dictation",
+                        _classified_before(CLASSIFIER_VERSION),
+                    )
+                    .order_by(Document.created_at)
+                    .limit(batch)
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            for document in documents:
+                if await _reclassify(session, document):
+                    counts["protected"] += 1
+            counts["checked"] += len(documents)
+        if len(documents) < batch:
+            return counts
+
+
+async def _reclassify(session: AsyncSession, document: Document) -> bool:
+    found = classify_document(document.title, document.extracted_text)
+    stored = set(document.sensitivity or [])
+    added = [c for c in found.categories if c not in stored]
+    analysis: dict[str, Any] = dict(document.analysis or {})
+    analysis["sensitivity_version"] = CLASSIFIER_VERSION
+    if added:
+        reasons = analysis.get("sensitivity_reasons")
+        reasons = dict(reasons) if isinstance(reasons, dict) else {}
+        reasons.update({c: found.reasons[c] for c in added})
+        analysis["sensitivity_reasons"] = reasons
+        document.sensitivity = [c for c in SENSITIVITY_CATEGORIES if c in stored | set(added)]
+    document.analysis = analysis
+    await session.flush()
+    if added:
+        await audit.record(
+            session,
+            action="document.reclassify",
+            actor_type="system",
+            actor_id="documents",
+            user_id=document.user_id,
+            space_id=document.space_id,
+            target_type="document",
+            target_id=document.id,
+            details={"added": ",".join(added), "version": CLASSIFIER_VERSION},
+        )
+    return bool(added)
 
 
 # --- Retention ------------------------------------------------------------------------------

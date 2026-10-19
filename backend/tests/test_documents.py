@@ -32,10 +32,12 @@ from lifeos.modules.documents.extraction import (
 )
 from lifeos.modules.documents.models import Document
 from lifeos.modules.documents.router import content_disposition
+from lifeos.modules.documents.sensitivity import CLASSIFIER_VERSION
 from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.guardian.models import RESOURCES
 from lifeos.modules.guardian.policy import ACTIONS
 from lifeos.modules.guardian.principal import Principal
+from lifeos.modules.identity.models import UserSession
 from lifeos.modules.llm.fake import FakeProvider
 from lifeos.modules.retrieval.embedders import FakeEmbedder
 from lifeos.modules.retrieval.indexer import index_pending
@@ -200,7 +202,10 @@ async def test_document_lifecycle_through_the_api(
     detail = (await client.get(f"/v1/documents/{document['id']}")).json()
     assert detail["status"] == "ready" and detail["extracted_text"] == NOTE.decode()
     assert detail["text_source"] == "text" and detail["sensitivity"] == []
-    assert detail["analysis"] == {"sensitivity_reasons": {}}
+    assert detail["analysis"] == {
+        "sensitivity_reasons": {},
+        "sensitivity_version": CLASSIFIER_VERSION,
+    }
     assert extractor.calls == 0  # plain text is decoded in-process
 
     listing = (await client.get("/v1/documents", params={"space_id": personal})).json()
@@ -909,6 +914,135 @@ def test_document_jobs_are_scheduled() -> None:
 
     jobs = {job.id: job for job in build_scheduler().get_jobs()}
     assert "process_pending_documents" in jobs and "purge_document_originals" in jobs
+    assert "reclassify_documents" in jobs
+
+
+# --- Kept local: the owner's refusal, and the detection retested -----------------------------
+
+# Synthetic IBAN (valid key) grouped with non-breaking spaces, as copied from a web page.
+NBSP_IBAN = "Virement sur FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189"
+
+
+async def _audit_actions(database: Database, action: str) -> list[AuditEvent]:
+    async with database.sessionmaker() as session:
+        return list(await session.scalars(select(AuditEvent).where(AuditEvent.action == action)))
+
+
+async def test_kept_local_survives_corrections_and_new_readings(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    db: AsyncSession,
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    document = await created(client, spaces["personal"], NOTE)
+    assert document["local_only"] is False
+    await process(database, store, extractor, document["id"], doc_settings)
+    url = f"/v1/documents/{document['id']}"
+
+    kept = await client.patch(url, json={"local_only": True})
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["local_only"] is True and kept.json()["sensitivity"] == []
+    # A correction, a new title and a new reading never lift the owner's choice.
+    corrected = await client.patch(url, json={"extracted_text": "Liste de courses"})
+    assert corrected.json()["local_only"] is True
+    assert (await client.patch(url, json={"title": "Courses"})).json()["local_only"] is True
+    assert (await client.post(f"{url}/reprocess")).status_code == 202
+    await process(database, store, extractor, document["id"], doc_settings)
+    reread = (await client.get(url)).json()
+    assert reread["local_only"] is True and reread["text_corrected_at"] is None
+
+    # Lifting it lets the document go to the assistant again: a reinforced operation.
+    await db.execute(update(UserSession).values(authenticated_at=utcnow() - timedelta(hours=1)))
+    await db.commit()
+    refused = await client.patch(url, json={"local_only": False})
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "reauthentication_required"
+    assert (await client.get(url)).json()["local_only"] is True
+    # Adding protection never needs it.
+    assert (await client.patch(url, json={"local_only": True})).status_code == 200
+    await db.execute(update(UserSession).values(authenticated_at=utcnow()))
+    await db.commit()
+    lifted = await client.patch(url, json={"local_only": False})
+    assert lifted.status_code == 200 and lifted.json()["local_only"] is False
+
+    events = await _audit(database, document["id"])
+    updates = [e.details for e in events if e.action == "document.update"]
+    assert {"fields": "local_only", "local_only": True} in updates
+    assert updates[-1] == {"fields": "local_only", "local_only": False}
+    denied = await _audit_actions(database, "document.allow_cloud")
+    assert [e.outcome for e in denied] == ["denied"]
+
+
+async def test_a_detected_category_is_only_removed_by_a_corrected_text(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    document = await created(client, spaces["personal"], NOTE)
+    await process(database, store, extractor, document["id"], doc_settings)
+    url = f"/v1/documents/{document['id']}"
+    # Corrections are retested with the same rules: a bare IBAN with non-breaking spaces.
+    corrected = await client.patch(url, json={"extracted_text": NBSP_IBAN})
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["sensitivity"] == ["bank"]
+    assert "IBAN" in corrected.json()["analysis"]["sensitivity_reasons"]["bank"]
+    # The owner cannot clear it (only add protection): local_only False leaves it.
+    still = await client.patch(url, json={"local_only": False})
+    assert still.status_code == 200 and still.json()["sensitivity"] == ["bank"]
+    # A corrected text without the IBAN is classified again.
+    cleared = await client.patch(url, json={"extracted_text": "Virement fait, merci."})
+    assert cleared.json()["sensitivity"] == []
+
+
+async def test_documents_read_with_older_rules_are_classified_again(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    db: AsyncSession,
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    personal = spaces["personal"]
+    missed = await created(client, personal, NBSP_IBAN.encode(), title="Virement")
+    flagged = await created(client, personal, RIB.encode(), title="RIB")
+    plain = await created(client, personal, NOTE, title="Notes")
+    for document in (missed, flagged, plain):
+        await process(database, store, extractor, document["id"], doc_settings)
+    # As stored by an older classifier: no version, the IBAN missed; and a category the
+    # current rules would not find (it must stay).
+    await db.execute(
+        update(Document)
+        .where(Document.id == uuid.UUID(missed["id"]))
+        .values(sensitivity=[], analysis={"sensitivity_reasons": {}})
+    )
+    await db.execute(
+        update(Document)
+        .where(Document.id == uuid.UUID(plain["id"]))
+        .values(sensitivity=["health"], analysis={"sensitivity_reasons": {"health": ["patient"]}})
+    )
+    await db.commit()
+
+    counts = await processing.reclassify_documents(database)
+    assert counts == {"checked": 2, "protected": 1}
+    now_missed = (await client.get(f"/v1/documents/{missed['id']}")).json()
+    assert now_missed["sensitivity"] == ["bank"]
+    assert "IBAN" in now_missed["analysis"]["sensitivity_reasons"]["bank"]
+    assert now_missed["analysis"]["sensitivity_version"] == CLASSIFIER_VERSION
+    still = (await client.get(f"/v1/documents/{plain['id']}")).json()
+    assert still["sensitivity"] == ["health"]  # never released by new rules
+    assert await processing.reclassify_documents(database) == {"checked": 0, "protected": 0}
+
+    events = await _audit_actions(database, "document.reclassify")
+    assert [(str(e.target_id), e.details) for e in events] == [
+        (missed["id"], {"added": "bank", "version": CLASSIFIER_VERSION})
+    ]
 
 
 async def test_the_title_counts_for_sensitivity(

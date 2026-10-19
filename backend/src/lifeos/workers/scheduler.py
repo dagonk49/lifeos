@@ -75,6 +75,13 @@ def build_scheduler() -> BlockingScheduler:
         id="process_pending_documents",
         misfire_grace_time=60,
     )
+    # After an update of the sensitivity rules, stored documents are classified again
+    # (attachments are also checked with the current rules when sent).
+    scheduler.add_job(
+        actors.reclassify_documents.send,
+        IntervalTrigger(hours=1, timezone=tz),
+        id="reclassify_documents",
+    )
     scheduler.add_job(
         actors.purge_document_originals.send,
         CronTrigger(hour=3, minute=50, timezone=tz),

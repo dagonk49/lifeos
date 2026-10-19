@@ -161,6 +161,41 @@ export interface SendResult {
   suggested_agent: AgentName | null;
 }
 
+/** Identifiers masked locally before a message leaves the server (kinds, never values). */
+export type MaskKind =
+  | "email"
+  | "phone"
+  | "iban"
+  | "card"
+  | "nir"
+  | "secret"
+  | "passport"
+  | "id_number"
+  | "tax_number";
+export type MaskCounts = Partial<Record<MaskKind, number>>;
+/** Why an attached document stays on the server. */
+export type AttachmentRefusal =
+  | "not_allowed"
+  | "not_found"
+  | "not_ready"
+  | "sensitive"
+  | "local_only"
+  | "unreadable";
+
+export interface AttachmentPreview {
+  document_id: Uuid;
+  sent: boolean;
+  reason: AttachmentRefusal | null;
+  sensitivity: SensitivityCategory[];
+  masked: MaskCounts;
+}
+
+/** POST /v1/chat/preview: the control before sending (nothing saved, nothing sent). */
+export interface SendPreview {
+  masked: MaskCounts;
+  attachments: AttachmentPreview[];
+}
+
 export interface ConsolidationResult {
   /** Null when nothing durable was found. */
   approval_id: Uuid | null;
@@ -556,6 +591,8 @@ export interface DocumentSummary {
   /** Machine-readable reason of a pending (retry) or failed status. */
   error: string | null;
   sensitivity: SensitivityCategory[];
+  /** « Toujours garder en local »: the owner's choice, whatever the detection finds. */
+  local_only: boolean;
   /** "pdf" (text layer), "ocr", "text" (plain text file), "speech" (dictation). */
   text_source: string | null;
   text_confidence: number | null;

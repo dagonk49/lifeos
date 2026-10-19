@@ -142,6 +142,50 @@ async def _reconcile_originals(documents_dir: Path | None, apply: bool, empty_ok
         await db.dispose()
 
 
+async def _sensitivity_check(paths: list[Path], expect: Path | None) -> int:
+    """Classifies and masks local files as uploads would be; prints no value, no text."""
+    from lifeos.modules.documents import corpus
+    from lifeos.modules.documents.extraction import build_extractor
+
+    settings = get_settings()
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        print(f"Not found: {', '.join(missing)}", file=sys.stderr)
+        return 1
+    try:
+        manifest = corpus.load_manifest(expect) if expect is not None else {}
+    except (OSError, ValueError) as exc:
+        print(f"Invalid manifest: {exc}", file=sys.stderr)
+        return 1
+    extractor = build_extractor(settings)
+    checks = []
+    for path, name in corpus.files_in(paths):
+        check = await corpus.check_file(
+            path, name, extractor, max_pages=settings.documents_max_pages
+        )
+        check.expected = manifest.get(name) if expect is not None else None
+        checks.append(check)
+        print(corpus.report_line(check))
+    read = [c for c in checks if not c.skipped]
+    sensitive = [c for c in read if c.categories]
+    print(
+        f"{len(read)} file(s) read, {len(sensitive)} sensitive, "
+        f"{len(checks) - len(read)} skipped. No value or text is shown."
+    )
+    if expect is None:
+        return 0
+    unlisted = [c.name for c in read if c.expected is None]
+    missed = [c.name for c in read if c.missed]
+    extra = [c.name for c in read if c.extra]
+    absent = sorted(set(manifest) - {c.name for c in checks})
+    if unlisted:
+        print(f"Not in the manifest: {', '.join(unlisted)}")
+    if absent:
+        print(f"In the manifest but not found: {', '.join(absent)}")
+    print(f"False negatives: {len(missed)}; false positives: {len(extra)}.")
+    return 1 if missed or extra or absent else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lifeos-admin", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -198,6 +242,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--yes", action="store_true", help="apply (otherwise only list)")
     p.add_argument("--even-if-empty", action="store_true", help=argparse.SUPPRESS)
 
+    p = sub.add_parser(
+        "sensitivity-check",
+        help="measure the local sensitivity filter on files (prints no value, no text)",
+    )
+    p.add_argument("paths", nargs="+", type=Path, help="files or folders, read recursively")
+    p.add_argument(
+        "--expect",
+        type=Path,
+        default=None,
+        help="JSON manifest (file name -> expected categories): lists the differences",
+    )
+
     args = parser.parse_args(argv)
     try:
         if args.command == "create-owner":
@@ -228,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(
                 _reconcile_originals(args.documents_dir, args.yes, args.even_if_empty)
             )
+        if args.command == "sensitivity-check":
+            return asyncio.run(_sensitivity_check(args.paths, args.expect))
         return asyncio.run(_revoke_sessions(args.email))
     except ProblemError as exc:
         print(f"Error: {exc.title}", file=sys.stderr)

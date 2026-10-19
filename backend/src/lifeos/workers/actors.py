@@ -143,6 +143,13 @@ async def process_pending_documents() -> None:
     )
 
 
+@dramatiq.actor(queue_name="documents", max_retries=1, time_limit=30 * 60_000)
+async def reclassify_documents() -> None:
+    """Documents classified with older rules: classified again, locally (categories are
+    only added). Nothing to do once every document is up to date."""
+    await run_task("reclassify_documents", lambda: documents.reclassify_documents(database()))
+
+
 @dramatiq.actor(queue_name="maintenance", max_retries=3, time_limit=30 * 60_000)
 async def purge_document_originals() -> None:
     """Encrypted originals past their retention date, then unreferenced files."""

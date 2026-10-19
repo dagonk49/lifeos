@@ -95,11 +95,37 @@ le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :
 
-- `422 attachment_sensitive` (document sensible : jamais envoyé) ;
+- `422 attachment_sensitive` (document qui reste local : jamais envoyé) avec en extension
+  `document_id`, `sensitivity` (catégories enregistrées **et** trouvées à l'envoi par les
+  règles en vigueur) et `reason` : `detected` (classé sensible localement) ou `owner`
+  (« Toujours garder en local ») ;
 - `409 attachment_not_ready` ;
 - `422 attachment_unreadable` ;
 - `404 document_not_found` (autre espace ou dictée) ;
 - `403 attachment_not_allowed` (agent sans droit `documents`).
+
+Contrôle avant l'envoi : `POST /v1/chat/preview` (`space_id`, `content`, `agent`,
+`attachments`) applique les mêmes règles **sans rien enregistrer ni envoyer** et répond
+`200` :
+
+```json
+{
+  "masked": {"iban": 1, "email": 1},
+  "attachments": [
+    {"document_id": "…", "sent": true, "reason": null, "sensitivity": [], "masked": {"phone": 1}},
+    {"document_id": "…", "sent": false, "reason": "sensitive", "sensitivity": ["bank"], "masked": {}}
+  ]
+}
+```
+
+- `masked` compte par type les identifiants qui seront masqués (`email`, `phone`, `iban`,
+  `card`, `nir`, `secret`, `passport`, `id_number`, `tax_number`), jamais leurs valeurs ;
+- `reason` d'une pièce jointe laissée de côté : `sensitive`, `local_only`, `not_ready`,
+  `unreadable`, `not_found`, `not_allowed` (droits de l'agent qui répond) ;
+- un espace inconnu ou hors des espaces autorisés répond `404 space_not_found`.
+
+Le client n'affiche le récapitulatif que si quelque chose sera masqué ou laissé de côté,
+puis envoie le message avec les seules pièces jointes `sent`.
 
 ## Envois de fichiers (documents, dictées)
 
@@ -114,7 +140,10 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
 - `GET /v1/documents/{id}/original` sert l'original déchiffré en pièce jointe, avec
   `nosniff`, `CSP sandbox` et `no-store`. Une fois l'original purgé : `410 original_purged`.
 - `PATCH /v1/documents/{id}` (`If-Match`) : titre, correction du texte extrait (la
-  sensibilité est recalculée), `keep_original`.
+  sensibilité est recalculée), `keep_original`, `local_only` (« Toujours garder en local » :
+  `true` immédiat ; `false` est une opération renforcée qui répond
+  `403 reauthentication_required` sans passkey récente, et ne retire jamais une catégorie
+  détectée).
 - `POST /v1/documents/{id}/reprocess` relance la lecture et remplace une correction.
 - `POST /v1/voice/dictations` (champs `file`, `space_id`) répond `202` avec une dictée
   `pending` :

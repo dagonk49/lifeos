@@ -43,8 +43,14 @@ Briefing du jour :
   dans la liste. À la première utilisation, il demande un accès en lecture limité à ce dont
   il a besoin (90 jours, révocable).
 - **Joindre un document** : le fichier est lu sur votre serveur. Seul son texte accompagne
-  le message, et jamais celui d'un document sensible. « Vérifier le texte » ouvre le document
-  pour corriger la lecture avant d'envoyer.
+  le message, et jamais celui d'un document sensible ou gardé en local. « Vérifier le
+  texte » ouvre le document pour corriger la lecture avant d'envoyer.
+- **Avant l'envoi** : si un identifiant de votre message ou d'une pièce jointe va être
+  masqué (IBAN, téléphone, e-mail…), ou si une pièce jointe reste sur votre serveur, un
+  encadré « Avant l'envoi à l'assistant IA » le dit (par type et par nombre, jamais les
+  valeurs). **Confirmer l'envoi** envoie le message ; **Retirer** enlève une pièce jointe ;
+  **Annuler** (ou Échap) garde le message sans rien envoyer. Sans rien à signaler, le
+  message part directement.
 - **Dicter** : le texte dicté s'ajoute au message, que vous relisez avant d'envoyer.
 - **Écouter** : lit une réponse à voix haute avec une voix de votre appareil. Le bouton
   n'apparaît que si l'appareil a une voix française locale.
@@ -82,7 +88,16 @@ et tâches rattachées. La progression est calculée localement.
 - **Original** : il est conservé chiffré 90 jours par défaut. Cochez « Conserver l'original
   sans limite » pour le garder. Après la purge, le texte extrait reste disponible.
 - Badges **Identité / Santé / Banque** : document sensible, jamais transmis à l'IA (les
-  raisons sont affichées, sans les valeurs).
+  raisons sont affichées, sans les valeurs). Sont reconnus notamment les pièces d'identité,
+  passeports, titres de séjour, permis, cartes grises, avis d'impôt et de taxe foncière ou
+  d'habitation (identité) ; ordonnances, comptes rendus, analyses, arrêts de travail,
+  décomptes de mutuelle (santé) ; RIB, relevés, bulletins de paie, offres de prêt (banque),
+  même mal lus par l'OCR.
+- **Toujours garder en local** (section « Assistant IA » du document) : votre propre refus,
+  en plus de la détection. Le document n'est plus jamais envoyé à l'IA, même après une
+  correction du texte ou une nouvelle lecture (badge « Gardé en local »). Le décocher demande
+  une confirmation par passkey. Une catégorie détectée ne se lève pas à la main : si la
+  détection s'est trompée, corrigez le texte, elle est refaite.
 - Les documents sont retrouvables dans **Recherche**.
 
 ### Finances
@@ -143,13 +158,17 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
 | Envoyé à Gemini (espace autorisé seulement, après masquage) | Jamais envoyé |
 |---|---|
 | votre message et les derniers échanges de la conversation | vos documents (fichiers, images) |
-| les souvenirs et faits pertinents du même espace | le texte d'un document sensible |
-| le texte d'une pièce jointe non sensible, avec ce message | votre voix (transcrite sur le serveur) |
+| les souvenirs et faits pertinents du même espace | le texte d'un document sensible ou gardé en local |
+| le texte d'une autre pièce jointe, avec ce message | votre voix (transcrite sur le serveur) |
 | pour un agent : uniquement les ressources que vous lui avez ouvertes | les vecteurs de recherche, les budgets, les faits des bilans |
 
-Les e-mails, numéros de téléphone, IBAN, numéros de carte et numéros de sécurité sociale sont
-masqués avant tout envoi. Sans compte de facturation Google, l'assistant ne peut rien vous
-coûter : au-delà du quota gratuit du jour, il répond simplement qu'il est indisponible.
+Les e-mails, numéros de téléphone, IBAN, numéros de carte, numéros de sécurité sociale, mots
+de passe et codes annoncés, et numéros de passeport, de pièce d'identité ou fiscaux écrits
+après le nom du document sont masqués avant tout envoi, même écrits avec des espaces
+insécables, des points, des tirets ou mal lus par l'OCR. La détection reste au mieux : elle
+ne reconnaît ni les noms ni les adresses. Sans compte de facturation Google, l'assistant ne
+peut rien vous coûter : au-delà du quota gratuit du jour, il répond simplement qu'il est
+indisponible.
 
 ## Ce que cette version ne fait pas encore
 

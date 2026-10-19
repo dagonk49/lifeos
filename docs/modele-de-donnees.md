@@ -232,10 +232,15 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     (`pending` \| `processing` \| `ready` \| `failed` \| `rejected`), `error`.
   - Lecture locale :
     - `sensitivity text[]` (`identity`, `health`, `bank`, classées localement) ;
+    - `local_only boolean NOT NULL DEFAULT false` (migration 0008) : « Toujours garder en
+      local », le refus du propriétaire, en plus de la détection ; jamais modifié par une
+      relecture, une correction ou un reclassement. Le lever est une opération renforcée
+      (`document.allow_cloud`). Au retour à 0007, un document gardé en local sans catégorie
+      reçoit `sensitivity = {identity}` pour rester protégé ;
     - `extracted_text`, `text_source` (`pdf` \| `ocr` \| `text` \| `speech`),
       `text_confidence numeric(4,3)`, `text_corrected_at`, `pages` ;
-    - `analysis jsonb` (raisons de sensibilité, lecture du ticket ; jamais d'autorité),
-      `processed_at`.
+    - `analysis jsonb` (raisons de sensibilité, `sensitivity_version` = version des règles
+      de détection appliquées, lecture du ticket ; jamais d'autorité), `processed_at`.
   - Original : `storage_key` (fichier chiffré ; `NULL` une fois purgé), `original_until`
     (`NULL` = conservé sans limite).
   - Provenance : `source_type` / `source_id` (message, conversation, entrée de journal,

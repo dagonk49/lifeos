@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import timedelta
 from typing import Any
@@ -18,7 +19,7 @@ from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.guardian.models import LLMCall
 from lifeos.modules.guardian.policy import evaluate
 from lifeos.modules.guardian.principal import Principal, agent_principal
-from lifeos.modules.guardian.privacy import mask
+from lifeos.modules.guardian.privacy import mask, ocr_digits
 from lifeos.modules.identity.models import Space, User, UserSession
 from lifeos.modules.llm.base import LLMMessage, LLMRequest, LLMUnavailableError
 from lifeos.modules.llm.fake import FakeProvider
@@ -118,6 +119,110 @@ def test_masking() -> None:
         "NIR": 1,
         "SECRET": 1,
     }
+
+
+# Identifier variants found in French documents and messages. Synthetic values (see
+# tests/fixtures/sensitivity/README.md): IBAN with a valid key, NIR 1 85 05 78 006 084
+# with the valid key 91 or the deliberately invalid 36, test card 4111..., phone numbers
+# in the ranges ARCEP reserves for fiction.
+NBSP, NNBSP = "\u00a0", "\u202f"
+IBAN_GROUPS = ("FR76", "3000", "6000", "0112", "3456", "7890", "189")
+
+
+@pytest.mark.parametrize(
+    ("text", "secret", "label"),
+    [
+        (f"IBAN {NBSP.join(IBAN_GROUPS)}", "6000", "IBAN"),
+        (f"IBAN {NNBSP.join(IBAN_GROUPS)}", "6000", "IBAN"),
+        (f"IBAN {'-'.join(IBAN_GROUPS)}", "6000", "IBAN"),
+        (f"IBAN {'.'.join(IBAN_GROUPS)}", "6000", "IBAN"),
+        (f"iban {' '.join(IBAN_GROUPS).lower()}", "6000", "IBAN"),
+        ("IBAN FR76 3OOO 6OOO Ol12 3456 789O l89", "3456", "IBAN"),  # OCR: O/0, l/1
+        (f"IBAN {''.join(IBAN_GROUPS)}", "3000600001", "IBAN"),
+        ("NIR 1.85.05.78.006.084.91", "78.006", "NIR"),
+        ("NIR 1-85-05-78-006-084-36", "78-006", "NIR"),
+        (f"NIR 1{NBSP}85{NBSP}05{NBSP}78{NBSP}006{NBSP}084{NBSP}91", "006", "NIR"),
+        ("NIR 1 85 O5 78 OO6 O84 91", "78 OO6", "NIR"),  # OCR
+        ("carte 4111.1111.1111.1111", "4111", "CARTE"),
+        (f"carte 4111{NBSP}1111{NBSP}1111{NBSP}1111", "4111", "CARTE"),
+        ("Tél. 0033 6 39 98 12 34", "39 98", "TÉLÉPHONE"),
+        ("Tél. +33 (0)6 39 98 12 34", "39 98", "TÉLÉPHONE"),
+        ("Tél. (+33) 6 39 98 12 34", "39 98", "TÉLÉPHONE"),
+        (f"Tél. 06{NBSP}39{NBSP}98{NBSP}12{NBSP}34", "98", "TÉLÉPHONE"),
+        ("Tél. O6 39 98 12 34", "39 98", "TÉLÉPHONE"),  # OCR
+        ("Call +1 415 555 0100", "555", "TÉLÉPHONE"),
+        ("Écrire à jean . dupont @ example . org", "dupont", "EMAIL"),
+        ("Écrire à jean.dupont(at)example.org", "dupont", "EMAIL"),
+        ("Écrire à jean.dupont [at] example [dot] org", "dupont", "EMAIL"),
+        ("Écrire à jean.dupont arobase example.org", "dupont", "EMAIL"),
+        ("JEAN.DUPONT@EXAMPLE.ORG", "DUPONT", "EMAIL"),
+        ("mot de passe hunter2", "hunter2", "SECRET"),
+        ("mon mot de passe est hunter2.", "hunter2", "SECRET"),
+        ("code PIN : 1234", "1234", "SECRET"),
+        ("code PIN 1234", "1234", "SECRET"),
+        ("api_key=sk-test-123", "sk-test", "SECRET"),
+        ("Passeport n° 99XX99999", "99XX99999", "PASSEPORT"),
+        ("CARTE NATIONALE D'IDENTITÉ N° : 990000000001", "990000000001", "IDENTITÉ"),
+        ("Carte d'identité n° Z9ZZ99ZZ9", "Z9ZZ99ZZ9", "IDENTITÉ"),
+        ("Titre de séjour\nN° 9900000001", "9900000001", "IDENTITÉ"),
+        ("Numéro fiscal : 30 99 999 999 999", "999 999", "FISCAL"),
+    ],
+)
+def test_masking_variants(text: str, secret: str, label: str) -> None:
+    result = mask(text)
+    assert secret not in result.text
+    assert result.counts == {label: 1}
+    assert f"[{label}]" in result.text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "SIRET 123 456 782 00002",  # passes the Luhn check, but announced as a SIRET
+        "Commande 1234 5678 9012 3456",  # fails the Luhn check
+        "IBAN FR76 3000 6000 0112 3456 7890 188",  # wrong key
+        "Montant : 1 234 567,89 €",
+        f"Total{NNBSP}:{NBSP}12{NNBSP}345,00{NBSP}€",
+        "Rendez-vous le 05/10/2026 à 10h30",
+        "Prix 12.50 € le 12.03.2024",
+        "mot de passe oublié.",
+        "mot de passe l'ancien",
+        "Tweet @jean. Bonjour",
+        "J'ai renouvelé mon passeport hier, ça a coûté 86 euros.",
+        "RÉPUBLIQUE FRANÇAISE — CARTE NATIONALE D'IDENTITÉ\nREPUBL1QUE FRANCA1SE",
+    ],
+)
+def test_masking_leaves_ordinary_text(text: str) -> None:
+    result = mask(text)
+    assert result.text == text
+    assert result.total == 0
+
+
+def test_masking_accented_addresses() -> None:
+    # Better masked than sent: some providers accept accented local parts.
+    assert mask("Écrire à élodie.prénom@exemple.fr demain.").text == "Écrire à [EMAIL] demain."
+
+
+@pytest.mark.parametrize("chunk", ["a . ", "a.", "1 ", "x (at) ", "O1lI|", "+33 (0)6 12 "])
+def test_masking_and_classifying_stay_linear(chunk: str) -> None:
+    # Every cloud request and every document goes through these regexes: a long run of a
+    # near-match (« a . a . a . … ») must not be rescanned from every position.
+    from lifeos.modules.documents.sensitivity import classify
+
+    text = chunk * (100_000 // len(chunk))
+    started = time.perf_counter()
+    mask(text)
+    classify(text)
+    assert time.perf_counter() - started < 3
+
+
+def test_masking_replaces_only_identifiers() -> None:
+    text = f"Bonjour{NNBSP}! IBAN{NBSP}: {NBSP.join(IBAN_GROUPS)}, merci{NNBSP}; à bientôt."
+    result = mask(text)
+    # Typography around the identifier is sent as written.
+    assert result.text == f"Bonjour{NNBSP}! IBAN{NBSP}: [IBAN], merci{NNBSP}; à bientôt."
+    assert result.kinds() == {"iban": 1}
+    assert ocr_digits("3OOO l2 Il") == "3000 12 Il"  # one for one: positions are kept
 
 
 # --- Actions, approvals and audit (acceptance criteria) -------------------------------------

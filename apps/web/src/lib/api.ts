@@ -152,7 +152,7 @@ const MESSAGES: Record<string, string> = {
   transcription_unavailable: "La dictée n'est pas activée sur ce serveur.",
   dictation_not_found: "Cette dictée a expiré ou a été supprimée.",
   attachment_sensitive:
-    "Ce document est sensible : son contenu n'est jamais envoyé à l'assistant IA.",
+    "Ce document reste sur votre serveur (sensible ou gardé en local) : son contenu n'est jamais envoyé à l'assistant IA. Retirez-le du message.",
   attachment_not_ready: "La pièce jointe est encore en cours de lecture.",
   attachment_unreadable: "La pièce jointe n'a pas pu être lue : aucun texte à transmettre.",
   attachment_not_allowed:

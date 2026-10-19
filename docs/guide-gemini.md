@@ -92,7 +92,13 @@ plus la sortie réservée) le dépasserait.
 ## 6. Confidentialité
 
 - Seul un contexte minimal est envoyé, après masquage local des e-mails, téléphones, IBAN,
-  cartes et numéros de sécurité sociale.
+  cartes, numéros de sécurité sociale, mots de passe et codes annoncés, et numéros de
+  passeport, de pièce d'identité ou fiscaux écrits après le nom du document — y compris
+  avec des espaces insécables, des points, des tirets ou des erreurs d'OCR.
+- Avant l'envoi, l'assistant indique ce qui sera masqué et ce qui restera sur le serveur
+  (par type, jamais les valeurs) : vous confirmez, retirez une pièce jointe ou annulez.
+- Les documents sensibles (identité, santé, banque) et ceux que vous gardez en local ne sont
+  jamais envoyés, même masqués.
 - En France (EEE), les conditions de Google appliquent au quota gratuit les règles des
   services payants : les contenus ne servent pas à améliorer les produits Google. Ils sont
   conservés un temps limité pour la détection d'abus.
