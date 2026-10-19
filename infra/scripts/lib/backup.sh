@@ -51,7 +51,11 @@ require_restic_env() {
 take_lock() {
   local dir=/run/lock
   [[ -d "$dir" && -w "$dir" ]] || dir="${TMPDIR:-/tmp}"
-  exec 9>"$dir/lifeos-backup.lock"
+  local file="$dir/lifeos-backup.lock"
+  # Readable by all, opened read-only (flock needs no more): the nightly run as root and a
+  # manual run by another user share the same lock, whoever created the file.
+  [[ -e "$file" ]] || (umask 022 && : >"$file")
+  exec 9<"$file"
   flock -w "${LIFEOS_LOCK_WAIT_SECONDS:-7200}" 9 \
     || die "another LifeOS backup or restore is still running."
 }

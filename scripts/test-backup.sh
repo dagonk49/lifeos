@@ -57,6 +57,14 @@ snapshots() { restic snapshots --host lifeos --json; }
 requests() { cat "$work/requests.log" 2>/dev/null || true; }
 
 cleanup() {
+  local status=$?
+  if [[ "$status" -ne 0 && "$failures" -eq 0 && -d "$infra" ]]; then
+    # Stopped outside a check (set -e): show why, then clean up.
+    echo "Aborted (status $status). Containers and their last logs:" >&2
+    compose ps -a >&2 || true
+    compose logs --no-color --tail 40 >&2 || true
+    for log in "$work"/*.log; do [[ -f "$log" ]] && { echo "== ${log##*/}"; cat "$log"; } >&2; done
+  fi
   [[ -d "$infra" ]] && compose down -v --remove-orphans >/dev/null 2>&1
   [[ -d "$work/vm2/infra" ]] && vm_compose down -v --remove-orphans >/dev/null 2>&1
   docker volume rm -f "${prefix}_restore_check" >/dev/null 2>&1
@@ -64,6 +72,7 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+trap 'echo "Unexpected failure, line $LINENO: $BASH_COMMAND" >&2' ERR
 
 # --- A throw-away instance ----------------------------------------------------------------
 cp -r "$root/infra" "$work/"
@@ -132,7 +141,7 @@ export LIFEOS_HEALTHCHECK_URL="$stub_url/ping/backup"
 export LIFEOS_ALERT_URL="$stub_url/alert" LIFEOS_ALERT_TOKEN=test-token
 
 echo "# 1. A running LifeOS with an owner and data"
-compose up -d --wait --wait-timeout 180 api worker >/dev/null 2>&1
+logged up compose up -d --wait --wait-timeout 180 api worker
 token="$(compose exec -T api lifeos-admin create-owner --email owner@example.org --name Owner \
   | sed -n 's/.*#token=//p')"
 state="$(client setup "$token")"
