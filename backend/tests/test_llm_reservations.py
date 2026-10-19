@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -254,7 +254,13 @@ async def test_a_cancelled_call_settles_its_reservation(
 
 
 async def _stale_reservation(
-    database: Database, owner: Owner, space: uuid.UUID, *, tokens: int, age: timedelta
+    database: Database,
+    owner: Owner,
+    space: uuid.UUID,
+    *,
+    tokens: int,
+    age: timedelta,
+    now: datetime | None = None,
 ) -> uuid.UUID:
     async with database.sessionmaker() as session, session.begin():
         call = LLMCall(
@@ -266,7 +272,7 @@ async def _stale_reservation(
             outcome="reserved",
             reserved_tokens=tokens,
             reserved_cost_usd=Decimal("0.5"),
-            created_at=utcnow() - age,
+            created_at=(now or utcnow()) - age,
         )
         session.add(call)
         await session.flush()
@@ -274,11 +280,21 @@ async def _stale_reservation(
 
 
 async def test_an_abandoned_reservation_is_released(
-    database: Database, db: AsyncSession, owner: Owner, settings: Settings
+    database: Database,
+    db: AsyncSession,
+    owner: Owner,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Noon of the current quota day: "an hour ago" stays in the same day whatever the hour
+    # the test runs (right after midnight Pacific time, it would fall on the day before).
+    noon = gateway.quota_day_start(utcnow()) + timedelta(hours=12)
+    monkeypatch.setattr(gateway, "utcnow", lambda: noon)
     space = await _enable_cloud(database, owner)
     # A process died during a call an hour ago: its reservation fills the token budget.
-    stale = await _stale_reservation(database, owner, space, tokens=999_000, age=timedelta(hours=1))
+    stale = await _stale_reservation(
+        database, owner, space, tokens=999_000, age=timedelta(hours=1), now=noon
+    )
     fake = FakeProvider()
     async with _ctx(database, owner, settings, fake) as ctx:
         await gateway.complete(ctx, space_id=space, request=_chat())
