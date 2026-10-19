@@ -141,7 +141,10 @@ fi
 
 step "Build and start (first build: several minutes)"
 docker compose build
-docker compose up -d --wait --wait-timeout 300
+docker compose up -d
+# Waits for the services that report their health. The worker and the scheduler report
+# none (healthcheck disabled): Docker Compose 2.x refuses to wait for them.
+docker compose up -d --wait --wait-timeout 300 api web
 
 if [[ "$models" -eq 1 ]]; then
   step "Models (downloaded once, then everything runs offline)"

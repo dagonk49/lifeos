@@ -58,12 +58,16 @@ requests() { cat "$work/requests.log" 2>/dev/null || true; }
 
 cleanup() {
   local status=$?
+  # set -e may stop the script inside a redirected command (logged): back to the job's output.
+  exec 1>&3 2>&4
   if [[ "$status" -ne 0 && "$failures" -eq 0 && -d "$infra" ]]; then
     # Stopped outside a check (set -e): show why, then clean up.
     echo "Aborted (status $status). Containers and their last logs:" >&2
     compose ps -a >&2 || true
     compose logs --no-color --tail 40 >&2 || true
-    for log in "$work"/*.log; do [[ -f "$log" ]] && { echo "== ${log##*/}"; cat "$log"; } >&2; done
+    for log in "$work"/*.log; do
+      [[ -f "$log" ]] && { echo "== ${log##*/}"; cat "$log" || true; } >&2
+    done
   fi
   [[ -d "$infra" ]] && compose down -v --remove-orphans >/dev/null 2>&1
   [[ -d "$work/vm2/infra" ]] && vm_compose down -v --remove-orphans >/dev/null 2>&1
@@ -71,6 +75,7 @@ cleanup() {
   [[ -n "${stub:-}" ]] && kill "$stub" 2>/dev/null
   rm -rf "$work"
 }
+exec 3>&1 4>&2
 trap cleanup EXIT
 trap 'echo "Unexpected failure, line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -141,7 +146,8 @@ export LIFEOS_HEALTHCHECK_URL="$stub_url/ping/backup"
 export LIFEOS_ALERT_URL="$stub_url/alert" LIFEOS_ALERT_TOKEN=test-token
 
 echo "# 1. A running LifeOS with an owner and data"
-logged up compose up -d --wait --wait-timeout 180 api worker
+logged up compose up -d --wait --wait-timeout 180 api
+logged up-worker compose up -d worker
 token="$(compose exec -T api lifeos-admin create-owner --email owner@example.org --name Owner \
   | sed -n 's/.*#token=//p')"
 state="$(client setup "$token")"
@@ -208,7 +214,8 @@ check "restore.sh restores the first run on empty volumes" logged restore-1 \
   "$infra/scripts/restore.sh" "${run#run:}" --yes --no-safety-dump
 check "... checked by verify-data (schema at head, original decrypted)" has "result: OK" \
   "$work/restore-1.log"
-compose up -d --wait --wait-timeout 180 api worker >/dev/null 2>&1
+compose up -d --wait --wait-timeout 180 api >/dev/null 2>&1
+compose up -d worker >/dev/null 2>&1
 client check "$state" > "$work/client.log" 2>&1 || true
 cat "$work/client.log"
 check "the owner signs in, finds the task, the transaction and the original" \
@@ -262,7 +269,8 @@ cat > "$work/vm2/infra/scripts/install.sh" <<'EOF'
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/init-secrets.sh >/dev/null
-docker compose up -d --wait --wait-timeout 180 api worker
+docker compose up -d --wait --wait-timeout 180 api
+docker compose up -d worker
 EOF
 drill() { COMPOSE_PROJECT_NAME="$prefix-vm2" "$work/vm2/infra/scripts/restore-drill.sh" "$@"; }
 head -c 32 /dev/urandom | base64 > "$work/other-key"
