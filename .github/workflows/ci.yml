@@ -235,5 +235,23 @@ jobs:
             | jq -c '.services.traefik.ports')" = null
       - name: Traefik routing, headers and rate limit (standard and behind a reverse proxy)
         run: scripts/test-traefik.sh
+      - name: restic (official binary; Ubuntu ships an older one)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/restic.bz2" \
+            https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2
+          echo "680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d  $RUNNER_TEMP/restic.bz2" \
+            | sha256sum -c -
+          bunzip2 -c "$RUNNER_TEMP/restic.bz2" > "$RUNNER_TEMP/restic"
+          sudo install -m 755 "$RUNNER_TEMP/restic" /usr/local/bin/restic
+          restic version
+      - name: Backup and restore round trip (pairs, missing originals, blank machine, passkey sign-in, alerts)
+        run: scripts/test-backup.sh
+        env:
+          LIFEOS_TEST_BACKEND_IMAGE: lifeos-backend:ci
+      - name: Backup timers (systemd units)
+        run: |
+          units="$(mktemp -d)"
+          for unit in infra/systemd/*; do sed "s|/opt/lifeos|$PWD|g" "$unit" > "$units/${unit##*/}"; done
+          systemd-analyze verify "$units"/*.service "$units"/*.timer
       - name: Shellcheck
-        run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh scripts/*.sh apps/web/e2e/*.sh
+        run: shellcheck infra/scripts/*.sh infra/scripts/lib/*.sh infra/postgres/init/*.sh scripts/*.sh apps/web/e2e/*.sh

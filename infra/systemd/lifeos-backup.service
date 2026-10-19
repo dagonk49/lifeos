@@ -1,0 +1,17 @@
+# Nightly LifeOS backup (infra/scripts/backup.sh). Installed by infra/scripts/install-backups.sh,
+# which replaces /opt/lifeos with the path of the checkout. A failure sends an alert.
+[Unit]
+Description=LifeOS backup (originals, database, configuration, off-site copy)
+Documentation=file:///opt/lifeos/docs/exploitation.md
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=lifeos-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/lifeos/backup.env
+WorkingDirectory=/opt/lifeos/infra
+ExecStart=/opt/lifeos/infra/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=6h

@@ -1,0 +1,12 @@
+# Every night, before the maintenance jobs of LifeOS (03:10 to 03:50, local time). A missed run
+# (machine off) is caught up at the next boot.
+[Unit]
+Description=Nightly LifeOS backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

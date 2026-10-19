@@ -178,6 +178,9 @@ else
 fi
 cat <<EOF
 LifeOS runs on https://$current_domain
-- Keep a copy of infra/secrets/lifeos_documents_key OUTSIDE this server.
-- Backups: docs/exploitation.md §4 (restic, then schedule infra/scripts/backup.sh nightly).
+- Backups (nightly, off-site copy, restore tests, alerts on failure), docs/exploitation.md §4:
+    sudo infra/scripts/install-backups.sh --repository <restic repository> \\
+      --copy-repository <off-site repository> --alert-url <ntfy topic URL>
+- Then put the recovery sheet (documents key, restic passwords) in your password manager:
+    sudo infra/scripts/export-keys.sh
 EOF

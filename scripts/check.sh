@@ -24,7 +24,14 @@ pnpm -s test
 NEXT_TELEMETRY_DISABLED=1 pnpm -s build >/dev/null
 
 echo "== infra"
-shellcheck "$root"/infra/scripts/*.sh "$root"/infra/postgres/init/*.sh "$root"/scripts/*.sh "$root"/apps/web/e2e/*.sh
+shellcheck "$root"/infra/scripts/*.sh "$root"/infra/scripts/lib/*.sh \
+  "$root"/infra/postgres/init/*.sh "$root"/scripts/*.sh "$root"/apps/web/e2e/*.sh
+if command -v systemd-analyze >/dev/null; then
+  units="$(mktemp -d)"
+  for unit in "$root"/infra/systemd/*; do sed "s|/opt/lifeos|$root|g" "$unit" > "$units/${unit##*/}"; done
+  systemd-analyze verify "$units"/*.service "$units"/*.timer
+  rm -rf "$units"
+fi
 # On a throw-away copy: services read infra/.env, which a fresh clone does not have.
 infra_copy="$(mktemp -d)"
 cp -r "$root/infra/." "$infra_copy"

@@ -11,7 +11,8 @@
 | [politique-de-donnees.md](politique-de-donnees.md) | Conservation, purge, transmission cloud, effacement, sauvegardes |
 | [modele-de-menaces.md](modele-de-menaces.md) | Actifs, frontières de confiance, menaces et parades |
 | [conventions-api.md](conventions-api.md) | Conventions HTTP : versionnage, erreurs, pagination, idempotence, auth |
-| [exploitation.md](exploitation.md) | Installation, TLS, exposition réseau, dimensionnement (VM 10 Go), sauvegarde/restauration, supervision |
+| [exploitation.md](exploitation.md) | Installation, TLS, exposition réseau, dimensionnement (VM 10 Go), sauvegardes automatiques (copie hors site, tests, alertes), supervision |
+| [restauration.md](restauration.md) | **Plan de reprise** : restauration complète sur une VM vierge pas à pas, originaux manquants, exercice annuel et son journal |
 | [guide-gemini.md](guide-gemini.md) | Brancher Gemini sans aucun frais (projet sans facturation, quotas) |
 
 ## Décisions d'architecture

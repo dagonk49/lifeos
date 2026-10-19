@@ -162,18 +162,26 @@ Si la carte n'est pas utilisable, le service revient seul sur le CPU.
 
 ## 8. Sauvegardes (à faire le premier jour)
 
+Prérequis : `restic` ≥ 0.17 (binaire officiel : Debian fournit une version plus ancienne, voir
+[restauration.md](restauration.md) §3, étape 1) et `jq`. Choisir un dépôt restic (NAS par
+SSH, rest-server, Backblaze B2, S3…), une copie **hors de la maison** si le dépôt n'y est pas
+déjà, et un sujet [ntfy](https://ntfy.sh) pour les alertes (application sur le téléphone) :
+
 ```bash
-sudo apt-get install -y restic          # ≥ 0.17, sinon binaire officiel
-export RESTIC_REPOSITORY=sftp:backup@nas:/srv/restic/lifeos
-export RESTIC_PASSWORD_FILE=/root/.config/lifeos/restic-password
-restic init
-/opt/lifeos/infra/scripts/backup.sh          # base + originaux chiffrés
-/opt/lifeos/infra/scripts/restore-check.sh   # vérification
+sudo /opt/lifeos/infra/scripts/install-backups.sh --repository sftp:backup@nas.lan:/srv/restic/lifeos \
+  --copy-repository b2:mon-bucket:lifeos --alert-url https://ntfy.sh/<sujet long et aléatoire>
+sudo /opt/lifeos/infra/scripts/export-keys.sh   # fiche de récupération
 ```
 
-Planifier `backup.sh` chaque nuit et `restore-check.sh` chaque semaine (cron ou timer
-systemd), avec les deux variables ci-dessus. Le mot de passe restic et le contenu de
-`infra/secrets/` se conservent **hors du serveur**.
+Le premier script installe les sauvegardes automatiques : chaque nuit, avec copie hors site ;
+une restauration de test chaque dimanche ; une alerte à chaque échec. Il lance aussi une
+première sauvegarde et les tests (détails : [exploitation.md §4](exploitation.md#4-sauvegardes-restic)).
+Les identifiants d'un dépôt en ligne (`B2_ACCOUNT_ID`…) se mettent dans
+`/etc/lifeos/backup.env`.
+
+Le second affiche la **fiche de récupération** : clé des documents, mots de passe restic,
+réglages des dépôts, domaine. La copier dans votre gestionnaire de mots de passe : sans elle,
+aucune restauration n'est possible ([restauration.md](restauration.md)).
 
 ## 9. Vérifier que tout va bien
 
@@ -207,4 +215,5 @@ Faire une sauvegarde avant toute mise à jour (les migrations de base s'applique
 | Dictée « en attente » sans fin | modèle de transcription absent : `docker compose --profile setup run --rm stt-download` |
 | Documents « lecture locale indisponible » | service `ml` arrêté : `docker compose up -d ml` puis `docker compose logs ml` |
 | « Le stockage des documents n'est pas configuré » | `infra/secrets/lifeos_documents_key` absent : relancer `./scripts/init-secrets.sh` |
+| Alerte « LifeOS: lifeos-backup failed » | `journalctl -u lifeos-backup.service` sur la VM ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
 | L'assistant répond « quota du jour atteint » | plafond gratuit Gemini : il se renouvelle chaque jour vers 9 h (heure de Paris) |

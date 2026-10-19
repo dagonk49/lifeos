@@ -40,7 +40,7 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T5 | Exposition des services internes | réseau Docker `internal`, seul Traefik publie 80/443 (derrière un reverse proxy existant : aucun port, joignable par le seul réseau `lifeos-proxy`), `/metrics` non routé | 1 |
 | T6 | Secrets dans Git | `.gitignore`, secrets Docker, `.env.example` sans valeur | 1 |
 | T7 | Fuite de données dans les logs | logs sans corps ni prompts ; audit sans contenu | 1 |
-| T8 | Vol ou perte des sauvegardes | chiffrement restic, clé séparée des sauvegardes, copie hors machine | 1 |
+| T8 | Vol ou perte des sauvegardes | chiffrement restic ; clé des documents et mots de passe hors des sauvegardes (fiche de récupération, `export-keys.sh`) ; copie hors machine automatique avec la même rétention ; restauration testée chaque semaine (et chaque mois depuis la copie) ; alerte à chaque échec et signal de vie externe | 1 |
 | T9 | Dépendances compromises | versions verrouillées (`uv.lock`, `pnpm-lock.yaml`), audit des dépendances en CI | 1 |
 | T10 | Injection de prompt indirecte (document, e-mail, contenu mémorisé) | les contenus importés ne valent jamais autorisation ; le Guardian décide hors LLM ; sorties structurées validées ; actions importantes soumises à approbation avec aperçu exact | 2 |
 | T11 | Escalade d'agent | un agent ne peut pas s'octroyer de permission ; `agent_permissions` gérées uniquement par l'utilisateur avec réauthentification récente | 2 |
@@ -54,7 +54,7 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T25 | Injection de prompt par le contenu d'un document joint | texte présenté comme données délimitées ; le Guardian décide hors LLM ; aucune action sans approbation (T10) | 4 |
 | T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; une image illisible (donc non nettoyable) n'est pas conservée | 4 |
 | T27 | Conservation abusive de la voix | enregistrement chiffré puis supprimé dès la transcription (ou le refus) ; dictées effacées après 24 h ; transcription locale ; lecture à voix haute avec les seules voix locales de l'appareil | 4 |
-| T28 | Perte ou vol de la clé des documents | secret Docker séparé des données ; non inclus dans les sauvegardes ; copie à conserver hors du serveur (gestionnaire de mots de passe) | 4 |
+| T28 | Perte ou vol de la clé des documents | secret Docker séparé des données ; non inclus dans les sauvegardes (seule son empreinte SHA-256 tronquée accompagne chaque sauvegarde) ; copie hors du serveur via la fiche de récupération ; clé écrasée ou remplacée détectée par le test de restauration hebdomadaire (empreinte et déchiffrement des originaux), qui alerte ; une restauration avec une autre clé est refusée avant de remplacer quoi que ce soit | 4 |
 | T18 | SSRF via connecteurs / URLs | liste d'hôtes autorisés, pas de requête vers des adresses privées | 5 |
 | T19 | Vol de jetons OAuth de connecteurs | chiffrement au repos, scopes minimaux, révocation | 5 |
 | T20 | Compromission de l'hôte / vol physique | chiffrement des volumes, mises à jour, pare-feu, accès distant par VPN | exploitation |

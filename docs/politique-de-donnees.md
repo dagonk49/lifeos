@@ -25,7 +25,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Journal des appels LLM (`llm_calls`) | 1 an (**à valider**) | ne contient aucun contenu |
 | Logs applicatifs | 14 jours | rotation Docker ; aucun contenu personnel brut |
 | Métriques Prometheus | 15 jours | rétention Prometheus |
-| Sauvegardes | 14 quotidiennes + 4 hebdomadaires (≈ 35 jours) | `restic forget --prune` |
+| Sauvegardes | 14 quotidiennes + 4 hebdomadaires (≈ 35 jours), copie hors site comprise | `restic forget --prune` sur le dépôt principal et sur la copie, chaque nuit ; originaux et configuration suivent leur sauvegarde de base ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
 
 ## 2. Effacement (droit à l'oubli)
 
@@ -35,9 +35,18 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 - Les faits extraits d'un message purgé restent ; leur provenance indique une source
   supprimée.
 - **Sauvegardes** : elles ne sont pas réécrites. Une donnée supprimée disparaît des
-  sauvegardes à la fin de leur rotation (**≈ 35 jours au plus**). En cas de restauration, les
-  suppressions survenues après la date de la sauvegarde doivent être rejouées : le journal
-  d'audit (identifiants d'objets supprimés) sert de liste de rejeu.
+  sauvegardes à la fin de leur rotation (**≈ 35 jours au plus**), dans le dépôt principal
+  comme dans la copie hors site (même rétention, appliquée à chaque copie). En cas de
+  restauration, les suppressions survenues après la date de la sauvegarde doivent être
+  rejouées : le journal d'audit de l'ancienne base (identifiants d'objets supprimés) sert de
+  liste de rejeu ([restauration.md](restauration.md) §3, étape 10). Si l'ancien serveur est
+  perdu, ce journal l'est aussi : les suppressions des dernières heures sont à refaire de
+  mémoire.
+- **Originaux manquants après une restauration** : ils sont signalés par identifiant de
+  document, jamais masqués. Le propriétaire peut les récupérer dans une sauvegarde plus
+  ancienne, ou les déclarer perdus (`lifeos-admin reconcile-originals --yes`, audité
+  `document.original_missing`) : le document et son texte restent, l'original n'est plus
+  proposé.
 - Export complet sur demande : JSON (mémoire, journal, tâches, documents : métadonnées et texte
   extrait, finances), CSV (tâches, finances), ICS (tâches datées). Les originaux chiffrés se
   téléchargent un par un depuis la page Documents.
