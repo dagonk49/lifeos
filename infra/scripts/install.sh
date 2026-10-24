@@ -38,8 +38,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-step() { printf '\n== %s\n' "$1"; }
-fail() { echo "Error: $1" >&2; exit 1; }
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/common.sh
+. scripts/lib/common.sh
 
 step "Checks"
 command -v docker >/dev/null || fail "Docker is not installed (docs/exploitation.md §1)."
@@ -82,14 +83,6 @@ if [[ ! -e .env ]]; then
   cp .env.example .env
   echo "created: infra/.env from .env.example"
 fi
-set_env() {
-  local key="$1" value="$2"
-  if grep -q "^${key}=" .env; then
-    sed -i "s|^${key}=.*|${key}=${value}|" .env
-  else
-    printf '%s=%s\n' "$key" "$value" >> .env
-  fi
-}
 if [[ -n "$domain" ]]; then
   set_env LIFEOS_DOMAIN "$domain"
   set_env LIFEOS_PUBLIC_ORIGIN "https://$domain"
@@ -142,9 +135,10 @@ fi
 step "Build and start (first build: several minutes)"
 docker compose build
 docker compose up -d
-# Waits for the services that report their health. The worker and the scheduler report
-# none (healthcheck disabled): Docker Compose 2.x refuses to wait for them.
-docker compose up -d --wait --wait-timeout 300 api web
+# Waits for the services that report their health (wait_services, lib/common.sh): Docker
+# Compose 2.x refuses to wait for one without a health check (the scheduler).
+mapfile -t waited < <(wait_services)
+docker compose up -d --wait --wait-timeout 300 "${waited[@]}"
 
 if [[ "$models" -eq 1 ]]; then
   step "Models (downloaded once, then everything runs offline)"

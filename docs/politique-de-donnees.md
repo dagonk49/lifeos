@@ -28,8 +28,11 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Journal d'audit | 1 an (**à valider**) | purge dédiée, seule exception au mode append-only |
 | Journal des appels LLM (`llm_calls`) | 1 an (**à valider**) | ne contient aucun contenu |
 | Logs applicatifs | 14 jours | rotation Docker ; aucun contenu personnel brut |
-| Métriques Prometheus | 15 jours | rétention Prometheus |
-| Sauvegardes | 14 quotidiennes + 4 hebdomadaires (≈ 35 jours), copie hors site comprise | `restic forget --prune` sur le dépôt principal et sur la copie, chaque nuit ; originaux et configuration suivent leur sauvegarde de base ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
+| Métriques Prometheus | 15 jours | rétention Prometheus ; compteurs, durées et âges seulement, aucune donnée personnelle ([exploitation.md §5](exploitation.md#5-supervision-et-alertes)) |
+| Alertes (silences, journal des notifications d'Alertmanager) | 5 jours | rétention par défaut d'Alertmanager ; textes fixes des règles, aucune donnée personnelle |
+| Journal des déploiements (`infra/state/deployments.tsv`) | tant que l'installation existe | dates, commits, étiquettes d'images, révisions du schéma, résultat ; aucune donnée personnelle |
+| Rapports de recette (`infra/state/recette/`) | jusqu'à leur suppression à la main | durées, statuts, tailles et mémoire, sur des entrées synthétiques ([recette-serveur.md](recette-serveur.md)) |
+| Sauvegardes (y compris celles d'avant une mise à jour, étiquetées `pre-update`) | 14 quotidiennes + 4 hebdomadaires (≈ 35 jours), copie hors site comprise | `restic forget --prune` sur le dépôt principal et sur la copie, chaque nuit ; originaux et configuration suivent leur sauvegarde de base ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
 
 ## 2. Effacement (droit à l'oubli)
 
@@ -200,4 +203,7 @@ ni un document sensible ou gardé en local.
   valeur qui ressemble à un jeton (défense en profondeur, T31).
   Les services `ml` et `stt` ne journalisent que la forme d'un traitement (type, pages,
   durée, nombre de caractères), jamais le texte ni l'audio.
+- Métriques et alertes : nombres et durées étiquetés par route, tâche, file, service ou type
+  de document, jamais par utilisateur, titre ou contenu. Une notification (ntfy, e-mail,
+  Telegram) ne contient que le titre, le résumé et l'action de l'alerte.
 - Audit : qui (acteur), quoi (action), sur quoi (identifiants), résultat, espace.

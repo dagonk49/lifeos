@@ -32,9 +32,18 @@ from lifeos.workers.jobs import (
     run_task,
     transcriber,
 )
+from lifeos.workers.metrics import HEARTBEAT_QUEUE, beat
 
 configure_logging(get_settings())
 log = get_logger("lifeos.actors")
+
+
+# Supervision (docs/exploitation.md §5): sent every minute by the scheduler. A heartbeat
+# older than two minutes is dropped (AgeLimit): after a stop, the backlog of heartbeats is
+# not replayed.
+@dramatiq.actor(queue_name=HEARTBEAT_QUEUE, max_retries=0, max_age=120_000, time_limit=10_000)
+def heartbeat() -> None:
+    beat()
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)

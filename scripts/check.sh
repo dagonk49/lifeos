@@ -12,7 +12,10 @@ echo "== backend"
 cd "$root/backend"
 uv run ruff check .
 uv run ruff format --check .
+uv run ruff check --config pyproject.toml ../infra/scripts/lib/recette.py
+uv run ruff format --config pyproject.toml --check ../infra/scripts/lib/recette.py
 uv run mypy
+uv run mypy ../infra/scripts/lib/recette.py
 uv run pytest -q
 uv run alembic upgrade head
 uv run alembic check
@@ -25,7 +28,8 @@ NEXT_TELEMETRY_DISABLED=1 pnpm -s build >/dev/null
 
 echo "== infra"
 shellcheck "$root"/infra/scripts/*.sh "$root"/infra/scripts/lib/*.sh \
-  "$root"/infra/postgres/init/*.sh "$root"/scripts/*.sh "$root"/apps/web/e2e/*.sh
+  "$root"/infra/postgres/init/*.sh "$root"/infra/prometheus/*.sh "$root"/scripts/*.sh \
+  "$root"/apps/web/e2e/*.sh
 if command -v systemd-analyze >/dev/null; then
   units="$(mktemp -d)"
   for unit in "$root"/infra/systemd/*; do sed "s|/opt/lifeos|$root|g" "$unit" > "$units/${unit##*/}"; done
@@ -37,8 +41,13 @@ infra_copy="$(mktemp -d)"
 cp -r "$root/infra/." "$infra_copy"
 cp "$infra_copy/.env.example" "$infra_copy/.env"
 (cd "$infra_copy" && LIFEOS_DOMAIN=example.lan docker compose config --quiet \
-  && LIFEOS_DOMAIN=example.lan docker compose -f compose.yaml -f compose.gpu.yaml config --quiet)
+  && LIFEOS_DOMAIN=example.lan docker compose -f compose.yaml -f compose.gpu.yaml config --quiet \
+  && LIFEOS_DOMAIN=example.lan docker compose --profile monitoring config --quiet)
 rm -rf "$infra_copy"
+# Alert rules and their unit tests (the CI also runs scripts/test-monitoring.sh).
+prometheus_image="$(sed -n 's/^ *image: \(prom\/prometheus:.*\)$/\1/p' "$root/infra/compose.yaml")"
+docker run --rm --network none -v "$root/infra/prometheus:/etc/prometheus:ro" -w /etc/prometheus \
+  --entrypoint promtool "$prometheus_image" test rules alerts.test.yml
 
 if [[ "${1:-}" == "--e2e" ]]; then
   echo "== e2e"

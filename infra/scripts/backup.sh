@@ -11,6 +11,8 @@
 #                              off-site copy, same retention (recommended)
 #   LIFEOS_HEALTHCHECK_URL     dead man's switch: pinged at start, on success, on failure
 #   LIFEOS_METRICS_DIR         Prometheus textfile metrics (default /var/lib/lifeos/metrics)
+#   LIFEOS_BACKUP_RUN          run id (default: the UTC time), LIFEOS_BACKUP_TAG one more tag:
+#                              update.sh names its pre-update run, to restore it on a rollback
 #
 # Files first, then the database: a document deleted or purged meanwhile leaves at worst an
 # extra file in the archive (swept after a restore), never a document without its original.
@@ -22,7 +24,7 @@ cd "$(dirname "$0")/.."
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/backup.sh
 . scripts/lib/backup.sh
-[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && { sed -n '2,20p' "$0"; exit 0; }
+[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && { sed -n '2,22p' "$0"; exit 0; }
 load_backup_env
 require_restic_env
 require_tools restic jq docker curl flock sha256sum
@@ -30,7 +32,9 @@ take_lock
 
 metrics="$(metrics_dir)/lifeos_backup.prom"
 started="$(date +%s)"
-run="$(date -u +%Y%m%dT%H%M%SZ)"
+run="${LIFEOS_BACKUP_RUN:-$(date -u +%Y%m%dT%H%M%SZ)}"
+[[ "$run" =~ ^[0-9A-Za-z-]{1,40}$ ]] || die "LIFEOS_BACKUP_RUN: letters, digits and dashes only."
+[[ "${LIFEOS_BACKUP_TAG:-}" =~ ^[a-z0-9-]{0,32}$ ]] || die "LIFEOS_BACKUP_TAG: a-z, 0-9 and dashes."
 work="$(mktemp -d)"
 index="/tmp/lifeos-backup-$run.list"
 created=()  # snapshots of this run: removed if it does not complete
@@ -75,6 +79,7 @@ dockey="$(documents_key_fingerprint secrets/lifeos_documents_key)" \
   || die "infra/secrets/lifeos_documents_key is missing or empty."
 tags=(--host lifeos --tag lifeos --tag "run:$run" --tag "version:$version" --tag "rev:$revision"
   --tag "dockey:$dockey")
+[[ -z "${LIFEOS_BACKUP_TAG:-}" ]] || tags+=(--tag "$LIFEOS_BACKUP_TAG")
 say "run $run: LifeOS $version, schema $revision, documents key $dockey"
 
 # 1. Encrypted originals (already AES-256-GCM: unreadable without lifeos_documents_key). A file

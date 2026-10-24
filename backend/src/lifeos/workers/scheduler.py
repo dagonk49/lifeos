@@ -60,6 +60,14 @@ def build_scheduler() -> BlockingScheduler:
         id="release_llm_reservations",
         misfire_grace_time=300,
     )
+    # Supervision: proves the scheduler -> Redis -> worker chain runs (alert
+    # TachesPlanifieesBloquees, docs/exploitation.md §5).
+    scheduler.add_job(
+        actors.heartbeat.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="heartbeat",
+        misfire_grace_time=30,
+    )
     # Reminders are "real time": checked every minute, never coalesced into the past.
     scheduler.add_job(
         actors.send_reminders.send,

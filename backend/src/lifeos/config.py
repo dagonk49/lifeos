@@ -40,6 +40,15 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
 
+    # Supervision (docs/exploitation.md §5). The API refreshes its queue, backlog and
+    # dependency gauges this often (0: never, e.g. in tests); the worker serves its own
+    # metrics on this port (0: not at all), one process per container (`--processes 1`).
+    metrics_refresh_seconds: int = Field(default=60, ge=0)
+    worker_metrics_port: int = Field(default=9101, ge=0, le=65535)
+    # Tag of the deployed images (infra/scripts/update.sh writes it to infra/.env), exported
+    # as the `revision` label of lifeos_build_info.
+    image_tag: str = Field(default="local", max_length=64)
+
     session_ttl_days: int = 30
     session_idle_days: int = 7
     recent_auth_minutes: int = 10

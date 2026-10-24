@@ -2,7 +2,7 @@
 
 Guide pas à pas pour la machine de référence : VM Debian sur Proxmox, 8 vCPU (i7-6700),
 10 Go de RAM, GTX 1050 Ti en option. Les détails d'exploitation (exposition réseau,
-sauvegardes, dimensionnement, mises à jour) sont dans [exploitation.md](exploitation.md).
+sauvegardes, alertes, dimensionnement, mises à jour) sont dans [exploitation.md](exploitation.md).
 
 Durée : environ 30 minutes, dont la construction des images et le téléchargement des modèles
 (≈ 3 Go).
@@ -202,7 +202,25 @@ Le second affiche la **fiche de récupération** : clé des documents, mots de p
 réglages des dépôts, domaine. La copier dans votre gestionnaire de mots de passe : sans elle,
 aucune restauration n'est possible ([restauration.md](restauration.md)).
 
-## 9. Vérifier que tout va bien
+## 9. Alertes (juste après les sauvegardes)
+
+La supervision prévient sur le **même sujet ntfy** que les sauvegardes quand LifeOS est
+injoignable, qu'un service ou le worker s'arrête, que des tâches échouent ou s'accumulent, que
+le disque se remplit, qu'une sauvegarde manque ou que le certificat va expirer. Créer d'abord un
+contrôle de **signal de vie** sur [healthchecks.io](https://healthchecks.io) (période 5 minutes,
+grâce 10 minutes, distinct de celui des sauvegardes), puis :
+
+```bash
+sudo /opt/lifeos/infra/scripts/install-monitoring.sh --deadman-url https://hc-ping.com/<uuid> --test
+```
+
+Une alerte de test arrive sur le téléphone dans la minute. Les notifications disent ce qui ne
+va pas et quoi faire, sans aucune donnée personnelle. Faire ensuite une fois l'exercice de
+panne (`docker compose stop worker`, l'alerte arrive en moins de 10 minutes, puis
+`docker compose start worker`) : [exploitation.md §5](exploitation.md#5-supervision-et-alertes)
+(e-mail ou Telegram en plus, reverse proxy sur une autre machine, autorité locale).
+
+## 10. Vérifier que tout va bien
 
 ```bash
 cd /opt/lifeos/infra
@@ -214,14 +232,21 @@ docker compose logs --tail 50 api worker  # aucun contenu personnel dans les log
 Dans l'application, l'accueil affiche le briefing du jour, et la page **Recherche** montre la
 progression de l'index sémantique.
 
-## 10. Mettre à jour
+Pour la machine définitive, faire la **recette** : temps et pointes de mémoire mesurés par
+`infra/scripts/recette.sh`, passkeys sur les vrais appareils, OCR de vrais tickets, dictée,
+alertes, mise à jour et retour arrière ([recette-serveur.md](recette-serveur.md)).
+
+## 11. Mettre à jour
 
 ```bash
-cd /opt/lifeos && git pull
-cd infra && ./scripts/init-secrets.sh && docker compose up -d --build
+cd /opt/lifeos
+infra/scripts/update.sh            # la dernière version publiée ; --to <version> pour une autre
 ```
 
-Faire une sauvegarde avant toute mise à jour (les migrations de base s'appliquent seules).
+Le script fait d'abord une sauvegarde, garde les images de la version en service, construit
+la nouvelle version, applique les migrations et vérifie que tout répond ; sinon, il revient
+seul à la version précédente. Retour arrière à la main : `infra/scripts/update.sh --rollback`
+([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)).
 
 ## Problèmes fréquents
 
@@ -237,4 +262,9 @@ Faire une sauvegarde avant toute mise à jour (les migrations de base s'applique
 | « Les comptes connectés ne sont pas configurés sur ce serveur » | `LIFEOS_CONNECTORS_PROVIDER=disabled`, ou client Google incomplet : [guide Google](guide-google.md) |
 | Google affiche « redirect_uri_mismatch » | URI de redirection du client OAuth différente de `https://<votre domaine>/connexions/retour` |
 | Alerte « LifeOS: lifeos-backup failed » | `journalctl -u lifeos-backup.service` sur la VM ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
+| Aucune alerte de test (`install-monitoring.sh --test`) | `docker compose logs alertmanager` : sujet ntfy ou jeton (`LIFEOS_ALERT_URL`, `LIFEOS_ALERT_TOKEN` dans `/etc/lifeos/backup.env`) |
+| Alerte « LifeOS injoignable » alors que tout répond | la sonde passe par le port 443 de la VM : pare-feu, ou reverse proxy sur une autre machine (`LIFEOS_PROBE_ADDRESS`, [exploitation.md §5](exploitation.md#5-supervision-et-alertes)) |
+| Alerte « Certificat refusé » avec une autorité locale (`mkcert`) | copier `rootCA.pem` dans `infra/blackbox/ca/`, puis `docker compose restart blackbox-exporter` |
+| `update.sh` : « local changes to tracked files » | un fichier suivi a été modifié : remettre les réglages dans `infra/.env` (ou un `compose.local.yaml`), puis `git checkout -- <fichier>` |
+| `update.sh` : « The update … FAILED » | la mise à jour a été annulée et l'ancienne version tourne : lire le contrôle de santé affiché, puis `docker compose logs --tail 100 migrate api` |
 | L'assistant répond « quota du jour atteint » | plafond gratuit Gemini : il se renouvelle chaque jour vers 9 h (heure de Paris) |

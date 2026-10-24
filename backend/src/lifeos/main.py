@@ -1,11 +1,13 @@
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import APIRouter, FastAPI
 from prometheus_client import make_asgi_app
 from redis.asyncio import Redis
 
 from lifeos import __version__
+from lifeos.api import gauges
 from lifeos.api.denials import install_denial_handlers
 from lifeos.api.health import router as health_router
 from lifeos.api.middleware import OriginCheckMiddleware, RequestContextMiddleware
@@ -35,6 +37,7 @@ from lifeos.modules.search.router import router as search_router
 from lifeos.modules.settings.router import router as settings_router
 from lifeos.modules.tasks.router import router as tasks_router
 from lifeos.modules.voice.router import router as voice_router
+from lifeos.observability.metrics import BUILD_INFO
 
 
 def build_v1_router() -> APIRouter:
@@ -67,6 +70,8 @@ def build_v1_router() -> APIRouter:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
+    # Which version runs (infra/scripts/update.sh checks it after an update).
+    BUILD_INFO.labels(version=__version__, revision=settings.image_tag).set(1)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -79,9 +84,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.embedder = build_embedder(settings)
         if not hasattr(app.state, "connectors"):
             app.state.connectors = build_connectors(settings)
+        # Queue, backlog and dependency gauges (docs/exploitation.md §5).
+        refresher = (
+            asyncio.create_task(gauges.refresh_forever(app.state, settings.metrics_refresh_seconds))
+            if settings.metrics_refresh_seconds > 0
+            else None
+        )
         try:
             yield
         finally:
+            if refresher is not None:
+                refresher.cancel()
+                with suppress(asyncio.CancelledError):
+                    await refresher
             await app.state.db.dispose()
             await app.state.redis.aclose()
 

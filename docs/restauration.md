@@ -308,6 +308,11 @@ par nuit). `restore-drill.sh` affiche les deux et la ligne à copier ici.
   paire incomplète. Il restaure ensuite sur des volumes vides et vérifie la connexion avec la
   même passkey, la recherche, les finances et le déchiffrement de l'original. Il vérifie enfin
   le refus d'une mauvaise clé, et l'alerte et la métrique d'échec d'une sauvegarde ratée.
+- **En CI** (`scripts/test-update.sh`) : la sauvegarde faite avant une mise à jour
+  (étiquette `pre-update`) est restaurée par `update.sh --rollback --restore-db`, et d'elle-même
+  quand une migration de la mise à jour perd des données en redescendant
+  ([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)) : la base d'avant la
+  mise à jour revient, la base remplacée est d'abord mise de côté.
 
 ## 7. Problèmes fréquents
 

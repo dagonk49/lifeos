@@ -30,6 +30,10 @@ infra/secrets/*
 infra/traefik/certs/*
 infra/traefik/dynamic/tls.yml
 !infra/traefik/certs/.gitkeep
+# Local certificate authority of the public probes (monitoring), deployment history
+infra/blackbox/ca/*
+!infra/blackbox/ca/README.md
+infra/state/
 
 # Editors / OS
 .idea/

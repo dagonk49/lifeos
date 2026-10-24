@@ -327,3 +327,31 @@ colonnes ne sort par l'API ni par l'export.
 | événements d'agenda, e-mails synchronisés | 5 | rattachés à une `connector_sources` (cascade), tâches 14 et 17 |
 | `push_devices` | 5 | jetons de notification mobile |
 | import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |
+
+## 7. Migrations
+
+Fichiers `backend/migrations/versions/AAAAMMJJ_NNNN_sujet.py` écrits à la main, numéros
+séquentiels (`0009` après `0008`), contraintes nommées par la convention (`ck_<table>_<nom>`).
+La CI vérifie `alembic upgrade head` puis `alembic check` (modèles et schéma identiques), et
+`backend/tests/test_migrations.py`, sur une base à part (`<base de test>_migrations`, créée par
+un superutilisateur pour l'extension `vector`), fait redescendre puis remonter chaque migration
+et vérifie qu'un retour arrière garde les données et leurs protections.
+Comme une mise à jour peut revenir en arrière ([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)) :
+
+- **Compatibles avec la version précédente** (*expand / contract*) : une migration ajoute
+  (table, colonne avec valeur par défaut ou nullable, index) ; ce qui disparaît (colonne,
+  table, contrainte resserrée) ne disparaît qu'à une version suivante, une fois que plus aucun
+  code déployé ne s'en sert. Un retour arrière fait tourner l'ancien code sur le schéma
+  redescendu, et la version précédente doit aussi supporter le nouveau schéma pendant la
+  mise à jour.
+- **`downgrade()` toujours écrit**, et qui préserve les protections et les comptes : une
+  protection que l'ancien schéma ne connaît pas se reporte sur la plus proche qu'il connaît
+  (0008 : un document « toujours gardé en local » devient sensible), un appel compté le reste
+  (0007 : une réservation devient un appel en échec).
+- **`Downgrade: lossy`** dans la docstring quand la descente perd des données du propriétaire
+  (une colonne ou une table qu'il remplit et que l'ancien schéma ne peut pas garder) :
+  `update.sh --rollback` restaure alors la sauvegarde préalable au lieu de redescendre le
+  schéma (ce qui a été écrit depuis la mise à jour est perdu).
+- Les migrations d'une même mise à jour s'appliquent dans une seule transaction : une
+  migration qui échoue laisse le schéma tel qu'il était (retour arrière automatique,
+  `scripts/test-update.sh`).

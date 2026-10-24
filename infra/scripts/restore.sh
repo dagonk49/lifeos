@@ -14,8 +14,8 @@
 # Nothing is replaced before both archives are fetched and read, the documents key is
 # compared with the backup's (fingerprint tag), and the backup's schema is known to this code.
 # The current database is first saved to LIFEOS_SAFETY_DIR (default /var/backups/lifeos).
-# Exit status: 0 restored and checked; 2 restored, but some originals are missing (listed,
-# docs/restauration.md); 1 failed.
+# Exit status: 0 restored and checked; 2 restored, with warnings (missing originals, listed,
+# docs/restauration.md; no passkey); 1 failed.
 # Afterwards: replay the erasures made since the backup (docs/politique-de-donnees.md §2).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -177,8 +177,8 @@ Next steps (docs/restauration.md):
 EOF
 case "$status" in
   0) say "restore complete and checked" ;;
-  2) echo "Restore complete, but some originals are MISSING (listed above): an older backup" \
-       "may hold them (docs/restauration.md)." >&2 ;;
+  2) echo "Restore complete, with warnings (above): missing originals may be in an older" \
+       "backup (docs/restauration.md)." >&2 ;;
   *) echo "Restore done, but the check FAILED (status $status): see the report above." >&2
      status=1 ;;
 esac
