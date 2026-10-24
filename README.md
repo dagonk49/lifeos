@@ -22,7 +22,7 @@ contexte minimal filtré localement.
 | 2 — MVP | client web, chat, tâches, journal, mémoire, recherche, Guardian | fait |
 | 3 — Intelligence | recherche hybride (embeddings locaux), qualité de la mémoire, bilans, objectifs, agents spécialisés, maîtrise des coûts Gemini | fait |
 | 4 — Multimodal | documents chiffrés et OCR local, tickets de caisse et finances, dictée et lecture vocale, pièces jointes, filtrage local des documents sensibles | fait |
-| 5 — Connecteurs | calendrier et e-mail (OAuth), approbations d'envoi, notifications mobiles | reporté |
+| 5 — Connecteurs | calendrier et e-mail (OAuth), approbations d'envoi, notifications mobiles | en cours : comptes Google connectés (OAuth, jetons chiffrés, consentement par espace) |
 | 6 — Stabilisation | tests de sécurité complets, CSP à nonces, exercices de restauration, documentation utilisateur avancée | reporté |
 
 ## Structure

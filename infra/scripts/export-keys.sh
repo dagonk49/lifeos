@@ -8,7 +8,8 @@
 #                                                the one of the latest backup, in each repository?
 #   sudo infra/scripts/export-keys.sh --verify   paste your saved copies (hidden): do they match?
 #
-# The sheet: lifeos_documents_key and its fingerprint, the restic passwords, the backup settings
+# The sheet: lifeos_documents_key and its fingerprint, lifeos_connectors_key (connected accounts),
+# the restic passwords, the backup settings
 # (/etc/lifeos/backup.env: repositories and their credentials, alerts), the instance settings
 # (domain and WebAuthn RP ID, overlays) and the version. Not on it: the database passwords
 # (a restore creates new ones) and the Gemini key (another one can be created in AI Studio).
@@ -24,6 +25,9 @@ require_tools sha256sum
 key_file=secrets/lifeos_documents_key
 fingerprint="$(documents_key_fingerprint "$key_file")" || die "$key_file is missing or empty."
 env_value() { sed -n "s/^$1=//p" .env 2>/dev/null | tail -1; }
+# Key of the OAuth tokens (ADR 0012). Optional on the sheet: losing it only forces reconnecting
+# the connected accounts.
+connectors_key_file=secrets/lifeos_connectors_key
 
 case "$mode" in
   --check)
@@ -66,6 +70,18 @@ case "$mode" in
         status=1
       fi
     fi
+    if [[ -s "$connectors_key_file" ]]; then
+      read -r -s -p "Saved lifeos_connectors_key (hidden, Enter to skip): " saved
+      echo
+      if [[ -n "$saved" ]]; then
+        if [[ "$(printf '%s' "$saved" | tr -d '[:space:]')" == "$(tr -d '[:space:]' < "$connectors_key_file")" ]]; then
+          echo "connectors key: your copy matches"
+        else
+          echo "connectors key: your copy does NOT match (connected accounts would have to be reconnected)"
+          status=1
+        fi
+      fi
+    fi
     for variable in RESTIC_PASSWORD_FILE RESTIC_COPY_PASSWORD_FILE; do
       file="${!variable:-}"
       [[ -n "$file" && -s "$file" ]] || continue
@@ -96,6 +112,10 @@ Restore procedure: docs/restauration.md.
 1. Documents key (infra/secrets/lifeos_documents_key): without it, the originals of the
    documents are lost, backups included. Fingerprint: $fingerprint
 $(tr -d '[:space:]' < "$key_file")
+
+1b. Connectors key (infra/secrets/lifeos_connectors_key): without it, the connected accounts
+    (Google) must be connected again; nothing else is lost.
+$( [[ -s "$connectors_key_file" ]] && tr -d '[:space:]' < "$connectors_key_file" || echo "(absent: run scripts/init-secrets.sh)")
 
 2. Restic repositories
    main:     ${RESTIC_REPOSITORY:-(not configured: install-backups.sh)}

@@ -87,6 +87,8 @@ const RESOURCE_LABELS: Record<string, string> = {
   reviews: "bilans",
   documents: "documents",
   finances: "finances",
+  calendar: "agenda",
+  email: "e-mails",
 };
 
 /** Lower-case French name of a data resource, for use inside a sentence. */

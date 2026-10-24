@@ -27,8 +27,9 @@ x-ml: &ml
   image: lifeos-ml:local
   env_file: .env
   environment:
-    # The ml service never calls the LLM nor the database.
+    # The ml service never calls the LLM, the database nor a connected account.
     LIFEOS_LLM_PROVIDER: disabled
+    LIFEOS_CONNECTORS_PROVIDER: disabled
   # A minimal init as PID 1 (ADR 0011): an OCR process killed with its extraction child is
   # orphaned, and only an init reaps it (the service, as PID 1, would keep it as a zombie).
   init: true
@@ -43,8 +44,9 @@ x-stt: &stt
   image: lifeos-stt:local
   env_file: .env
   environment:
-    # The stt service never calls the LLM nor the database.
+    # The stt service never calls the LLM, the database nor a connected account.
     LIFEOS_LLM_PROVIDER: disabled
+    LIFEOS_CONNECTORS_PROVIDER: disabled
   read_only: true
   tmpfs: [/tmp]
   cap_drop: [ALL]
@@ -106,6 +108,8 @@ services:
       retries: 20
     logging: *logging
 
+  # migrate and scheduler read .env without the connector secrets: they never build the
+  # connectors (only the api checks the key and the client, at start; ADR 0012).
   migrate:
     <<: *backend
     command: ["alembic", "upgrade", "head"]
@@ -122,6 +126,9 @@ services:
       - lifeos_database_password
       - lifeos_gemini_api_key
       - lifeos_documents_key
+      # Connected accounts (ADR 0012): key of the sealed OAuth tokens, Google client secret.
+      - lifeos_connectors_key
+      - lifeos_google_client_secret
     volumes: &documents-volume [documents:/data/documents]
     mem_limit: 768m
     depends_on:
@@ -173,6 +180,7 @@ services:
     restart: "no"
     environment:
       LIFEOS_LLM_PROVIDER: disabled
+      LIFEOS_CONNECTORS_PROVIDER: disabled
       HF_HUB_OFFLINE: "0"
     secrets: [lifeos_hf_token]
     volumes: [models:/models]
@@ -199,6 +207,7 @@ services:
     restart: "no"
     environment:
       LIFEOS_LLM_PROVIDER: disabled
+      LIFEOS_CONNECTORS_PROVIDER: disabled
       HF_HUB_OFFLINE: "0"
     volumes: [stt-models:/models]
     networks: [egress]
@@ -287,3 +296,9 @@ secrets:
   # Optional (gated models only): a Hugging Face read token, used by ml-download.
   lifeos_hf_token:
     file: ./secrets/lifeos_hf_token
+  # AES-256-GCM key of the OAuth tokens of the connected accounts (ADR 0012).
+  lifeos_connectors_key:
+    file: ./secrets/lifeos_connectors_key
+  # Secret of the Google OAuth client (empty while LIFEOS_CONNECTORS_PROVIDER is not google).
+  lifeos_google_client_secret:
+    file: ./secrets/lifeos_google_client_secret

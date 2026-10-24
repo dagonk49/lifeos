@@ -17,6 +17,7 @@ La restauration est réussie quand :
 |---|---|---|
 | Fiche de récupération (`infra/scripts/export-keys.sh`) | gestionnaire de mots de passe | — |
 | … dont la clé des documents (`lifeos_documents_key`) | sur la fiche | les originaux sont perdus, sauvegardes comprises |
+| … dont la clé des comptes connectés (`lifeos_connectors_key`), facultative | sur la fiche | les comptes connectés (Google) sont à reconnecter ; rien d'autre n'est perdu |
 | … dont le mot de passe restic (et celui de la copie hors site) | sur la fiche | les sauvegardes sont illisibles |
 | … dont les réglages des sauvegardes (`/etc/lifeos/backup.env` : dépôts, identifiants B2/S3, alertes) | sur la fiche | pas d'accès au dépôt |
 | Clé SSH du dépôt (dépôt `sftp:`) | gestionnaire de mots de passe | pas d'accès au dépôt |
@@ -29,6 +30,7 @@ Ce que contiennent les sauvegardes, et ce qu'elles ne contiennent pas :
 | la base de données (dump PostgreSQL cohérent) | la clé des documents (seule son empreinte est notée) |
 | les originaux des documents, déjà chiffrés (AES-256-GCM) | les mots de passe de la base (recréés : le dump ne contient aucun rôle) |
 | `infra/.env` (domaine, RP ID WebAuthn, surcouches ; aucun secret par construction) et `traefik/dynamic/tls.yml` | les certificats TLS et leurs clés privées (`infra/traefik/certs/`) |
+| | la clé des comptes connectés (les jetons, chiffrés, sont dans la base) et le secret du client Google (à recopier depuis la console Google Cloud) |
 | | les modèles locaux (≈ 3 Go, retéléchargés) et la clé Gemini (à recréer dans AI Studio) |
 
 ## 2. Une sauvegarde = une exécution, une paire cohérente
@@ -117,6 +119,17 @@ indéchiffrables. Déposer la clé de la fiche dans un fichier temporaire :
 sudo bash -c 'umask 077 && cat > /root/documents-key'   # coller la clé, Entrée, puis Ctrl-D
 ```
 
+Clé des comptes connectés, **vraie reprise seulement** (facultatif) : la déposer elle aussi
+avant l'installation, qui sinon en crée une neuve. Sans elle, les comptes Google seront
+simplement à reconnecter. Pour un **exercice**, ne pas la déposer : la VM d'exercice ne doit
+pas pouvoir utiliser les comptes du propriétaire.
+
+```bash
+sudo bash -c 'umask 077 && cat > /root/connectors-key'  # coller la clé, Entrée, puis Ctrl-D
+sudo install -m 644 /root/connectors-key infra/secrets/lifeos_connectors_key
+sudo shred -u /root/connectors-key
+```
+
 ### Étape 5 : restaurer en une commande (recommandé)
 
 ```bash
@@ -129,6 +142,11 @@ sauvegarde, lance `install.sh --no-models`, puis `restore.sh` (base, originaux, 
 Options : `--run <exécution>`, `--offsite`, `--behind-proxy`, `--models` (télécharge les
 modèles), `--enroll-email moi@exemple.fr` (lien de connexion), `--keep-llm` (garde
 l'assistant actif : à réserver à une vraie reprise, voir §5).
+Le secret du client Google n'étant ni dans les sauvegardes ni sur la fiche, le script
+désactive les comptes connectés (`LIFEOS_CONNECTORS_PROVIDER=disabled`). Pour une vraie
+reprise, recopier ce secret dans `infra/secrets/lifeos_google_client_secret`, remettre
+`LIFEOS_CONNECTORS_PROVIDER=google` dans `infra/.env`, puis `docker compose up -d`
+([guide-google.md](guide-google.md) §4).
 
 Passer ensuite à l'étape 7.
 
@@ -143,6 +161,8 @@ sudo infra/scripts/restore.sh latest --yes      # ou l'identifiant d'exécution 
 
 Sans sauvegarde `config` (exécutions antérieures à cette version), reporter à la main dans
 `infra/.env` les réglages de la fiche (surcouches `COMPOSE_FILE`, réseau du proxy).
+Ne remettre `LIFEOS_CONNECTORS_PROVIDER=google` qu'une fois le secret du client Google
+recopié dans `infra/secrets/lifeos_google_client_secret` : sans lui, l'API ne démarre pas.
 
 `restore.sh` lit les deux archives et vérifie la clé et le schéma **avant** de remplacer quoi
 que ce soit. Il sauvegarde la base courante dans `/var/backups/lifeos/` (si elle contient

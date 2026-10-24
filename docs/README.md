@@ -14,6 +14,7 @@
 | [exploitation.md](exploitation.md) | Installation, TLS, exposition réseau, dimensionnement (VM 10 Go), sauvegardes automatiques (copie hors site, tests, alertes), supervision |
 | [restauration.md](restauration.md) | **Plan de reprise** : restauration complète sur une VM vierge pas à pas, originaux manquants, exercice annuel et son journal |
 | [guide-gemini.md](guide-gemini.md) | Brancher Gemini sans aucun frais (projet sans facturation, quotas) |
+| [guide-google.md](guide-google.md) | Connecter un compte Google (Agenda, Gmail) : projet, écran de consentement, client OAuth, révocation |
 
 ## Décisions d'architecture
 
@@ -30,6 +31,7 @@
 | [0009](adr/0009-voix-locale.md) | Voix : dictée transcrite en local, lecture par les voix de l'appareil | Acceptée |
 | [0010](adr/0010-reservation-des-quotas-llm.md) | Plafonds IA fiables : réservation atomique des quotas avant l'appel | Acceptée |
 | [0011](adr/0011-antivirus-et-fichiers-hostiles.md) | Fichiers hostiles : confinement et limites, pas d'antivirus pour l'instant | Acceptée |
+| [0012](adr/0012-connecteurs-oauth.md) | Comptes connectés : OAuth 2.0 avec PKCE, jetons chiffrés, consentement par espace | Acceptée |
 
 ## Points encore ouverts
 

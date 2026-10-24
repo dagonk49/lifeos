@@ -19,6 +19,9 @@ RESOURCES = (
     "reviews",
     "documents",
     "finances",
+    # Connected accounts (ADR 0012): on top of the owner's consent for the space.
+    "calendar",
+    "email",
 )
 
 

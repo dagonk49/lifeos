@@ -18,6 +18,10 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Documents : fichier original | **90 jours** par défaut, ou sans limite si le propriétaire choisit « conserver » ; une image illisible n'est pas conservée (elle n'a pas pu être nettoyée de ses métadonnées) | chiffré AES-256-GCM ; `original_until` ; purge quotidienne et suppression des fichiers orphelins ([ADR 0008](adr/0008-documents-ocr-local.md)) |
 | Documents : texte extrait, sensibilité, lecture d'un ticket | tant que le propriétaire ne supprime pas le document | supprimer le document efface aussi le fichier et les vecteurs |
 | Opérations financières, catégories, règles apprises | tant que le propriétaire ne les supprime pas | montants en décimal exact ; aucune connexion bancaire |
+| Comptes connectés (adresse, scopes accordés, statut) et consentements par espace | tant que le propriétaire ne supprime pas le compte ; consentements retirés gardés en historique | déconnecter efface les jetons tout de suite et garde le compte (`revoked`) ; « supprimer » l'efface avec ses données synchronisées ([ADR 0012](adr/0012-connecteurs-oauth.md)) |
+| Jetons OAuth (accès, renouvellement) | tant que le compte est actif | scellés AES-256-GCM (`lifeos_connectors_key`) ; effacés à la déconnexion, quand le fournisseur refuse le renouvellement ou quand la clé ne les déchiffre plus |
+| Données synchronisées (agenda, e-mails : tâches 14 à 18) | tant que la source existe | gardées à la déconnexion, sauf si le propriétaire choisit de les supprimer ; supprimées avec le compte (cascade) |
+| Consentements OAuth en cours (`oauth_states`) | expiration ou usage + 1 jour (valables 10 minutes) | empreinte du `state` seulement, vérificateur PKCE scellé ; purge quotidienne avec événement d'audit |
 | Sessions | expiration + 30 jours | purge quotidienne |
 | Défis WebAuthn, jetons d'enrôlement | expiration + 1 jour | purge quotidienne |
 | Clés d'idempotence | 24 heures | purge quotidienne |
@@ -52,6 +56,13 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
   téléchargent un par un depuis la page Documents.
 - Les originaux des documents figurent, **chiffrés**, dans les sauvegardes : illisibles sans
   `lifeos_documents_key`, qui est conservée à part.
+- **Comptes connectés** : l'export JSON liste les comptes (fournisseur, adresse, scopes,
+  statut), les consentements par espace et les sources, jamais les jetons. Déconnecter
+  révoque l'accès chez le fournisseur, efface les jetons et retire tous les consentements ;
+  LifeOS demande à chaque fois s'il faut garder (par défaut) ou supprimer les données déjà
+  synchronisées. Les jetons figurent, chiffrés, dans les sauvegardes : illisibles sans
+  `lifeos_connectors_key`, conservée à part (la perdre oblige seulement à reconnecter les
+  comptes).
 
 ## 3. Transmission au fournisseur LLM (Gemini)
 
@@ -174,11 +185,19 @@ ni un document sensible ou gardé en local.
 - Un agent n'accède à un espace et à une ressource que via une permission explicite
   (`agent_permissions`), limitée dans le temps et révocable.
 - Les recherches et les paquets de contexte sont toujours filtrés par espace.
+- Un compte connecté (agenda, e-mails) ne sert que dans les espaces et pour les usages que
+  le propriétaire y a autorisés (`connector_grants`) ; un agent a besoin en plus de sa
+  propre permission `calendar` ou `email`.
 
 ## 5. Journalisation
 
 - Logs applicatifs structurés (JSON) : route, statut, durée, identifiant de requête. Jamais de
   corps de requête, de prompt, de réponse LLM, de pièce jointe, de jeton ni d'adresse e-mail.
+  Les jetons OAuth ne passent jamais dans une URL. Le code d'autorisation y passe une fois,
+  dans la redirection du fournisseur vers `/connexions/retour` (à usage unique, inutile sans
+  le vérificateur PKCE, retiré de la barre d'adresse dès l'arrivée ; un reverse proxy peut
+  l'enregistrer dans son journal d'accès, voir T30). Un filtre masque en plus toute
+  valeur qui ressemble à un jeton (défense en profondeur, T31).
   Les services `ml` et `stt` ne journalisent que la forme d'un traitement (type, pages,
   durée, nombre de caractères), jamais le texte ni l'audio.
 - Audit : qui (acteur), quoi (action), sur quoi (identifiants), résultat, espace.

@@ -139,6 +139,23 @@ class Settings(BaseSettings):
     memory_related_distance: float = 0.25
     memory_preference_max_age_days: int = 180
 
+    # Connectors (ADR 0012): calendar and mail accounts linked through OAuth 2.0. "fake":
+    # tests and end-to-end runs (no network); "disabled": no account can be connected.
+    # The key and the client are checked by `connectors.build_connectors` (API start), not
+    # here: migrate, scheduler, ml and stt read the same .env without these secrets.
+    connectors_provider: Literal["disabled", "fake", "google"] = "disabled"
+    # AES-256-GCM keyring of the OAuth tokens, Docker secret `lifeos_connectors_key`:
+    # base64 of 32 bytes, or `id:base64,...` during a rotation (the first one seals).
+    # Losing it only forces reconnecting the accounts.
+    connectors_key: SecretStr | None = None
+    # Google OAuth client of type "Web application" (docs/guide-google.md); the secret is
+    # the Docker secret `lifeos_google_client_secret`.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    # A consent started in LifeOS must come back within this delay (single-use state).
+    oauth_state_minutes: int = Field(default=10, ge=1, le=60)
+    connectors_timeout_seconds: float = Field(default=15.0, gt=0)
+
     @model_validator(mode="after")
     def _check_llm(self) -> Self:
         if self.llm_provider != "gemini":
@@ -162,6 +179,12 @@ class Settings(BaseSettings):
                 "for Vertex AI"
             )
         return self
+
+    @property
+    def oauth_redirect_uri(self) -> str:
+        """Where the provider sends the browser back: a page of the web client, which
+        hands the code to the API (the session cookie is SameSite=Strict)."""
+        return self.public_origin.rstrip("/") + "/connexions/retour"
 
     @property
     def llm_reservation_ttl(self) -> timedelta:

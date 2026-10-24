@@ -37,3 +37,15 @@ if [[ ! -e "$dir/lifeos_hf_token" ]]; then
   : > "$dir/lifeos_hf_token"
   echo "created: lifeos_hf_token (empty: only needed if the embedding model is gated)"
 fi
+# AES-256-GCM key of the OAuth tokens of the connected accounts (ADR 0012). Losing it only
+# forces reconnecting the accounts: never store it with the backups.
+if [[ -e "$dir/lifeos_connectors_key" ]]; then
+  echo "exists:  lifeos_connectors_key"
+else
+  head -c 32 /dev/urandom | base64 | tr -d '\n' > "$dir/lifeos_connectors_key"
+  echo "created: lifeos_connectors_key"
+fi
+if [[ ! -e "$dir/lifeos_google_client_secret" ]]; then
+  : > "$dir/lifeos_google_client_secret"
+  echo "created: lifeos_google_client_secret (empty: paste the Google OAuth client secret to connect Google accounts)"
+fi

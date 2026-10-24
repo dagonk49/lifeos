@@ -14,6 +14,8 @@ from lifeos.db.session import Database
 from lifeos.logging import configure_logging
 from lifeos.modules.agents.router import router as agents_router
 from lifeos.modules.chat.router import router as chat_router
+from lifeos.modules.connectors import build_connectors
+from lifeos.modules.connectors.router import router as connectors_router
 from lifeos.modules.dashboard.router import router as dashboard_router
 from lifeos.modules.documents.router import router as documents_router
 from lifeos.modules.finance.router import router as finance_router
@@ -55,6 +57,7 @@ def build_v1_router() -> APIRouter:
         guardian_router,
         notifications_router,
         privacy_router,
+        connectors_router,
     ):
         v1.include_router(router)
     return v1
@@ -73,6 +76,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.llm = build_provider(settings)
         if not hasattr(app.state, "embedder"):
             app.state.embedder = build_embedder(settings)
+        if not hasattr(app.state, "connectors"):
+            app.state.connectors = build_connectors(settings)
         try:
             yield
         finally:

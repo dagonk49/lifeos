@@ -11,6 +11,7 @@ from lifeos.core.idempotency import purge_expired_keys
 from lifeos.logging import configure_logging, get_logger
 from lifeos.modules.audit.service import purge_older_than
 from lifeos.modules.chat.service import purge_expired_messages
+from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
 from lifeos.modules.guardian.actions import expire_stale
 from lifeos.modules.guardian.gateway import release_stale_reservations
@@ -39,6 +40,12 @@ log = get_logger("lifeos.actors")
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def purge_auth_artifacts() -> None:
     await run_job("purge_auth_artifacts", purge_expired)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_connector_states() -> None:
+    """Consents in progress (OAuth states) expired or used more than a day ago."""
+    await run_job("purge_connector_states", purge_oauth_states)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)

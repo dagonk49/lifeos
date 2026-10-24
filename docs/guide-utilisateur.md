@@ -149,6 +149,20 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
   **pause de l'assistant IA** (arrêt d'urgence : plus aucun appel cloud).
 - **Agents spécialisés / Permissions des agents** : accès accordés, avec leur échéance et
   leur retrait.
+- **Comptes connectés** (si l'administrateur les a activés, [guide Google](guide-google.md)) :
+  - **Connecter un compte** : choisir l'espace et cocher les usages (lire ou modifier
+    l'agenda, lire ou envoyer des e-mails), puis accepter chez Google, où vous pouvez encore
+    décocher des accès. Une confirmation par passkey est demandée.
+  - Pour chaque compte, le panneau affiche ce que Google a **réellement** accordé et, espace
+    par espace, les usages autorisés. Cocher un usage demande une passkey (et un nouvel
+    accord chez Google s'il ne l'a pas encore donné) ; décocher le coupe aussitôt.
+  - **Reconnexion nécessaire** : Google n'accepte plus l'accès (autorisation retirée, mot de
+    passe changé, expiration). Les usages sont suspendus jusqu'à « Reconnecter le compte ».
+  - **Déconnecter** révoque l'accès chez Google et efface les jetons. LifeOS demande chaque
+    fois s'il faut garder (par défaut) ou supprimer les données déjà synchronisées. Un
+    compte déconnecté reste listé, sans aucun accès, jusqu'à ce que vous le supprimiez.
+  - Les jetons d'accès restent chiffrés sur votre serveur : ils ne sont jamais affichés,
+    exportés ni journalisés.
 - **Préférences** : nom, fuseau horaire, plages de tranquillité.
 - **Mes données** : export complet (JSON).
 - **Journal d'audit** : qui a fait quoi, sans le contenu.
@@ -172,6 +186,7 @@ indisponible.
 
 ## Ce que cette version ne fait pas encore
 
-Pas de synchronisation d'agenda ni d'e-mail, pas de notifications push sur le téléphone (les
-rappels s'affichent dans l'application) et pas d'application mobile native : utilisez le site
-dans le navigateur du téléphone. Voir le [journal des versions](../CHANGELOG.md).
+Un compte Google peut être connecté et autorisé espace par espace, mais l'agenda et les
+e-mails ne sont pas encore synchronisés ni utilisés par l'assistant. Pas de notifications
+push sur le téléphone (les rappels s'affichent dans l'application) et pas d'application
+mobile native : utilisez le site dans le navigateur du téléphone. Voir le [journal des versions](../CHANGELOG.md).

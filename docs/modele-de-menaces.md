@@ -13,6 +13,8 @@ Applications.
 | Documents (originaux chiffrés, texte extrait) | très élevée : identité, santé, banque |
 | Voix (enregistrements de dictée) | très élevée : biométrique ; conservée le temps de la transcription |
 | Clé de chiffrement des documents | élevée : sans elle, les originaux sont perdus ; avec elle et une sauvegarde, ils sont lisibles |
+| Jetons OAuth des comptes connectés (agenda, e-mails) | très élevée : accès à l'agenda et à la boîte e-mail, hors de LifeOS |
+| Clé des connecteurs (`lifeos_connectors_key`) | élevée : avec une sauvegarde, elle rend les jetons lisibles ; la perdre oblige seulement à reconnecter les comptes |
 | Sessions et passkeys | élevée : accès à tout le reste |
 | Clé d'API Gemini, secrets d'infrastructure | élevée : coût, accès |
 | Sauvegardes | très élevée : copie complète |
@@ -24,8 +26,9 @@ Navigateur / mobile ──HTTPS── Traefik ──┬── API ──┬─�
                                         │         ├── Redis (réseau interne)
                                         │         ├── ml : embeddings, OCR (interne, sans sortie)
                                         │         ├── stt : transcription (interne, sans sortie)
-                                        └── Web   └── Passerelle cloud ──HTTPS── Gemini
-Contenus importés (documents, e-mails, pages web) = NON FIABLES
+                                        └── Web   ├── Passerelle cloud ──HTTPS── Gemini
+                                                  └── Connecteurs ──HTTPS── Google (OAuth, Agenda, Gmail)
+Contenus importés (documents, e-mails, événements, pages web) = NON FIABLES
 Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 ```
 
@@ -55,8 +58,11 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; l'envoi brut n'est jamais servi pendant la lecture (409) ; une image illisible (donc non nettoyable) n'est pas conservée | 4 |
 | T27 | Conservation abusive de la voix | enregistrement chiffré puis supprimé dès la transcription (ou le refus) ; dictées effacées après 24 h ; transcription locale ; lecture à voix haute avec les seules voix locales de l'appareil | 4 |
 | T28 | Perte ou vol de la clé des documents | secret Docker séparé des données ; non inclus dans les sauvegardes (seule son empreinte SHA-256 tronquée accompagne chaque sauvegarde) ; copie hors du serveur via la fiche de récupération ; clé écrasée ou remplacée détectée par le test de restauration hebdomadaire (empreinte et déchiffrement des originaux), qui alerte ; une restauration avec une autre clé est refusée avant de remplacer quoi que ce soit | 4 |
-| T18 | SSRF via connecteurs / URLs | liste d'hôtes autorisés, pas de requête vers des adresses privées | 5 |
-| T19 | Vol de jetons OAuth de connecteurs | chiffrement au repos, scopes minimaux, révocation | 5 |
+| T18 | SSRF via connecteurs / URLs | hôtes de chaque fournisseur en liste blanche codée en dur (aucune URL venue d'une réponse ou de l'utilisateur), HTTPS seulement, redirections non suivies, délais explicites. Prévu pour des hôtes choisis par l'utilisateur (CalDAV, IMAP) : résolution puis refus des adresses privées, de bouclage et locales | 5 |
+| T19 | Vol de jetons OAuth de connecteurs | jetons scellés (AES-256-GCM, clé `lifeos_connectors_key` séparée des données et des sauvegardes, compte et nature du jeton en données associées) ; jamais renvoyés par l'API, l'export ni l'audit ; scopes minimaux par usage, scopes réellement accordés enregistrés ; connexion renforcée (passkey récente) ; déconnexion immédiate : révocation chez le fournisseur (jeton dans le corps), effacement local même en cas d'échec ; jeton refusé → compte suspendu et jetons effacés | 5 |
+| T29 | CSRF ou rejeu du retour OAuth (lier le compte d'un tiers, rejouer un code) | `state` de 256 bits à usage unique, lié au propriétaire, valable 10 minutes, seule son empreinte en base ; état consommé avant l'échange du code ; retour reçu par une page du même site qui poste le code (cookie `SameSite=Strict` conservé) | 5 |
+| T30 | Interception du code d'autorisation | PKCE S256 (vérificateur scellé côté serveur) et client confidentiel ; adresse de retour HTTPS exacte enregistrée chez le fournisseur ; code retiré de la barre d'adresse et de l'historique avant l'envoi ; `Referrer-Policy: no-referrer` ; aucun journal d'accès (Traefik, Next.js). Un reverse proxy en amont peut journaliser l'URL de retour : le code y est inutilisable (usage unique, consommé aussitôt, PKCE) | 5 |
+| T31 | Jetons ou codes dans les journaux | aucun corps de requête ni de réponse journalisé ; jetons jamais dans une URL (le code d'autorisation n'y passe qu'une fois, dans la redirection du fournisseur : à usage unique, inutile sans le vérificateur PKCE, retiré de la barre d'adresse dès la page de retour, voir T30) ; erreurs du fournisseur réduites à un code ; filtre de journalisation qui masque toute valeur ressemblant à un jeton (`ya29.`, `1//`, JWT, `code=`, `access_token=`…) ; journaux `httpx`/`httpcore` au niveau WARNING ; test qui parcourt connexion, renouvellement, erreurs et déconnexion en DEBUG sans retrouver aucun jeton (journaux, audit, réponses, export) | 5 |
 | T20 | Compromission de l'hôte / vol physique | chiffrement des volumes, mises à jour, pare-feu, accès distant par VPN | exploitation |
 | T21 | Fuite par les embeddings (un vecteur permet en partie de reconstituer le texte) | calcul **local** (service `ml` sans accès sortant, modèle hors ligne), vecteurs dans la base comme le reste, filtrés par propriétaire et espace, supprimés par trigger avec l'objet source | 3 |
 | T22 | Agent spécialisé qui lit trop | accès en lecture seulement aux ressources de l'agent, par espace, 90 jours, accordé avec réauthentification, révocable ; contexte construit hors LLM avec les droits de l'agent | 3 |
@@ -119,6 +125,16 @@ jamais mises en cache (`no-store`). Limites restantes :
 - Voix : enregistrement supprimé après transcription comme après refus ; dictées hors
   recherche et index ; une seule transcription à la fois ; enregistrement hostile refusé
   avant d'atteindre le modèle.
+- Comptes connectés : connexion sans passkey récente → refusée ; état OAuth rejoué, expiré
+  ou d'un autre propriétaire → refusé ; vérificateur PKCE faux ou refus chez le fournisseur
+  → aucun compte ; scopes décochés chez le fournisseur → seuls les usages accordés ;
+  jetons illisibles sous un autre compte ou une autre colonne ; renouvellement unique pour
+  deux appelants simultanés ; jeton refusé → compte suspendu, jetons effacés, une seule
+  notification ; usage sans consentement de l'espace, hors de l'espace (404) ou par un agent
+  sans permission → refusé et audité ; déconnexion → révocation chez le fournisseur avec le
+  jeton dans le corps, plus aucun accès ni consentement, approbations expirées, données
+  gardées ou supprimées au choix ; aucun jeton dans les journaux en DEBUG, l'audit, les
+  réponses ni l'export ; fournisseur Google simulé (`httpx.MockTransport`), jamais le réseau.
 - Client web (CSP) : chaque page, publique, authentifiée ou 404, reçoit un nonce différent à
   chaque réponse, porté par tous ses scripts, sans `'unsafe-inline'` ; un nonce envoyé par le
   client est ignoré ; script en ligne, nonce deviné, script de même origine et gestionnaire

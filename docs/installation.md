@@ -44,7 +44,8 @@ Les passkeys sont liées au nom de domaine : **il ne doit plus changer ensuite**
   routeur). Un certificat Let's Encrypt s'obtient par challenge DNS, sans exposer la VM à
   Internet.
 - Réseau local seulement : un nom interne (ex. `lifeos.maison.lan`) avec une autorité locale
-  (`mkcert`) installée sur vos appareils.
+  (`mkcert`) installée sur vos appareils. Google refuse ces noms : pas de compte Google
+  connecté (agenda, Gmail) dans ce cas (§5).
 
 Accès hors de chez vous : passer par un VPN (WireGuard) plutôt qu'ouvrir le port 443.
 
@@ -132,6 +133,24 @@ docker compose up -d
 Le script le fait seul si la clé est fournie pendant l'installation. Sans clé, LifeOS
 fonctionne entièrement, sans l'assistant.
 
+### Comptes connectés (Google Agenda, Gmail : facultatif)
+
+Suivre le [guide Google](guide-google.md) : projet Google Cloud, écran de consentement
+publié, client OAuth « Application Web » dont l'URI de redirection est
+`https://<votre domaine>/connexions/retour`. Il faut un domaine public (§3). Ensuite :
+
+```bash
+cd /opt/lifeos/infra
+printf '%s' 'CODE_SECRET_DU_CLIENT' > secrets/lifeos_google_client_secret
+sed -i 's/^LIFEOS_CONNECTORS_PROVIDER=.*/LIFEOS_CONNECTORS_PROVIDER=google/' .env
+sed -i 's/^LIFEOS_GOOGLE_CLIENT_ID=.*/LIFEOS_GOOGLE_CLIENT_ID=<ID client>/' .env
+docker compose up -d
+```
+
+Puis **Réglages → Comptes connectés** dans LifeOS. La clé qui chiffre les jetons
+(`infra/secrets/lifeos_connectors_key`) est créée par `init-secrets.sh`. La perdre oblige
+seulement à reconnecter les comptes.
+
 ## 6. Certificat et premier accès
 
 1. Certificat : déposer `fullchain.pem` et `privkey.pem` dans `infra/traefik/certs/`, puis
@@ -215,5 +234,7 @@ Faire une sauvegarde avant toute mise à jour (les migrations de base s'applique
 | Dictée « en attente » sans fin | modèle de transcription absent : `docker compose --profile setup run --rm stt-download` |
 | Documents « lecture locale indisponible » | service `ml` arrêté : `docker compose up -d ml` puis `docker compose logs ml` |
 | « Le stockage des documents n'est pas configuré » | `infra/secrets/lifeos_documents_key` absent : relancer `./scripts/init-secrets.sh` |
+| « Les comptes connectés ne sont pas configurés sur ce serveur » | `LIFEOS_CONNECTORS_PROVIDER=disabled`, ou client Google incomplet : [guide Google](guide-google.md) |
+| Google affiche « redirect_uri_mismatch » | URI de redirection du client OAuth différente de `https://<votre domaine>/connexions/retour` |
 | Alerte « LifeOS: lifeos-backup failed » | `journalctl -u lifeos-backup.service` sur la VM ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
 | L'assistant répond « quota du jour atteint » | plafond gratuit Gemini : il se renouvelle chaque jour vers 9 h (heure de Paris) |

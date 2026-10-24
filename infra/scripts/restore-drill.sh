@@ -126,6 +126,13 @@ if [[ -e .env ]]; then
     set_env LIFEOS_LLM_PROVIDER disabled
     echo "LLM disabled for the drill (--keep-llm to keep it)"
   fi
+  # The Google OAuth client secret is neither in the backups nor on the recovery sheet: the
+  # API would not start without it. Connected accounts stay off until it is put back.
+  if grep -q '^LIFEOS_CONNECTORS_PROVIDER=google' .env \
+    && [[ ! -s secrets/lifeos_google_client_secret ]]; then
+    set_env LIFEOS_CONNECTORS_PROVIDER disabled
+    echo "connected accounts disabled: put the Google client secret back (docs/guide-google.md)"
+  fi
 fi
 # A machine that already holds LifeOS data gets a safety dump of it first (restore.sh).
 project="$(compose_json 2>/dev/null | jq -r '.name // empty')" || project=""

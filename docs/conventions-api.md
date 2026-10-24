@@ -158,6 +158,42 @@ puis envoie le message avec les seules pièces jointes `sent`.
   - puis `DELETE` une fois le texte utilisé ;
   - `503 transcription_unavailable` si la dictée est désactivée (`GET /v1/voice/status`).
 
+## Comptes connectés (OAuth, ADR 0012)
+
+- `GET /v1/connectors/providers` : fournisseurs configurés (`[]` si
+  `LIFEOS_CONNECTORS_PROVIDER=disabled`).
+- `GET /v1/connectors/accounts` : comptes, statut (`active` \| `reauth_required` \|
+  `revoked`), `capabilities` (usages que le fournisseur a **réellement** accordés), `grants`
+  (consentements actifs par espace), `sources`. Jamais un jeton, même chiffré.
+- `POST /v1/connectors/oauth/start` `{provider, space_id, capabilities, account_id?}` →
+  `{authorization_url}`. Opération renforcée : `403 reauthentication_required` sans passkey
+  récente. `account_id` sert au consentement incrémental et à la reconnexion.
+- Le fournisseur renvoie le navigateur vers la **page web** `/connexions/retour`, pas vers
+  l'API : le cookie `SameSite=Strict` n'accompagne pas sa redirection. La page retire le
+  code de l'adresse et envoie, une seule fois, `POST /v1/connectors/oauth/callback`
+  `{state, code | null, error | null}` → `{account, space_id, requested, granted, missing}`.
+  - `400 oauth_state_invalid` : état inconnu, expiré (10 minutes), déjà utilisé ou d'un autre
+    propriétaire ;
+  - `400 connector_consent_denied` (`reason` en extension, ex. `access_denied`) : refus chez
+    le fournisseur ;
+  - `400 oauth_code_invalid` : code refusé par le fournisseur (expiré, déjà utilisé, PKCE) ;
+  - `502 connector_provider_error` : fournisseur injoignable ou réponse inexploitable.
+- `PUT /v1/connectors/accounts/{id}/grants` `{space_id, capabilities}` : les usages de ce
+  compte dans cet espace, exactement. Ajouter est renforcé ; retirer est immédiat.
+  `409 connector_scope_missing` (`capabilities` en extension) si le fournisseur ne les a pas
+  accordés : il faut un nouveau consentement (`oauth/start` avec `account_id`).
+- `DELETE /v1/connectors/grants/{id}` : retrait immédiat d'un consentement.
+- `DELETE /v1/connectors/accounts/{id}?purge=false|true` → `{account_id, remote_revocation,
+  purged}`. Révocation chez le fournisseur (`done` \| `failed` \| `not_needed`), jetons
+  effacés quoi qu'il arrive, consentements retirés, approbations en attente expirées.
+  `purge=true` supprime aussi le compte et les données synchronisées ; sinon le compte reste
+  visible, `revoked`.
+- Utilisation par les autres modules (synchronisation, actions) : `409 connector_reauth_required`
+  ou `409 connector_disconnected` si le compte n'est pas actif ; `403
+  connector_capability_missing` sans consentement de l'espace pour cet usage ; `403
+  agent_permission_required` pour un agent sans permission `calendar` ou `email`.
+- `503 connectors_unavailable` : connecteurs désactivés ou clé des jetons absente.
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -179,4 +215,4 @@ puis envoie le message avec les seules pièces jointes `sent`.
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
-| `/v1/connectors` | 5 | OAuth, scopes, révocation, synchronisation |
+| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, déconnexion |

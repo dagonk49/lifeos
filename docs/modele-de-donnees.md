@@ -277,10 +277,53 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   (« classer une dépense » : automatique et corrigeable).
 - **`agent_permissions.resource`** : s'étend à `documents` et `finances`.
 
-## 6. Prévu ensuite
+## 6. Étape 5 — comptes connectés (migration 0010, ADR 0012)
+
+Les jetons ne sont jamais en clair : AES-256-GCM avec la clé `lifeos_connectors_key`, au
+format `LOS1 | id de clé | nonce | chiffré`, avec en données associées l'identifiant du
+compte (ou de l'état) et la nature du jeton (`refresh`, `access`, `pkce`). Aucune de ces
+colonnes ne sort par l'API ni par l'export.
+
+- **`connector_accounts`** : un compte externe relié par OAuth, commun à tous les espaces.
+  - `id`, `user_id`, `provider` (`google` \| `fake`), `subject` (identifiant stable du compte
+    chez le fournisseur, `sub` OpenID ; unique avec `user_id` et `provider`), `email`
+    (affichée au propriétaire).
+  - `status` : `active` ; `reauth_required` (renouvellement refusé ou clé perdue : jetons
+    effacés, notification) ; `revoked` (déconnecté par le propriétaire : jetons effacés).
+  - `scopes text[]` : scopes **réellement accordés** par le fournisseur.
+  - `refresh_token_enc bytea`, `access_token_enc bytea`, `access_expires_at` : jetons
+    scellés, effacés à la déconnexion.
+  - `last_error` (code de motif, jamais un message du fournisseur), `connected_at`,
+    `revoked_at`, horodatages.
+- **`connector_grants`** : le consentement du propriétaire. Ce compte peut servir cet usage
+  dans cet espace.
+  - `id`, `user_id`, `account_id` (cascade), `space_id` (cascade).
+  - `capability` : `calendar.read` \| `calendar.write` \| `mail.read` \| `mail.send`.
+  - `expires_at`, `revoked_at`, `created_at`. Index unique partiel `(account_id, space_id,
+    capability) WHERE revoked_at IS NULL` : un seul consentement actif, les retirés restent
+    en historique.
+- **`connector_sources`** : un agenda ou un libellé de messagerie du compte, rattaché par le
+  propriétaire à **un** espace.
+  - `id`, `user_id`, `space_id`, `account_id` (cascade), `kind` (`calendar` \|
+    `mail_label`), `provider_ref` (unique par compte et type), `name`, `enabled`,
+    `last_synced_at`, `last_error`, horodatages.
+  - Les colonnes de synchronisation (curseur…) viendront avec l'agenda et la messagerie. Les
+    lignes synchronisées référenceront leur source avec `ON DELETE CASCADE` : supprimer le
+    compte supprime ses données.
+- **`oauth_states`** : un consentement en cours, à usage unique.
+  - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
+    jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).
+  - `space_id`, `capabilities text[]` demandées, `account_id null` (consentement
+    incrémental ou reconnexion d'un compte connu).
+  - `expires_at` (10 minutes), `used_at`, `created_at`. Purgé un jour après son expiration
+    ou son usage.
+- **`agent_permissions.resource`** : s'étend à `calendar` et `email`. Un agent a besoin de
+  cette permission **en plus** du consentement du compte dans l'espace.
+
+## 7. Prévu ensuite
 
 | Table | Étape | Notes |
 |---|---|---|
-| `connectors`, `connector_grants` | 5 | OAuth, scopes, expiration, révocation |
+| événements d'agenda, e-mails synchronisés | 5 | rattachés à une `connector_sources` (cascade), tâches 14 et 17 |
 | `push_devices` | 5 | jetons de notification mobile |
 | import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |

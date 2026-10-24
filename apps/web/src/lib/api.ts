@@ -155,6 +155,26 @@ const MESSAGES: Record<string, string> = {
   transaction_not_found: "Cette opération est introuvable ou a été supprimée.",
   transcription_unavailable: "La dictée n'est pas activée sur ce serveur.",
   dictation_not_found: "Cette dictée a expiré ou a été supprimée.",
+  // Connected accounts (step 5, ADR 0012)
+  connectors_unavailable:
+    "Les comptes connectés ne sont pas configurés sur ce serveur (voir le guide d'installation).",
+  invalid_capabilities: "Choisissez au moins un usage à autoriser.",
+  oauth_state_invalid:
+    "Cette demande de connexion a expiré ou a déjà servi : recommencez depuis les réglages.",
+  oauth_code_invalid:
+    "Le fournisseur a refusé la connexion (code expiré ou déjà utilisé) : recommencez depuis les réglages.",
+  connector_consent_denied: "L'accès n'a pas été accordé chez le fournisseur : aucun compte n'a été connecté.",
+  connector_provider_error: "Le fournisseur du compte ne répond pas correctement. Réessayez plus tard.",
+  connector_not_found: "Ce compte connecté est introuvable.",
+  connector_grant_not_found: "Cette autorisation a déjà été retirée.",
+  connector_reauth_required: "Ce compte doit être reconnecté (Réglages > Comptes connectés).",
+  connector_disconnected: "Ce compte est déconnecté : connectez-le à nouveau pour l'utiliser.",
+  connector_scope_missing:
+    "Ces accès n'ont pas été accordés chez le fournisseur : cochez-les de nouveau pour les accepter sur sa page.",
+  connector_account_mismatch:
+    "Un autre compte a été choisi chez le fournisseur : rien n'a été modifié et l'accès reçu a été retiré. Recommencez en choisissant le même compte.",
+  invalid_reconnect: "Ce compte connecté est introuvable : actualisez la page.",
+  connector_capability_missing: "Ce compte n'est pas autorisé pour cet usage dans cet espace.",
   attachment_sensitive:
     "Ce document reste sur votre serveur (sensible ou gardé en local) : son contenu n'est jamais envoyé à l'assistant IA. Retirez-le du message.",
   attachment_not_ready: "La pièce jointe est encore en cours de lecture.",

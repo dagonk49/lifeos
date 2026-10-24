@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { AgentAccessPanel } from "@/components/AgentAccessPanel";
+import { ConnectorsPanel } from "@/components/ConnectorsPanel";
 import { UsagePanel } from "@/components/UsagePanel";
 import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api, errorMessage, withReauth } from "@/lib/api";
@@ -12,7 +13,20 @@ import { loginWithPasskey, registerPasskey } from "@/lib/passkeys";
 import type { AgentPermission, AuditEvent, Passkey, SessionInfo, Settings, Space } from "@/lib/types";
 
 const AGENTS = ["core", "planning", "memory", "coaching", "finance", "projects", "documents"];
-const RESOURCES = ["tasks", "journal", "facts", "memories", "messages"];
+// Mirror of guardian/models.py RESOURCES.
+const RESOURCES = [
+  "tasks",
+  "journal",
+  "facts",
+  "memories",
+  "messages",
+  "goals",
+  "reviews",
+  "documents",
+  "finances",
+  "calendar",
+  "email",
+];
 
 function useInvalidate(...keys: string[]) {
   const queryClient = useQueryClient();
@@ -369,6 +383,10 @@ export default function SettingsPage() {
           <UsagePanel />
         </div>
         <AgentAccessPanel className="lg:col-span-2" />
+        {/* Anchor of the return page of a connection (/connexions/retour). */}
+        <div id="connexions" className="scroll-mt-4 lg:col-span-2">
+          <ConnectorsPanel />
+        </div>
         <DevicesSection />
         <PermissionsSection />
         <AuditSection />

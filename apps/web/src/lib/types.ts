@@ -714,6 +714,76 @@ export interface BudgetSnapshot {
   alerts: { category_id: Uuid; name: string; budget: Decimal; spent: Decimal; ratio: number }[];
 }
 
+// --- Connected accounts (ADR 0012) --------------------------------------------------------
+
+export type ConnectorCapability = "calendar.read" | "calendar.write" | "mail.read" | "mail.send";
+export type ConnectorStatus = "active" | "reauth_required" | "revoked";
+
+export interface ConnectorProvider {
+  name: string;
+  label: string;
+  capabilities: ConnectorCapability[];
+}
+
+/** The owner's consent: this account may serve this capability in this space. */
+export interface ConnectorGrant {
+  id: Uuid;
+  space_id: Uuid;
+  capability: ConnectorCapability;
+  created_at: string;
+  expires_at: string | null;
+}
+
+/** A calendar or a mail label mapped to a space. */
+export interface ConnectorSource {
+  id: Uuid;
+  space_id: Uuid;
+  kind: "calendar" | "mail_label";
+  name: string;
+  enabled: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+}
+
+export interface ConnectorAccount {
+  id: Uuid;
+  provider: string;
+  email: string | null;
+  status: ConnectorStatus;
+  /** What the provider actually granted (the owner may untick accesses there). */
+  capabilities: ConnectorCapability[];
+  grants: ConnectorGrant[];
+  sources: ConnectorSource[];
+  connected_at: string;
+  revoked_at: string | null;
+  last_error: string | null;
+}
+
+export interface OAuthStart {
+  authorization_url: string;
+}
+
+export interface OAuthResult {
+  account: ConnectorAccount;
+  space_id: Uuid;
+  requested: ConnectorCapability[];
+  granted: ConnectorCapability[];
+  missing: ConnectorCapability[];
+  /** Reconnection: tokens restored, consents per space unchanged (none added). */
+  reconnected: boolean;
+}
+
+export interface DisconnectResult {
+  account_id: Uuid;
+  /**
+   * "failed": the provider could not revoke; "manual_required": the tokens were already wiped
+   * (reconnection needed), nothing to revoke with. Either way, the owner should withdraw
+   * LifeOS's access in the account's own settings.
+   */
+  remote_revocation: "done" | "failed" | "manual_required" | "not_needed";
+  purged: boolean;
+}
+
 // --- Voice (UC01) ------------------------------------------------------------------------
 
 export interface VoiceStatus {
