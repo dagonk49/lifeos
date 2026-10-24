@@ -33,7 +33,7 @@ dependencies = [
 ml = [
     "fastembed>=0.9,<0.10",
     "pypdfium2>=5.14,<6",
-    "pillow>=12.3",
+    "pillow>=13.0",
     "pillow-heif>=1.8,<2",
 ]
 # Only needed by the `stt` service: local speech-to-text (ADR 0009). Pinned together:
