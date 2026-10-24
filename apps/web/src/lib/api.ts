@@ -117,6 +117,8 @@ const MESSAGES: Record<string, string> = {
   llm_invalid_output: "La réponse de l'IA n'a pas pu être validée. Réessayez.",
   approval_required: "Cette action demande votre approbation explicite.",
   reauthentication_required: "Confirmez votre identité avec votre passkey.",
+  origin_mismatch:
+    "Requête refusée : elle ne provient pas de l'adresse de LifeOS. Rechargez la page ; si l'erreur persiste, vérifiez LIFEOS_PUBLIC_ORIGIN.",
   version_conflict: "Cet élément a été modifié ailleurs : rechargez la page.",
   memory_protected: "Ce souvenir est protégé : confirmez la suppression.",
   last_passkey: "Impossible de révoquer votre dernière passkey.",

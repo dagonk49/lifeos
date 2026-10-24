@@ -40,6 +40,15 @@ describe("api", () => {
     expect(errorMessage(error)).toContain("pas activé pour cet espace");
   });
 
+  it("explains a write refused for its origin (CSRF defence) without blaming the owner", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(respond(403, { status: 403, code: "origin_mismatch", title: "Origin not allowed" })),
+    );
+    const error = await api("/v1/tasks", { method: "POST", body: { title: "x" } }).catch((e: unknown) => e);
+    expect(errorMessage(error)).toContain("Rechargez la page");
+  });
+
   it("returns undefined for 204", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
     await expect(api("/v1/x", { method: "DELETE" })).resolves.toBeUndefined();

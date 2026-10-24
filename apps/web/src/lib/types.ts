@@ -334,6 +334,11 @@ export interface SessionInfo {
   current: boolean;
 }
 
+/** `POST /v1/auth/sessions/revoke-others`: sessions signed out (the current one stays). */
+export interface RevokedSessions {
+  revoked: number;
+}
+
 export interface Passkey {
   id: Uuid;
   label: string;

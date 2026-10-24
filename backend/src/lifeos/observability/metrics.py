@@ -23,3 +23,9 @@ JOB_RUNS = Counter(
     "Background job runs by job and outcome",
     ["job", "outcome"],
 )
+
+SECURITY_EVENTS = Counter(
+    "lifeos_security_events_total",
+    "Refusals and alerts seen at the HTTP layer by kind, each one counted (audited or not)",
+    ["kind"],
+)

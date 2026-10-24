@@ -20,7 +20,11 @@ autorisé, avec un contexte minimal et masqué. Rien d'important n'est fait sans
 
 Vous vous connectez avec une **passkey** (empreinte, visage ou code de l'appareil), sans mot
 de passe. Ajoutez une deuxième passkey sur un autre appareil dans **Réglages → Appareils et
-passkeys** ; cette page liste aussi les sessions ouvertes, que vous pouvez révoquer.
+passkeys** ; cette page liste aussi les sessions ouvertes, que vous pouvez révoquer une à une.
+Téléphone perdu, session que vous ne reconnaissez pas : **Déconnecter les autres sessions**
+ferme d'un coup toutes les sessions sauf celle de l'appareil que vous tenez (votre passkey
+est demandée si votre connexion date de plus de 10 minutes). L'appareil déconnecté revient à
+la page de connexion à sa prochaine action.
 
 ## Pages
 
@@ -144,7 +148,8 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
 
 ### Réglages
 
-- **Appareils et passkeys** : vos appareils, vos sessions, et leur révocation.
+- **Appareils et passkeys** : vos appareils, vos sessions, leur révocation une à une ou
+  **Déconnecter les autres sessions**.
 - **Espaces et assistant IA** : autoriser l'IA par espace, consommation du jour et du mois,
   **pause de l'assistant IA** (arrêt d'urgence : plus aucun appel cloud).
 - **Agents spécialisés / Permissions des agents** : accès accordés, avec leur échéance et
@@ -165,7 +170,18 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
     exportés ni journalisés.
 - **Préférences** : nom, fuseau horaire, plages de tranquillité.
 - **Mes données** : export complet (JSON).
-- **Journal d'audit** : qui a fait quoi, sans le contenu.
+- **Journal d'audit** : qui a fait quoi, sans le contenu. Les refus apparaissent en rouge
+  (`denied`), par exemple :
+  - `auth.session.rejected` : une session révoquée ou expirée a été réutilisée (un ancien
+    appareil, ou un cookie copié) ;
+  - `http.origin_mismatch` : une écriture venue d'un autre site a été bloquée ;
+  - `space.access` : une requête nommait un espace qui n'est pas le vôtre ;
+  - `approval.replay` : une décision a été envoyée deux fois sur la même approbation ;
+  - `chat.agent_reply`, `document.attach` : un agent sans accès a été arrêté.
+
+  `auth.session.ua_changed` signale une session utilisée depuis un autre navigateur ou
+  système que celui de la connexion : si ce n'est pas vous, utilisez **Déconnecter les autres
+  sessions**. Le détail est dans la [recette de sécurité](recette-securite.md).
 
 ## Ce que l'assistant voit — et ne voit jamais
 

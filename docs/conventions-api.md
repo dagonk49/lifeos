@@ -15,10 +15,21 @@
 
 - Cookie de session `lifeos_session` (`HttpOnly`, `Secure`, `SameSite=Strict`).
 - Toute requête `POST`, `PUT`, `PATCH`, `DELETE` doit porter un en-tête `Origin` égal à
-  l'origine publique configurée (`LIFEOS_PUBLIC_ORIGIN`), sinon `403 origin_mismatch`.
-- `401 unauthenticated` : session absente, expirée ou révoquée.
+  l'origine publique configurée (`LIFEOS_PUBLIC_ORIGIN`), sinon `403 origin_mismatch`. Le
+  refus est journalisé, compté et audité (`http.origin_mismatch`, un événement par minute,
+  sans l'origine écrite par le client).
+- `401 unauthenticated` : session absente, expirée, inactive ou révoquée, ou compte
+  désactivé. La réutilisation d'une session connue mais refusée est auditée
+  (`auth.session.rejected`, une fois par session et par heure) ; un jeton inconnu ne l'est
+  pas.
+- Une session utilisée depuis un autre navigateur ou système que celui de sa connexion (les
+  numéros de version mis à part) reste valide, mais l'événement est audité
+  (`auth.session.ua_changed`, une fois par session et par heure).
 - `403 reauthentication_required` : opération sensible nécessitant une connexion de moins de
-  10 minutes.
+  10 minutes. Le refus est audité sous le nom de l'opération (`permission.grant`,
+  `space.cloud_consent`, `auth.passkey.revoke`…).
+- `POST /v1/auth/sessions/revoke-others` (renforcée) révoque toutes les sessions sauf la
+  session courante et répond `200 {"revoked": n}` ; audité `auth.session.revoke_others`.
 
 ## Erreurs (RFC 9457 « Problem Details »)
 
@@ -39,7 +50,10 @@
 - Erreurs de validation : `422 validation_error` avec un tableau `errors`
   (`loc`, `msg`, `type`).
 - Une ressource d'un espace non autorisé répond `404` (et non `403`) pour ne pas révéler son
-  existence.
+  existence. Un `space_id` explicite (paramètre, corps ou chemin) hors des espaces autorisés
+  répond `404 space_not_found` et est audité (`space.access`, un événement par minute et par
+  compte, avec le gabarit de la route) ; un `404` sur l'identifiant d'un objet ne l'est pas
+  (indiscernable d'un objet supprimé).
 
 ## Pagination
 
@@ -84,13 +98,23 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 - Toute proposition issue du LLM (ex. analyse du journal) passe par une approbation, quel que
   soit le niveau d'autonomie de l'action.
 - `403 approval_required` : action exécutée sans approbation valide (refus audité).
+- Une approbation sert une fois : une deuxième décision (requête rejouée, double clic,
+  proposition refusée ou expirée) répond `409 approval_not_pending` avec l'extension
+  `approval_status`, et est auditée (`approval.replay`). Seul le propriétaire décide : un
+  agent reçoit `403 action_denied` (audité). Des paramètres corrigés hors du schéma
+  répondent `422 invalid_action_params`, l'approbation restant en attente.
 - `501 action_not_available` : action déclarée dans la politique mais pas encore implémentée.
 
 ## Mode dégradé du chat
 
 `POST /v1/chat/conversations/{id}/messages` répond `201` même si l'IA est indisponible : le
 message de l'utilisateur est enregistré, `assistant_message` vaut `null` et `error` contient
-le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
+le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…). Le refus
+`agent_permission_required` (agent sans permission valide dans l'espace) est audité
+(`chat.agent_reply`) et rien n'est envoyé au LLM.
+
+`context.screen` n'accepte qu'une valeur d'une liste fermée (aujourd'hui `"chat"`), jamais
+un texte libre : toute autre valeur répond `422 validation_error`.
 
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :
@@ -102,7 +126,7 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
 - `409 attachment_not_ready` ;
 - `422 attachment_unreadable` ;
 - `404 document_not_found` (autre espace ou dictée) ;
-- `403 attachment_not_allowed` (agent sans droit `documents`).
+- `403 attachment_not_allowed` (agent sans droit `documents`), audité (`document.attach`).
 
 Contrôle avant l'envoi : `POST /v1/chat/preview` (`space_id`, `content`, `agent`,
 `attachments`) applique les mêmes règles **sans rien enregistrer ni envoyer** et répond

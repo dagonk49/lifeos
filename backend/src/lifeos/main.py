@@ -6,6 +6,7 @@ from prometheus_client import make_asgi_app
 from redis.asyncio import Redis
 
 from lifeos import __version__
+from lifeos.api.denials import install_denial_handlers
 from lifeos.api.health import router as health_router
 from lifeos.api.middleware import OriginCheckMiddleware, RequestContextMiddleware
 from lifeos.config import Settings, get_settings
@@ -93,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     install_error_handlers(app)
+    install_denial_handlers(app)
     app.add_middleware(OriginCheckMiddleware, allowed_origins=[settings.public_origin])
     # Added last = outermost: every response gets a request id and is measured.
     app.add_middleware(RequestContextMiddleware)

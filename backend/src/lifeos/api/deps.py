@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Annotated
@@ -7,6 +7,7 @@ from fastapi import Depends, Request
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lifeos.api import denials
 from lifeos.config import Settings
 from lifeos.core.errors import ProblemError
 from lifeos.core.security import utcnow
@@ -71,11 +72,19 @@ async def get_optional_auth(
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
-    resolved = await identity.resolve_session(db, settings, token, ip=client_ip(request))
-    if resolved is None:
+    check = await identity.check_session(db, settings, token, ip=client_ip(request))
+    if check is None:
+        # Unknown token: nothing to attribute it to.
         return None
-    user_session, user = resolved
-    return AuthContext(user=user, session=user_session)
+    if check.refusal is not None:
+        # A revoked, expired or idle session reused (a stolen cookie, an old device).
+        await denials.session_rejected(request, check)
+        return None
+    if not identity.same_device(check.session.user_agent, request.headers.get("user-agent")):
+        # Same cookie, another browser or system: a sign of a copied cookie. Not blocked
+        # (the owner revokes the session from the settings), but recorded.
+        await denials.session_moved(request, check)
+    return AuthContext(user=check.user, session=check.session)
 
 
 async def get_auth(auth: Annotated[AuthContext | None, Depends(get_optional_auth)]) -> AuthContext:
@@ -84,23 +93,53 @@ async def get_auth(auth: Annotated[AuthContext | None, Depends(get_optional_auth
     return auth
 
 
+def _reauthentication_required() -> ProblemError:
+    return ProblemError(
+        403,
+        "reauthentication_required",
+        "Recent authentication required",
+        "Sign in again with a passkey to perform this operation.",
+    )
+
+
 async def get_recent_auth(
     auth: Annotated[AuthContext, Depends(get_auth)], settings: SettingsDep
 ) -> AuthContext:
-    """For "reinforced validation" operations: login must be recent."""
+    """For "reinforced validation" operations: login must be recent (not audited; routes
+    use `recent_auth(action)`, which records the refusal)."""
     if not is_recent(auth.session, settings):
-        raise ProblemError(
-            403,
-            "reauthentication_required",
-            "Recent authentication required",
-            "Sign in again with a passkey to perform this operation.",
-        )
+        raise _reauthentication_required()
     return auth
+
+
+async def require_recent_auth(
+    request: Request, auth: AuthContext, settings: Settings, *, action: str
+) -> None:
+    """Refuses `action` (and audits the refusal) unless the login is recent."""
+    if not is_recent(auth.session, settings):
+        await denials.reauthentication_required(
+            request, user_id=auth.user.id, session_id=auth.session.id, action=action
+        )
+        raise _reauthentication_required()
+
+
+def recent_auth(action: str) -> Callable[..., Awaitable[AuthContext]]:
+    """Dependency for a reinforced route; a refusal is audited as `action` (denied)."""
+
+    async def dependency(
+        request: Request,
+        auth: Annotated[AuthContext, Depends(get_auth)],
+        settings: SettingsDep,
+    ) -> AuthContext:
+        await require_recent_auth(request, auth, settings, action=action)
+        return auth
+
+    return dependency
 
 
 OptionalAuth = Annotated[AuthContext | None, Depends(get_optional_auth)]
 Auth = Annotated[AuthContext, Depends(get_auth)]
-RecentAuth = Annotated[AuthContext, Depends(get_recent_auth)]
+RecentAuth = Annotated[AuthContext, Depends(recent_auth("auth.reinforced"))]
 
 
 def is_recent(user_session: UserSession, settings: Settings) -> bool:

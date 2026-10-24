@@ -186,11 +186,49 @@ async def list_approvals(ctx: Ctx, *, status: str | None, limit: int = 100) -> l
     return list(rows)
 
 
-async def _pending(ctx: Ctx, approval_id: uuid.UUID) -> Approval:
+async def _deny_decision(
+    ctx: Ctx,
+    approval_id: uuid.UUID,
+    *,
+    action: str,
+    space_id: uuid.UUID | None,
+    details: dict[str, audit.DetailValue],
+) -> None:
+    await audit.record_detached(
+        ctx.database,
+        action=action,
+        outcome="denied",
+        actor_type=ctx.principal.kind,
+        actor_id=ctx.principal.actor_id,
+        user_id=ctx.principal.user_id,
+        space_id=space_id,
+        target_type="approval",
+        target_id=approval_id,
+        details=details,
+    )
+
+
+async def _pending(ctx: Ctx, approval_id: uuid.UUID, *, operation: str) -> Approval:
+    """The approval, locked, if a decision can still be taken on it.
+
+    A second decision (a replayed request, a double click, a decision on an expired or
+    rejected proposal) is refused and audited: an approval is used once at most.
+    """
     approval = await get_approval(ctx, approval_id, for_update=True)
     if approval.status == "pending" and approval.expires_at <= utcnow():
         approval.status = "expired"
     if approval.status != "pending":
+        await _deny_decision(
+            ctx,
+            approval.id,
+            action="approval.replay",
+            space_id=approval.space_id,
+            details={
+                "operation": operation,
+                "status": approval.status,
+                "action": approval.action,
+            },
+        )
         raise ProblemError(
             409,
             "approval_not_pending",
@@ -205,9 +243,24 @@ async def approve(
 ) -> Approval:
     """The owner approves (optionally after editing the exact parameters), then it runs."""
     if ctx.principal.kind != "user":
+        # Agents propose, the owner decides: never an approval by an agent or a job.
+        await _deny_decision(
+            ctx,
+            approval_id,
+            action="approval.approve",
+            space_id=None,
+            details={"reason": "owner_only"},
+        )
         raise ProblemError(403, "action_denied", "Only the owner can approve")
-    approval = await _pending(ctx, approval_id)
+    approval = await _pending(ctx, approval_id, operation="approve")
     if approval.level == "reinforced" and not ctx.principal.recent_auth:
+        await _deny_decision(
+            ctx,
+            approval.id,
+            action="approval.approve",
+            space_id=approval.space_id,
+            details={"reason": "reauthentication_required", "action": approval.action},
+        )
         raise ProblemError(403, "reauthentication_required", "Recent authentication required")
     entry = _registered(approval.action)
     if edited_params is not None:
@@ -241,7 +294,7 @@ async def approve(
 
 
 async def reject(ctx: Ctx, approval_id: uuid.UUID) -> Approval:
-    approval = await _pending(ctx, approval_id)
+    approval = await _pending(ctx, approval_id, operation="reject")
     approval.status = "rejected"
     approval.decided_at = utcnow()
     await audit.record(

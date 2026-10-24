@@ -37,25 +37,26 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | # | Menace | Parades | Étape |
 |---|---|---|---|
 | T1 | Phishing / vol d'identifiants | passkeys (résistantes au phishing), aucun mot de passe | 1 |
-| T2 | Vol de cookie de session | `HttpOnly`, `Secure`, `SameSite=Strict`, empreinte seule en base, expiration absolue et d'inactivité, révocation, liste des sessions | 1 |
-| T3 | CSRF | `SameSite=Strict` + vérification `Origin` sur les requêtes non sûres | 1 |
+| T2 | Vol de cookie de session | `HttpOnly`, `Secure`, `SameSite=Strict`, empreinte seule en base, expiration absolue et d'inactivité, révocation, liste des sessions et « Déconnecter les autres sessions » (connexion récente) ; réutilisation d'une session révoquée, expirée ou inactive refusée et auditée (`auth.session.rejected`, une fois par session et par heure) ; même session vue depuis un autre navigateur ou système auditée sans blocage (`auth.session.ua_changed`) ; opérations renforcées refusées et auditées au-delà de 10 minutes après la connexion | 1 |
+| T3 | CSRF | `SameSite=Strict` + vérification `Origin` sur les requêtes non sûres ; refus `origin_mismatch` journalisés, comptés et audités (`http.origin_mismatch`, un par minute) | 1 |
 | T4 | Force brute / déni sur l'auth | limitation de débit Traefik par adresse du client (derrière un reverse proxy : la dernière adresse de `X-Forwarded-For`, celle que le proxy ajoute lui-même, jamais une valeur écrite par le client), jetons d'enrôlement 256 bits à durée courte | 1 |
 | T5 | Exposition des services internes | réseau Docker `internal`, seul Traefik publie 80/443 (derrière un reverse proxy existant : aucun port, joignable par le seul réseau `lifeos-proxy`), `/metrics` non routé | 1 |
 | T6 | Secrets dans Git | `.gitignore`, secrets Docker, `.env.example` sans valeur | 1 |
 | T7 | Fuite de données dans les logs | logs sans corps ni prompts ; audit sans contenu | 1 |
 | T8 | Vol ou perte des sauvegardes | chiffrement restic ; clé des documents et mots de passe hors des sauvegardes (fiche de récupération, `export-keys.sh`) ; copie hors machine automatique avec la même rétention ; restauration testée chaque semaine (et chaque mois depuis la copie) ; alerte à chaque échec et signal de vie externe | 1 |
 | T9 | Dépendances compromises | versions verrouillées (`uv.lock`, `pnpm-lock.yaml`), audit des dépendances en CI | 1 |
-| T10 | Injection de prompt indirecte (document, e-mail, contenu mémorisé) | les contenus importés ne valent jamais autorisation ; le Guardian décide hors LLM ; sorties structurées validées ; actions importantes soumises à approbation avec aperçu exact | 2 |
-| T11 | Escalade d'agent | un agent ne peut pas s'octroyer de permission ; `agent_permissions` gérées uniquement par l'utilisateur avec réauthentification récente | 2 |
-| T12 | Fuite inter-espaces | filtrage par espace dans chaque service ; tests dédiés ; RLS prévu en défense en profondeur | 2 |
+| T10 | Injection de prompt indirecte (document, e-mail, contenu mémorisé) | les contenus importés ne valent jamais autorisation ; le Guardian décide hors LLM ; sorties structurées validées (champs hors schéma ignorés) ; actions importantes soumises à approbation avec aperçu exact ; chaque donnée du contexte (mémoire, journal, tâches, objectifs, opérations) tient sur une ligne et ne peut pas imiter une section ; contexte d'écran limité à une liste fermée | 2 |
+| T11 | Escalade d'agent | un agent ne peut pas s'octroyer de permission ni décider d'une approbation (refus audité `approval.approve`) ; `agent_permissions` gérées uniquement par l'utilisateur avec réauthentification récente ; agent sans permission valide (jamais accordée, retirée, expirée) refusé avant tout appel et audité (`chat.agent_reply`, `document.attach`) | 2 |
+| T12 | Fuite inter-espaces | filtrage par espace dans chaque service ; objet d'un autre compte → `404` sur chaque route par identifiant ; `space_id` hors des espaces autorisés → `404` audité (`space.access`, un par minute et par compte) ; tests dédiés ([recette](recette-securite.md)) ; RLS prévu en défense en profondeur | 2 |
+| T32 | Rejeu d'une approbation (requête rejouée, double clic, décision sur une proposition refusée ou expirée) | approbation à usage unique, ligne verrouillée pendant la décision ; `409 approval_not_pending` audité (`approval.replay`) ; paramètres corrigés revalidés par le schéma de l'action ; niveau renforcé : connexion récente exigée, refus audité | 2 |
 | T13 | Fuite vers le fournisseur LLM | consentement par espace, paquet minimal, masquage local des identifiants (y compris espaces insécables, points, tirets, minuscules, confusions d'OCR, e-mails déguisés, numéros de pièces annoncés), contrôle avant l'envoi (ce qui sera masqué, ce qui reste local, confirmation ou annulation), budget, journal des appels | 2 |
 | T14 | Exfiltration via la sortie du LLM (liens/images Markdown vers un domaine tiers) | réponses affichées en texte brut (aucun HTML ni Markdown interprété) ; CSP `img-src 'self' data:` et `connect-src 'self'` | 2 |
 | T15 | Coût LLM incontrôlé (boucle, abus) | projet Gemini **sans compte de facturation** (rien ne peut être facturé, ADR 0007) ; plafonds quotidiens par palier et budget mensuel ; arrêt d'urgence ; aucune nouvelle tentative automatique ; limites de profondeur et d'appels par requête | 2, 3 |
 | T16 | Hallucination présentée comme un fait | `origin` + `confidence` ; distinction fait / inférence dans l'interface ; corrections prioritaires | 2 |
 | T17 | Fichiers malveillants (bombe de décompression ou de calcul, PDF, image ou audio piégés, fichiers déguisés ou polyglottes, HTML/SVG actifs) | liste blanche par **signature** (balisage refusé comme texte, même après BOM ou commentaire) ; taille bornée pendant la lecture ; analyse dans `ml` ou `stt` isolés (sans sortie, lecture seule, sans privilèges) ; **chaque analyse dans un processus enfant confiné** (`lifeos.isolation` : mémoire bornée, premier tué par le noyau si la mémoire manque, tué avec son groupe de processus au délai, Tesseract compris et récupéré par l'init du conteneur, sans fichier `core`) ; décodeur et démultiplexeur imposés par le type détecté, liste courte de codecs audio, piste vidéo jamais décodée ; contrôle des dimensions avant décodage (images, images d'un PDF) et du nombre de passes d'un JPEG ; audio décodé progressivement et refusé dès la durée maximale dépassée ; trois plantages de suite → échec définitif ; images ré-encodées à partir des pixels, jamais servies avant ; originaux servis en téléchargement (`nosniff`, `CSP sandbox`, `no-store`). **Pas d'antivirus** pour les fichiers déposés par le propriétaire (ADR 0011 : critères, mémoire, accès sortant) ; pièces jointes d'e-mail importées seulement à la demande, avec provenance et avertissement ; antivirus (`clamd` sans sortie, `freshclam` à part) si des fichiers de tiers sont un jour importés automatiquement | 4 |
 | T24 | Fuite d'un document sensible vers le cloud (pièce jointe, agent) | classement local identité / santé / banque avant tout usage, retesté à chaque correction et de nouveau à l'envoi avec les règles en vigueur, reclassement des documents lus par d'anciennes règles (catégories seulement ajoutées) ; refus manuel « Toujours garder en local », jamais levé par une relecture et levé seulement avec une passkey récente ; refus côté serveur avant enregistrement du message ; agents limités aux métadonnées des tickets ; audit `document.attach` | 4 |
-| T25 | Injection de prompt par le contenu d'un document joint | texte présenté comme données délimitées ; le Guardian décide hors LLM ; aucune action sans approbation (T10) | 4 |
-| T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; l'envoi brut n'est jamais servi pendant la lecture (409) ; une image illisible (donc non nettoyable) n'est pas conservée | 4 |
+| T25 | Injection de prompt par le contenu d'un document joint | texte présenté comme données délimitées, délimiteurs neutralisés dans le texte (`‹`, `›`) et titre nettoyé sur une ligne : un document ne peut ni fermer son bloc ni forger un en-tête ; le Guardian décide hors LLM ; aucune action sans approbation (T10) | 4 |
+| T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; une image n'est servie qu'une fois ré-encodée (`original_sanitized`, sinon 409) ; une image illisible (donc non nettoyable) n'est pas conservée, une lecture interrompue la garde pour une nouvelle lecture | 4 |
 | T27 | Conservation abusive de la voix | enregistrement chiffré puis supprimé dès la transcription (ou le refus) ; dictées effacées après 24 h ; transcription locale ; lecture à voix haute avec les seules voix locales de l'appareil | 4 |
 | T28 | Perte ou vol de la clé des documents | secret Docker séparé des données ; non inclus dans les sauvegardes (seule son empreinte SHA-256 tronquée accompagne chaque sauvegarde) ; copie hors du serveur via la fiche de récupération ; clé écrasée ou remplacée détectée par le test de restauration hebdomadaire (empreinte et déchiffrement des originaux), qui alerte ; une restauration avec une autre clé est refusée avant de remplacer quoi que ce soit | 4 |
 | T18 | SSRF via connecteurs / URLs | hôtes de chaque fournisseur en liste blanche codée en dur (aucune URL venue d'une réponse ou de l'utilisateur), HTTPS seulement, redirections non suivies, délais explicites. Prévu pour des hôtes choisis par l'utilisateur (CalDAV, IMAP) : résolution puis refus des adresses privées, de bouclage et locales | 5 |
@@ -88,12 +89,33 @@ jamais mises en cache (`no-store`). Limites restantes :
 
 ## 4. Tests de sécurité associés
 
-- Auth : rejeu de défi, défi expiré, jeton d'enrôlement réutilisé, session révoquée ou expirée,
-  requête sans `Origin` valide.
+La [recette de sécurité](recette-securite.md) détaille chaque scénario interdit : résultat
+attendu, code d'erreur, événement d'audit et test (`backend/tests/test_security.py` pour
+l'essentiel). En résumé :
+
+- Auth : rejeu de défi, défi expiré, jeton d'enrôlement réutilisé, session révoquée, expirée
+  ou inactive, compte désactivé, attributs du cookie, requête sans `Origin` valide.
+- Sessions volées (T2) : cookie copié dans un autre client signalé, inutilisable dès sa
+  révocation depuis un autre appareil (refus audité une fois par heure, même en boucle) ;
+  « Déconnecter les autres sessions » ; opérations renforcées refusées et auditées avec une
+  connexion ancienne.
+- CSRF (T3) : origines étrangère, `null`, suffixée, autre port, autre schéma ou absente,
+  sur `POST`, `PATCH`, `DELETE`, envoi `multipart` et approbation → `403`, aucun changement
+  d'état, refus audité et limité.
 - Guardian : action soumise à approbation exécutée sans approbation → refusée et auditée ;
-  agent sans permission sur un espace → refusé ; permission expirée ou révoquée → refusée.
-- Espaces : aucune recherche ni aucun paquet de contexte ne contient de donnée d'un autre
-  espace.
+  agent sans permission sur un espace → refusé ; permission expirée, révoquée ou d'un autre
+  espace → aucun appel au LLM, refus audité ; un agent ne peut pas approuver.
+- Rejeu d'approbations (T32) : deuxième décision, décisions simultanées, proposition
+  refusée ou expirée → exécutée au plus une fois, rejeu audité ; paramètres hors schéma
+  refusés ; approbation renforcée sans connexion récente refusée.
+- Espaces (T12) : aucune recherche ni aucun paquet de contexte (assistant général et
+  chaque agent) ne contient de donnée d'un autre espace ; objets d'un autre compte → `404`
+  sur chaque route par identifiant, sans modification ; `space_id` d'un autre compte →
+  `404` audité.
+- Injections indirectes (T10, T25) : fait mémorisé ou document qui donne des ordres → aucune
+  approbation, permission ni tâche ; une donnée ne peut ni ouvrir une section du contexte,
+  ni fermer son bloc, ni forger l'en-tête d'une pièce jointe ; sortie structurée réduite à
+  son schéma ; contexte d'écran libre refusé.
 - Cloud : espace sans consentement → aucun appel ; budget atteint → aucun appel ; données
   sensibles masquées dans le paquet envoyé ; variantes d'identifiants (espaces insécables et
   fines, points, tirets, minuscules, OCR `O`/`0` et `l`/`1`, `0033` et `+33 (0)`, e-mails

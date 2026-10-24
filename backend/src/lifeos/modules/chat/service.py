@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import Page, keyset, page
 from lifeos.core.security import utcnow
-from lifeos.modules.agents.context import build_sections
+from lifeos.modules.agents.context import build_sections, one_line
 from lifeos.modules.agents.registry import AGENT_SPECS, suggest_agent
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat import attachments
@@ -189,7 +189,8 @@ async def _system_prompt(
     if items:
         lines = [
             f"- [{item.kind}, {_ORIGIN_LABELS.get(item.origin, item.origin)}, "
-            f"{item.date.astimezone(ZoneInfo(ctx.user.timezone)).date().isoformat()}] {item.text}"
+            f"{item.date.astimezone(ZoneInfo(ctx.user.timezone)).date().isoformat()}] "
+            f"{one_line(item.text)}"
             for item in items
         ]
         memory_block = MEMORY_BLOCK.format(items="\n".join(lines))
@@ -211,9 +212,25 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         else None
     )
     # Checked before anything is saved: a refused attachment leaves no trace of the message.
-    attached = await attachments.load(
-        ctx.db, agent or ctx.principal, conversation.space_id, data.attachments
-    )
+    reader = agent or ctx.principal
+    try:
+        attached = await attachments.load(ctx.db, reader, conversation.space_id, data.attachments)
+    except ProblemError as exc:
+        if exc.code == "attachment_not_allowed":
+            # An agent without the documents right (never granted, revoked or expired).
+            await audit.record_detached(
+                ctx.database,
+                action="document.attach",
+                outcome="denied",
+                actor_type=reader.kind,
+                actor_id=reader.actor_id,
+                user_id=ctx.principal.user_id,
+                space_id=conversation.space_id,
+                target_type="conversation",
+                target_id=conversation.id,
+                details={"reason": "no_permission", "attachments": len(data.attachments)},
+            )
+        raise
     now = utcnow()
     user_message = Message(
         user_id=ctx.principal.user_id,
@@ -272,6 +289,19 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
             # (the client resends them with the message once access is granted).
             user_message.attachments = []
             await ctx.db.flush()
+            # Never granted, revoked or expired: the refusal is kept with the message.
+            await audit.record(
+                ctx.db,
+                action="chat.agent_reply",
+                outcome="denied",
+                actor_type="agent",
+                actor_id=data.agent,
+                user_id=ctx.principal.user_id,
+                space_id=space.id,
+                target_type="conversation",
+                target_id=conversation.id,
+                details={"reason": "no_permission", "missing": ",".join(missing)},
+            )
             return degraded(
                 "agent_permission_required",
                 "This agent has no access to this space",
@@ -289,9 +319,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         )
         context_items = len(sections)
     if attached:
-        await attachments.record(
-            ctx.db, agent or ctx.principal, attached, message_id=user_message.id
-        )
+        await attachments.record(ctx.db, reader, attached, message_id=user_message.id)
     request = LLMRequest(
         purpose="chat.reply" if data.agent == "core" else f"agent.{data.agent}",
         system=system,

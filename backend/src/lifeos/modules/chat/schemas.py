@@ -50,10 +50,15 @@ class ConversationDetail(ConversationOut):
     messages: list[MessageOut]
 
 
+# The screens the web client sends the assistant from: a closed list, never free text
+# placed in the prompt.
+Screen = Literal["chat"]
+
+
 class ChatContext(BaseModel):
     """Interface context explicitly selected by the client (never implicit data)."""
 
-    screen: str | None = Field(default=None, max_length=40)
+    screen: Screen | None = None
 
 
 AgentChoice = Literal["core", "planning", "coaching", "memory", "finance"]
