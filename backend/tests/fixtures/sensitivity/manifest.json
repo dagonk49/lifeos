@@ -1,0 +1,102 @@
+{
+  "identite-cni.txt": [
+    "identity"
+  ],
+  "identite-cni-ocr.txt": [
+    "identity"
+  ],
+  "identite-passeport-mrz.txt": [
+    "identity"
+  ],
+  "identite-passeport-numero.txt": [
+    "identity"
+  ],
+  "identite-titre-sejour-ocr.txt": [
+    "identity"
+  ],
+  "identite-permis.txt": [
+    "identity"
+  ],
+  "identite-acte-naissance.txt": [
+    "identity"
+  ],
+  "identite-avis-impot.txt": [
+    "identity"
+  ],
+  "identite-taxe-fonciere.txt": [
+    "identity"
+  ],
+  "identite-taxe-habitation-ocr.txt": [
+    "identity"
+  ],
+  "identite-carte-grise.txt": [
+    "identity"
+  ],
+  "sante-ordonnance.txt": [
+    "health"
+  ],
+  "sante-ordonnance-ocr.txt": [
+    "health"
+  ],
+  "sante-ordonnance-sans-titre.txt": [
+    "health"
+  ],
+  "sante-compte-rendu.txt": [
+    "health"
+  ],
+  "sante-analyses.txt": [
+    "health"
+  ],
+  "sante-arret-travail.txt": [
+    "health"
+  ],
+  "sante-attestation-cpam.txt": [
+    "health"
+  ],
+  "sante-decompte-mutuelle.txt": [
+    "health"
+  ],
+  "sante-carte-vitale-nir-points.txt": [
+    "health"
+  ],
+  "sante-nir-cle-invalide.txt": [
+    "health"
+  ],
+  "sante-psy.txt": [
+    "health"
+  ],
+  "banque-rib.txt": [
+    "bank"
+  ],
+  "banque-iban-nbsp.txt": [
+    "bank"
+  ],
+  "banque-iban-tirets-minuscules.txt": [
+    "bank"
+  ],
+  "banque-iban-ocr.txt": [
+    "bank"
+  ],
+  "banque-releve.txt": [
+    "bank"
+  ],
+  "banque-bulletin-paie.txt": [
+    "bank"
+  ],
+  "banque-offre-pret.txt": [
+    "bank"
+  ],
+  "banque-carte.txt": [
+    "bank"
+  ],
+  "ordinaire-ticket-carrefour.txt": [],
+  "ordinaire-ticket-pharmacie.txt": [],
+  "ordinaire-facture-siret.txt": [],
+  "ordinaire-courrier-loyer.txt": [],
+  "ordinaire-reunion.txt": [],
+  "ordinaire-conseil-classe.txt": [],
+  "ordinaire-courses.txt": [],
+  "prudence-passeport-voyage.txt": [
+    "identity"
+  ]
+}

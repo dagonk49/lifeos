@@ -84,6 +84,8 @@ function mockApi(replies: SendResult[]): Call[] {
         return json(agents([]));
       }
       if (url === "/v1/chat/conversations/c1/messages") return json(replies.shift(), 201);
+      // The control before sending: nothing masked, nothing left out (sent at once).
+      if (url === "/v1/chat/preview") return json({ masked: {}, attachments: [] });
       return json({ title: "Not found", status: 404, code: "not_found" }, 404);
     }),
   );

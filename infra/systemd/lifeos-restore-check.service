@@ -1,0 +1,17 @@
+# Weekly restore test of the latest backup run, production untouched
+# (infra/scripts/restore-check.sh). A failure sends an alert.
+[Unit]
+Description=LifeOS restore test (latest backup, main repository)
+Documentation=file:///opt/lifeos/docs/restauration.md
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=lifeos-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/lifeos/backup.env
+WorkingDirectory=/opt/lifeos/infra
+ExecStart=/opt/lifeos/infra/scripts/restore-check.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=6h

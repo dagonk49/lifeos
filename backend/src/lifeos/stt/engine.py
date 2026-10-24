@@ -8,16 +8,21 @@ while without any, to give its memory back.
 Whisper invents text on silence or noise, typically the credits of the subtitled videos it
 was trained on: voice activity detection skips silences, and the known French phantom
 sentences are removed.
+
+Recordings are untrusted files (ADR 0011): FFmpeg reads them in a confined child process,
+with the demuxer imposed by the detected type and a short list of audio codecs.
 """
 
 import io
 import re
+import signal
 import threading
 import time
 import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
+from lifeos import isolation
 from lifeos.config import Settings
 from lifeos.logging import get_logger
 
@@ -52,6 +57,7 @@ class Transcript:
     text: str
     duration: float  # seconds of audio
     speech: float  # seconds of detected speech
+    decode_peak_mb: int | None = None  # memory of the isolated decoding (MiB)
 
 
 def _normalise(text: str) -> str:
@@ -73,13 +79,52 @@ def clean_segments(texts: list[str]) -> str:
     return " ".join(kept)
 
 
-def decode(data: bytes, *, max_seconds: float) -> Any:
-    """The audio as 16 kHz mono float32 samples (PyAV, i.e. FFmpeg, in this sandbox).
+# Demuxer imposed by the type found by signature (`sniff`): FFmpeg never guesses the
+# container from the content. (Behind an ID3 tag, an MPEG-TS, AC-3 or Ogg stream would
+# otherwise be read by that format's parser: the type checked is the type parsed.)
+DEMUXERS = {
+    "audio/webm": "matroska",
+    "audio/ogg": "ogg",
+    "audio/mp4": "mp4",
+    "audio/wav": "wav",
+    "audio/mpeg": "mp3",
+}
+# Codecs a recording may use (browsers: Opus, AAC; files: MP3, Vorbis, FLAC, ALAC, PCM).
+# FFmpeg has about two hundred audio decoders: the others are never opened, not even to
+# probe the streams, and a video track is never decoded.
+AUDIO_CODECS = frozenset(
+    {
+        "opus",
+        "vorbis",
+        "aac",
+        "mp3",
+        "flac",
+        "alac",
+        "pcm_s16le",
+        "pcm_s24le",
+        "pcm_s32le",
+        "pcm_f32le",
+        "pcm_f64le",
+        "pcm_u8",
+        "pcm_alaw",
+        "pcm_mulaw",
+    }
+)
+# FFmpeg's decoder names for those codecs (option `codec_whitelist`, applied while the
+# streams are probed).
+_DECODERS = ",".join(sorted(AUDIO_CODECS | {"libopus", "libvorbis", "aac_fixed", "mp3float"}))
+# The isolated decoding (`lifeos.isolation`). Memory: FFmpeg and the interpreter, plus the
+# 16-bit samples (held about three times while they are joined and sent). Time: a fixed
+# part plus a twentieth of the audio (decoding runs some 400 times faster than real time).
+DECODE_BASE_MB = 512
+DECODE_BASE_S = 60.0
 
-    Decoded progressively and refused as soon as it exceeds `max_seconds` (plus the
-    tolerance): a small file can hold hours of (silent) audio, which must never be
-    expanded in memory first.
-    """
+# The fork server imports these once: a decoding child starts in milliseconds.
+isolation.preload(__name__, "av", "numpy", "faster_whisper.audio")
+
+
+def _decode_samples(data: bytes, mime: str, max_seconds: float) -> bytes:
+    """Runs in the isolated child: 16 kHz mono 16-bit samples, decoded progressively."""
     import gc
 
     import av  # the `stt` extra
@@ -95,13 +140,25 @@ def decode(data: bytes, *, max_seconds: float) -> Any:
     chunks: list[Any] = []
     count = 0
     try:
-        with av.open(io.BytesIO(data), mode="r", metadata_errors="ignore") as container:
+        with av.open(
+            io.BytesIO(data),
+            mode="r",
+            format=DEMUXERS[mime],
+            container_options={"codec_whitelist": _DECODERS},
+            metadata_errors="ignore",
+        ) as container:
+            if not container.streams.audio:  # a video, subtitles, nothing at all
+                raise SttFailure("unreadable")
+            stream = container.streams.audio[0]
+            context = stream.codec_context
+            if context is None or context.codec.canonical_name not in AUDIO_CODECS:
+                raise SttFailure("unsupported_codec")
             if container.duration is not None and container.duration / av.time_base > allowed:
                 raise SttFailure("too_long")
             resampler = av.audio.resampler.AudioResampler(
                 format="s16", layout="mono", rate=SAMPLE_RATE
             )
-            frames = _ignore_invalid_frames(container.decode(audio=0))
+            frames = _ignore_invalid_frames(container.decode(stream))
             for frame in _resample_frames(_group_frames(frames, 500_000), resampler):
                 samples = frame.to_ndarray().reshape(-1)
                 count += samples.shape[0]
@@ -116,10 +173,66 @@ def decode(data: bytes, *, max_seconds: float) -> Any:
     finally:
         gc.collect()  # PyAV resampler objects are only freed by the collector
     if not chunks:
-        return np.zeros(0, dtype=np.float32)
-    audio = np.concatenate(chunks).astype(np.float32)
+        return b""
+    joined: bytes = np.concatenate(chunks).astype(np.int16).tobytes()
+    return joined
+
+
+def _decode_message(data: bytes, mime: str, max_seconds: float) -> tuple[Any, ...]:
+    """Runs in the isolated child: the outcome as a picklable message."""
+    try:
+        return ("ok", _decode_samples(data, mime, max_seconds))
+    except SttFailure as exc:
+        return ("fail", exc.code, exc.status)
+
+
+@dataclass(frozen=True)
+class Decoded:
+    samples: Any  # float32 numpy array
+    peak_mb: int  # memory of the isolated decoding (MiB)
+
+
+def decode_isolated(data: bytes, *, mime: str, max_seconds: float) -> Decoded:
+    """The audio as 16 kHz mono float32 samples (PyAV, i.e. FFmpeg, in this sandbox).
+
+    Decoded progressively and refused as soon as it exceeds `max_seconds` (plus the
+    tolerance): a small file can hold hours of (silent) audio, which must never be
+    expanded in memory first. The decoding runs in a confined child process: a decoder
+    that crashes, hangs or allocates without end fails this recording only, while the
+    service and its loaded model stay up.
+    """
+    import numpy as np
+
+    if mime not in DEMUXERS:
+        raise SttFailure("unsupported_type", status=415)
+    allowed = max_seconds + TOLERANCE_S
+    memory_mb = DECODE_BASE_MB + int(allowed * SAMPLE_RATE * 2 * 3) // (1024 * 1024)
+    try:
+        answer = isolation.run(
+            _decode_message,
+            (data, mime, max_seconds),
+            memory_mb=memory_mb,
+            timeout_s=DECODE_BASE_S + allowed / 20,
+        )
+    except isolation.ChildTimeoutError as exc:  # stuck in a decoder: killed
+        raise SttFailure("too_slow") from exc
+    except isolation.ChildDiedError as exc:
+        if exc.signal != signal.SIGKILL:  # out of its own memory, or crashed by the file
+            raise SttFailure("unreadable") from exc
+        # Killed: the kernel's first choice when the container runs short, perhaps because
+        # of the model, not the file. Retried a few times by the API (`MAX_FAILURES`).
+        raise SttFailure("transcription_crashed", status=500) from exc
+    message = answer.value
+    if message[0] != "ok":
+        raise SttFailure(message[1], status=message[2])
+    audio = np.frombuffer(message[1], dtype=np.int16).astype(np.float32)
     audio /= 32768.0
-    return audio
+    return Decoded(samples=audio, peak_mb=answer.peak_mb)
+
+
+def decode(data: bytes, *, mime: str, max_seconds: float) -> Any:
+    """`decode_isolated`, the samples only."""
+    return decode_isolated(data, mime=mime, max_seconds=max_seconds).samples
 
 
 class Engine:
@@ -179,11 +292,15 @@ class Engine:
             return model
         raise SttFailure("model_unavailable", status=503) from RuntimeError("; ".join(errors))
 
-    def transcribe(self, data: bytes, *, max_seconds: float) -> Transcript:
-        audio = decode(data, max_seconds=max_seconds)
+    def transcribe(self, data: bytes, *, mime: str, max_seconds: float) -> Transcript:
+        """`mime`: the type detected by signature, which imposes the demuxer."""
+        decoded = decode_isolated(data, mime=mime, max_seconds=max_seconds)
+        audio = decoded.samples
         duration = len(audio) / SAMPLE_RATE
         if duration < MIN_SECONDS:
-            return Transcript(text="", duration=duration, speech=0.0)
+            return Transcript(
+                text="", duration=duration, speech=0.0, decode_peak_mb=decoded.peak_mb
+            )
         with self._lock:
             if self._model is None:
                 self._model = self._load()
@@ -201,7 +318,12 @@ class Engine:
             finally:
                 self._last_used = time.monotonic()
         speech = float(getattr(info, "duration_after_vad", duration) or 0.0)
-        return Transcript(text=clean_segments(texts), duration=duration, speech=speech)
+        return Transcript(
+            text=clean_segments(texts),
+            duration=duration,
+            speech=speech,
+            decode_peak_mb=decoded.peak_mb,
+        )
 
     def unload_if_idle(self) -> bool:
         idle = self._settings.stt_idle_unload_s

@@ -70,6 +70,13 @@ _SPECS = [
         "documents",
     ),
     ActionSpec("document.delete", "Supprimer un document", Level.AUTOMATIC, None, "documents"),
+    # Lifting « Toujours garder en local »: the document may go to the assistant again.
+    ActionSpec(
+        "document.allow_cloud",
+        "Autoriser l'envoi à l'IA d'un document gardé en local",
+        Level.REINFORCED,
+        None,
+    ),
     # "Classer une dépense" is automatic (cahier des charges §5), logged and correctable.
     ActionSpec(
         "finance.write",
@@ -93,6 +100,12 @@ _SPECS = [
     ActionSpec("permission.grant", "Accorder une permission à un agent", Level.REINFORCED, None),
     ActionSpec("space.cloud_consent", "Modifier le consentement cloud", Level.REINFORCED, None),
     ActionSpec("data.bulk_delete", "Destruction importante de données", Level.REINFORCED, None),
+    # Connected accounts (ADR 0012): giving access is reinforced, withdrawing it immediate.
+    ActionSpec("connector.connect", "Connecter un compte externe", Level.REINFORCED, None),
+    ActionSpec(
+        "connector.grant", "Autoriser un compte connecté dans un espace", Level.REINFORCED, None
+    ),
+    ActionSpec("connector.disconnect", "Déconnecter un compte externe", Level.AUTOMATIC, None),
 ]
 
 ACTIONS: dict[str, ActionSpec] = {spec.name: spec for spec in _SPECS}

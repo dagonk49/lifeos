@@ -161,6 +161,41 @@ export interface SendResult {
   suggested_agent: AgentName | null;
 }
 
+/** Identifiers masked locally before a message leaves the server (kinds, never values). */
+export type MaskKind =
+  | "email"
+  | "phone"
+  | "iban"
+  | "card"
+  | "nir"
+  | "secret"
+  | "passport"
+  | "id_number"
+  | "tax_number";
+export type MaskCounts = Partial<Record<MaskKind, number>>;
+/** Why an attached document stays on the server. */
+export type AttachmentRefusal =
+  | "not_allowed"
+  | "not_found"
+  | "not_ready"
+  | "sensitive"
+  | "local_only"
+  | "unreadable";
+
+export interface AttachmentPreview {
+  document_id: Uuid;
+  sent: boolean;
+  reason: AttachmentRefusal | null;
+  sensitivity: SensitivityCategory[];
+  masked: MaskCounts;
+}
+
+/** POST /v1/chat/preview: the control before sending (nothing saved, nothing sent). */
+export interface SendPreview {
+  masked: MaskCounts;
+  attachments: AttachmentPreview[];
+}
+
 export interface ConsolidationResult {
   /** Null when nothing durable was found. */
   approval_id: Uuid | null;
@@ -299,6 +334,11 @@ export interface SessionInfo {
   current: boolean;
 }
 
+/** `POST /v1/auth/sessions/revoke-others`: sessions signed out (the current one stays). */
+export interface RevokedSessions {
+  revoked: number;
+}
+
 export interface Passkey {
   id: Uuid;
   label: string;
@@ -340,15 +380,22 @@ export interface LLMUsage {
   /** free: daily request caps (no billing account); paid: cost budgets in USD. */
   billing: "free" | "paid";
   models: Record<LLMTier, string | null>;
+  /** Includes the calls still running (their quota is reserved, ADR 0010). */
   requests_today: Record<LLMTier, number>;
+  /** Calls currently holding a reservation. */
+  in_flight: Record<LLMTier, number>;
+  /** Enforced caps: the configured ones minus `daily_request_margin`. */
   daily_request_caps: Record<LLMTier, number>;
+  daily_request_margin: number;
   quota_resets_at: string;
   month_tokens_used: number;
   month_token_budget: number;
   cost_today_usd: string;
   cost_month_usd: string;
+  /** Enforced budgets: the configured ones minus the `budget_margin_ratio` share. */
   daily_budget_usd: number;
   monthly_budget_usd: number;
+  budget_margin_ratio: number;
   recent_calls: {
     id: Uuid;
     space_id: Uuid | null;
@@ -549,6 +596,8 @@ export interface DocumentSummary {
   /** Machine-readable reason of a pending (retry) or failed status. */
   error: string | null;
   sensitivity: SensitivityCategory[];
+  /** « Toujours garder en local »: the owner's choice, whatever the detection finds. */
+  local_only: boolean;
   /** "pdf" (text layer), "ocr", "text" (plain text file), "speech" (dictation). */
   text_source: string | null;
   text_confidence: number | null;
@@ -556,6 +605,8 @@ export interface DocumentSummary {
   processed_at: string | null;
   text_corrected_at: string | null;
   original_available: boolean;
+  /** Kept and, for a picture, re-encoded from its pixels: the server serves it. */
+  original_downloadable: boolean;
   /** Purge date of the original; null while it is kept indefinitely. */
   original_until: string | null;
   keep_original: boolean;
@@ -668,6 +719,76 @@ export interface BudgetSnapshot {
   alerts: { category_id: Uuid; name: string; budget: Decimal; spent: Decimal; ratio: number }[];
 }
 
+// --- Connected accounts (ADR 0012) --------------------------------------------------------
+
+export type ConnectorCapability = "calendar.read" | "calendar.write" | "mail.read" | "mail.send";
+export type ConnectorStatus = "active" | "reauth_required" | "revoked";
+
+export interface ConnectorProvider {
+  name: string;
+  label: string;
+  capabilities: ConnectorCapability[];
+}
+
+/** The owner's consent: this account may serve this capability in this space. */
+export interface ConnectorGrant {
+  id: Uuid;
+  space_id: Uuid;
+  capability: ConnectorCapability;
+  created_at: string;
+  expires_at: string | null;
+}
+
+/** A calendar or a mail label mapped to a space. */
+export interface ConnectorSource {
+  id: Uuid;
+  space_id: Uuid;
+  kind: "calendar" | "mail_label";
+  name: string;
+  enabled: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+}
+
+export interface ConnectorAccount {
+  id: Uuid;
+  provider: string;
+  email: string | null;
+  status: ConnectorStatus;
+  /** What the provider actually granted (the owner may untick accesses there). */
+  capabilities: ConnectorCapability[];
+  grants: ConnectorGrant[];
+  sources: ConnectorSource[];
+  connected_at: string;
+  revoked_at: string | null;
+  last_error: string | null;
+}
+
+export interface OAuthStart {
+  authorization_url: string;
+}
+
+export interface OAuthResult {
+  account: ConnectorAccount;
+  space_id: Uuid;
+  requested: ConnectorCapability[];
+  granted: ConnectorCapability[];
+  missing: ConnectorCapability[];
+  /** Reconnection: tokens restored, consents per space unchanged (none added). */
+  reconnected: boolean;
+}
+
+export interface DisconnectResult {
+  account_id: Uuid;
+  /**
+   * "failed": the provider could not revoke; "manual_required": the tokens were already wiped
+   * (reconnection needed), nothing to revoke with. Either way, the owner should withdraw
+   * LifeOS's access in the account's own settings.
+   */
+  remote_revocation: "done" | "failed" | "manual_required" | "not_needed";
+  purged: boolean;
+}
+
 // --- Voice (UC01) ------------------------------------------------------------------------
 
 export interface VoiceStatus {
@@ -686,4 +807,12 @@ export interface Dictation {
   duration: number | null;
   expires_at: string;
   created_at: string;
+}
+
+/** Something saved from a journal entry or a conversation, listed before deleting it. */
+export interface DerivedItem {
+  type: "fact" | "task" | "memory";
+  id: Uuid;
+  /** Statement or title. */
+  text: string;
 }

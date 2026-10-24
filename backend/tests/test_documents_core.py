@@ -1,12 +1,15 @@
 import base64
+import json
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
 
+from lifeos import cli
 from lifeos.config import Settings
-from lifeos.modules.documents.sensitivity import classify
+from lifeos.modules.documents.sensitivity import REASONS, classify
 from lifeos.modules.documents.sniff import sniff
 from lifeos.modules.documents.storage import DocumentStore, StorageError
 
@@ -96,6 +99,82 @@ def test_local_sensitivity_filter(text: str, expected: list[str]) -> None:
     assert "FR76" not in flat and "MARTIN" not in flat
 
 
+# French corpus (tests/fixtures/sensitivity): one synthetic document per file, with OCR
+# noise and typographic variants, and the categories expected in manifest.json.
+CORPUS = Path(__file__).parent / "fixtures" / "sensitivity"
+MANIFEST: dict[str, list[str]] = json.loads((CORPUS / "manifest.json").read_text("utf-8"))
+# Values of the corpus that no report may repeat (see the corpus README).
+CORPUS_VALUES = (
+    "FR76",
+    "3000 6000",
+    "90 02 69",
+    "006 084",
+    "4111",
+    "990000000001",
+    "99XX99999",
+    "9900000001",
+    "30 99 999",
+    "01 99 00",
+    "06 39 98",
+    "example.org",
+    "example.com",
+    "EXEMPLE",
+    "Camille",
+)
+
+
+def test_the_corpus_covers_every_category_and_ordinary_documents() -> None:
+    expected = [tuple(categories) for categories in MANIFEST.values()]
+    for category in ("identity", "health", "bank"):
+        assert sum(1 for c in expected if c == (category,)) >= 8, category
+    assert sum(1 for c in expected if c == ()) >= 6
+    assert sorted(MANIFEST) == sorted(p.name for p in CORPUS.iterdir() if p.suffix == ".txt"), (
+        "each corpus file has an expectation, and each expectation a file"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(MANIFEST))
+def test_french_corpus(name: str) -> None:
+    # The text alone (the file name would give the answer away).
+    result = classify((CORPUS / name).read_text("utf-8"))
+    assert result.categories == MANIFEST[name]
+    # Reasons are fixed labels: never a value read in the document.
+    for reasons in result.reasons.values():
+        assert set(reasons) <= REASONS
+
+
+def test_the_admin_command_measures_a_folder_without_showing_values(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = str(CORPUS / "manifest.json")
+    assert cli.main(["sensitivity-check", str(CORPUS), "--expect", manifest]) == 0
+    out = capsys.readouterr().out
+    assert "banque-iban-nbsp.txt: bank (IBAN" in out and "masked: iban=1" in out
+    assert "ordinaire-facture-siret.txt: not sensitive | masked: email=1, phone=1" in out
+    assert "False negatives: 0; false positives: 0." in out
+    for value in CORPUS_VALUES:
+        assert value not in out, value
+
+    # A wrong expectation is reported (and fails), still without any value.
+    wrong = tmp_path / "manifest.json"
+    wrong.write_text(json.dumps({**MANIFEST, "banque-rib.txt": ["health"]}), "utf-8")
+    assert cli.main(["sensitivity-check", str(CORPUS), "--expect", str(wrong)]) == 1
+    out = capsys.readouterr().out
+    assert "banque-rib.txt: bank (" in out and "MISSED: health | EXTRA: bank" in out
+    assert "False negatives: 1; false positives: 1." in out
+    assert "FR76" not in out
+
+    # Without a manifest: a plain report; an unknown path is an error.
+    (tmp_path / "note.txt").write_text("Rappel : appeler le 06 39 98 12 34.", "utf-8")
+    (tmp_path / "binaire.bin").write_bytes(b"\x7fELF binary")
+    assert cli.main(["sensitivity-check", str(tmp_path / "note.txt"), str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "note.txt: not sensitive | masked: phone=1" in out
+    assert "binaire.bin: skipped, unsupported type" in out
+    assert "06 39 98" not in out
+    assert cli.main(["sensitivity-check", str(tmp_path / "absent")]) == 1
+
+
 # --- Encrypted storage -----------------------------------------------------------------------
 
 
@@ -148,6 +227,27 @@ def test_storage_requires_a_valid_key(tmp_path: object) -> None:
         (b"OggS\x00....", "audio"),
         (b"\x00\x00\x00\x20ftypM4A ....", "audio"),
         ("Notes de réunion\nAccents : é è à ç".encode(), "text"),
+        # French typography: non-breaking and narrow spaces are text.
+        ("IBAN\u00a0:\u00a0FR76\u00a03000\u00a06000\u202f€".encode(), "text"),
+        # Angle brackets that open no tag a browser would sniff as markup.
+        (b"<3 merci !\na < b et b > c\n<brouillon> liste", "text"),
+        ("\ufeffNotes avec une marque d'ordre".encode(), "text"),
+        # Markup further in stays text: browsers only sniff the start, and the original is
+        # served as a text/plain download (nosniff, sandbox), never rendered.
+        (b"Notes\n<script>alert(1)</script>", "text"),
+        # Markdown notes that open with an HTML comment or a common fragment (README
+        # headers): text, served as a text/plain download, never rendered.
+        (b"<!-- markdownlint-disable -->\n# Notes\n", "text"),
+        (b'<p align="center"><img src="logo.png"></p>\n\n# Projet\n', "text"),
+        (b'<div align="center">\n\n# Projet\n</div>', "text"),
+        (b"<h1>Compte rendu</h1>\nPr\xc3\xa9sents : A, B", "text"),
+        (b"<b>Important</b> : rappeler le notaire", "text"),
+        (b"\n\t <p>Bonjour<img src=x onerror=alert(1)></p>", "text"),
+        (b"<a href='https://example.org'>lien</a>", "text"),
+        # Polyglots keep the type of their signature (images are re-encoded, originals are
+        # downloads): the other reading is never used.
+        (b"%PDF-1.4\n<html><script>alert(1)</script></html>", "pdf"),
+        (b"\xff\xd8\xff\xe0 jpeg then PK\x03\x04 a zip archive", "image"),
     ],
 )
 def test_allowed_types_are_detected_by_signature(data: bytes, kind: str) -> None:
@@ -164,6 +264,25 @@ def test_allowed_types_are_detected_by_signature(data: bytes, kind: str) -> None
         b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
         b"<!DOCTYPE html><html><script>x</script></html>",
         b"\x00\x01\x02 binary noise \x00",
+        # A web page, a script, SVG or XML disguised as text: behind a byte order mark,
+        # spaces or comments, or in capitals.
+        "\ufeff<!DOCTYPE html><html><script>x</script></html>".encode(),
+        b"<!-- note --><svg onload=alert(1)>",
+        b"<!-- a -->\n<!-- b -->\n  <html><body>x</body></html>",
+        b"<HTML><BODY onload=alert(1)>",
+        b"<SCRIPT>alert(1)</SCRIPT>",
+        b"<svg/onload=alert(1)>",
+        b"<iframe src=x>",
+        b"<?xml version='1.0'?><svg xmlns='http://www.w3.org/2000/svg'/>",
+        # Executables, archives and other formats renamed .pdf, .jpg or .txt.
+        b"#!/bin/sh\x00\nrm -rf /",
+        b"\xca\xfe\xba\xbe mach-o or java class",
+        b"Rar!\x1a\x07\x00 archive",
+        b"7z\xbc\xaf\x27\x1c archive",
+        b"\x1f\x8b\x08\x00 gzip",
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 Office document with macros",
+        b"GIF89a\x01\x00\x01\x00",
+        b"II*\x00 TIFF",
     ],
 )
 def test_dangerous_or_unknown_types_are_refused(data: bytes) -> None:

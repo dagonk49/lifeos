@@ -9,6 +9,8 @@ import { AgentSelector } from "@/components/AgentSelector";
 import { AgentSuggestion } from "@/components/AgentSuggestion";
 import { ChatAttachments } from "@/components/ChatAttachments";
 import { ConsolidationPanel } from "@/components/ConsolidationPanel";
+import { EraseConfirm } from "@/components/EraseConfirm";
+import { SendReviewPanel } from "@/components/SendReview";
 import { SpeakButton } from "@/components/SpeakButton";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Alert, Badge, Button, Card, Empty, PageHeader, Spinner, Textarea, cx } from "@/components/ui";
@@ -21,6 +23,7 @@ import {
   sendableAttachments,
 } from "@/lib/attachments";
 import { formatDate, formatTime } from "@/lib/format";
+import { buildReview, withoutAttachment, type SendReview } from "@/lib/privacy";
 import { spaceParam, useSpace } from "@/lib/space";
 import type {
   AgentInfo,
@@ -30,6 +33,7 @@ import type {
   DocumentSummary,
   Message,
   Page,
+  SendPreview,
   SendResult,
 } from "@/lib/types";
 import { appendTranscript } from "@/lib/voice";
@@ -129,6 +133,8 @@ export default function ChatPage() {
   const [elapsed, setElapsed] = useState(0);
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  // The control before sending, when something is masked or left out (the message waits).
+  const [review, setReview] = useState<{ vars: SendVars; review: SendReview } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
   const conversations = useQuery({
@@ -183,6 +189,7 @@ export default function ChatPage() {
     setDegraded(null);
     setPermission(null);
     setSuggestion(null);
+    setReview(null);
     if (!keepAgent) setAttachmentIds([]);
   }
 
@@ -253,25 +260,56 @@ export default function ChatPage() {
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => api(`/v1/chat/conversations/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      openConversation(null, null);
-      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    },
+  const [erasing, setErasing] = useState<string | null>(null);
+
+  // Same rules as the sending, checked on the server: nothing is saved or sent.
+  const check = useMutation({
+    mutationFn: (vars: SendVars) =>
+      api<SendPreview>("/v1/chat/preview", {
+        method: "POST",
+        body: {
+          space_id: spaceId ?? writeSpaceId,
+          content: vars.content,
+          agent: vars.agent,
+          attachments: vars.attachments ?? [],
+        },
+      }),
   });
 
   const submit = () => {
     const content = draft.trim();
     // Wait for a conversation being created: sending now would open a second one.
-    if (content && !send.isPending && !create.isPending && !readingAttachments && !uploading) {
-      send.mutate({
-        content,
-        agent,
-        attachments: sendableAttachments(attachmentIds, attachmentStates),
-        shown: attachmentIds,
+    if (content && !send.isPending && !check.isPending && !create.isPending && !readingAttachments && !uploading) {
+      // As shown now: what the owner sees is what is checked, then sent.
+      const shown = attachmentIds;
+      const states = attachmentStates;
+      const documents = attachmentDocs;
+      const vars: SendVars = { content, agent, attachments: sendableAttachments(shown, states), shown };
+      setReview(null);
+      check.mutate(vars, {
+        onSuccess: (preview) => {
+          const result = buildReview(shown, states, documents, preview);
+          const next = { ...vars, attachments: result.attachments };
+          // No friction when nothing is masked or left out.
+          if (result.needed) setReview({ vars: next, review: result });
+          else send.mutate(next);
+        },
       });
     }
+  };
+
+  const removeFromReview = (id: string) => {
+    setAttachmentIds((ids) => ids.filter((other) => other !== id));
+    setReview((current) =>
+      current && {
+        vars: {
+          ...current.vars,
+          attachments: (current.vars.attachments ?? []).filter((other) => other !== id),
+          shown: (current.vars.shown ?? []).filter((other) => other !== id),
+        },
+        review: withoutAttachment(current.review, id),
+      },
+    );
   };
 
   return (
@@ -319,7 +357,7 @@ export default function ChatPage() {
           title={detail.data?.title ?? "Nouvelle conversation"}
           actions={
             current && (
-              <Button variant="ghost" size="sm" onClick={() => remove.mutate(current)}>
+              <Button variant="ghost" size="sm" onClick={() => setErasing(current)} disabled={erasing === current}>
                 Supprimer
               </Button>
             )
@@ -327,6 +365,24 @@ export default function ChatPage() {
           footer={`Espace : ${spaceName(detail.data?.space_id ?? writeSpaceId)} · conversations brutes conservées 90 jours sauf « Conserver »`}
         >
           <div className="flex min-h-[40vh] flex-col gap-3">
+            {erasing && erasing === current && (
+              <EraseConfirm
+                question="Supprimer cette conversation et tous ses messages ?"
+                confirmLabel="Supprimer la conversation"
+                deletePath={`/v1/chat/conversations/${erasing}`}
+                derivedPath={`/v1/chat/conversations/${erasing}/derived`}
+                onDone={(withDerived) => {
+                  setErasing(null);
+                  openConversation(null, null);
+                  void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                  if (withDerived) {
+                    void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+                    void queryClient.invalidateQueries({ queryKey: ["memory"] });
+                  }
+                }}
+                onCancel={() => setErasing(null)}
+              />
+            )}
             {current && detail.data?.id === current && detail.data.messages.length > 0 && (
               <ConsolidationPanel key={detail.data.id} conversation={detail.data} />
             )}
@@ -362,6 +418,11 @@ export default function ChatPage() {
               />
             )}
             {send.error && <Alert tone="error">{errorMessage(send.error)}</Alert>}
+            {check.error && (
+              <Alert tone="error">
+                Contrôle avant l&apos;envoi impossible, rien n&apos;a été envoyé : {errorMessage(check.error)}
+              </Alert>
+            )}
             {suggestion && suggestion !== agent && (
               <AgentSuggestion
                 label={agentLabel(suggestion, agents.data)}
@@ -386,19 +447,32 @@ export default function ChatPage() {
                 documents={attachmentDocs}
                 states={attachmentStates}
                 onUploadingChange={setUploading}
-                onAdd={(id) => setAttachmentIds((ids) => (ids.includes(id) ? ids : [...ids, id]))}
-                onRemove={(id) => setAttachmentIds((ids) => ids.filter((other) => other !== id))}
+                onAdd={(id) => {
+                  setReview(null);
+                  setAttachmentIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+                }}
+                onRemove={(id) => {
+                  setReview(null);
+                  setAttachmentIds((ids) => ids.filter((other) => other !== id));
+                }}
               />
               <VoiceRecorder
                 spaceId={spaceId ?? writeSpaceId}
-                onTranscript={(text) => setDraft((current) => appendTranscript(current, text, { multiline: false }))}
+                onTranscript={(text) => {
+                  setReview(null);
+                  setDraft((current) => appendTranscript(current, text, { multiline: false }));
+                }}
               />
               <Textarea
                 aria-label="Votre message"
                 placeholder="Écrivez à LifeOS…"
                 value={draft}
                 maxLength={8000}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  // The control was for the message as it was: a changed message is checked again.
+                  setReview(null);
+                  setDraft(e.target.value);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -410,22 +484,46 @@ export default function ChatPage() {
                 <AgentSelector
                   agents={agents.data}
                   value={agent}
-                  onChange={setAgent}
+                  onChange={(value) => {
+                    setReview(null);
+                    setAgent(value);
+                  }}
                   spaceName={spaceName(spaceId ?? writeSpaceId)}
                   error={agents.error}
                 />
                 <Button
                   type="submit"
                   className="self-end sm:mt-6"
-                  disabled={send.isPending || create.isPending || readingAttachments || uploading || !draft.trim()}
+                  disabled={
+                    send.isPending ||
+                    check.isPending ||
+                    create.isPending ||
+                    readingAttachments ||
+                    uploading ||
+                    !draft.trim()
+                  }
                 >
                   {uploading
                     ? "Envoi de la pièce jointe…"
                     : readingAttachments
                       ? "Lecture de la pièce jointe…"
-                      : "Envoyer"}
+                      : check.isPending
+                        ? "Vérification…"
+                        : "Envoyer"}
                 </Button>
               </div>
+              {review && (
+                <SendReviewPanel
+                  review={review.review}
+                  sending={send.isPending}
+                  onConfirm={() => {
+                    send.mutate(review.vars);
+                    setReview(null);
+                  }}
+                  onCancel={() => setReview(null)}
+                  onRemove={removeFromReview}
+                />
+              )}
             </form>
           </div>
         </Card>

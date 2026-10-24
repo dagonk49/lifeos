@@ -2,7 +2,7 @@
 
 Guide pas à pas pour la machine de référence : VM Debian sur Proxmox, 8 vCPU (i7-6700),
 10 Go de RAM, GTX 1050 Ti en option. Les détails d'exploitation (exposition réseau,
-sauvegardes, dimensionnement, mises à jour) sont dans [exploitation.md](exploitation.md).
+sauvegardes, alertes, dimensionnement, mises à jour) sont dans [exploitation.md](exploitation.md).
 
 Durée : environ 30 minutes, dont la construction des images et le téléchargement des modèles
 (≈ 3 Go).
@@ -44,7 +44,8 @@ Les passkeys sont liées au nom de domaine : **il ne doit plus changer ensuite**
   routeur). Un certificat Let's Encrypt s'obtient par challenge DNS, sans exposer la VM à
   Internet.
 - Réseau local seulement : un nom interne (ex. `lifeos.maison.lan`) avec une autorité locale
-  (`mkcert`) installée sur vos appareils.
+  (`mkcert`) installée sur vos appareils. Google refuse ces noms : pas de compte Google
+  connecté (agenda, Gmail) dans ce cas (§5).
 
 Accès hors de chez vous : passer par un VPN (WireGuard) plutôt qu'ouvrir le port 443.
 
@@ -68,8 +69,50 @@ Le script, que l'on peut relancer sans risque :
 7. vérifie l'OCR et crée votre compte. Il affiche un **lien d'enrôlement** à usage unique,
    valable 15 minutes.
 
-Options : `--gpu` (transcription sur la carte, §7), `--no-models` (téléchargements plus
-tard), `--yes` (sans question).
+Options : `--gpu` (transcription sur la carte, §7), `--behind-proxy` (voir ci-dessous),
+`--no-models` (téléchargements plus tard), `--yes` (sans question).
+
+### Derrière un reverse proxy existant (Nginx Proxy Manager)
+
+Si un reverse proxy occupe déjà les ports 80 et 443 de la machine et sert d'autres sites, le
+Traefik de LifeOS ne peut pas les prendre : il redémarre en boucle et LifeOS reste
+injoignable. Dans ce cas, le proxy existant reste **la seule porte d'entrée** :
+
+```
+navigateur → Nginx Proxy Manager (HTTPS, certificat Let's Encrypt) → Traefik de LifeOS → web / api
+```
+
+Le Traefik de LifeOS ne publie alors aucun port. Il garde le routage, les en-têtes de sécurité
+et la limite des tentatives de connexion (par adresse du client, transmise par le proxy).
+
+1. Installer, ou relancer l'installation, avec l'option :
+
+   ```bash
+   infra/scripts/install.sh --domain lifeos.mondomaine.fr --behind-proxy
+   ```
+
+   Le script ajoute `compose.proxy.yaml` à `COMPOSE_FILE` dans `infra/.env`, crée le réseau
+   Docker `lifeos-proxy` et y connecte le conteneur de Nginx Proxy Manager s'il le trouve.
+   Pour utiliser un réseau existant du proxy : `--proxy-network nom_du_reseau`.
+2. Dans Nginx Proxy Manager, **Hosts → Proxy Hosts → Add Proxy Host** :
+   - *Domain Names* : `lifeos.mondomaine.fr` ;
+   - *Scheme* : `http` ; *Forward Hostname / IP* : `lifeos-traefik` ; *Forward Port* : `80` ;
+   - onglet *SSL* : *Request a new SSL Certificate*, puis cocher *Force SSL* et *HTTP/2
+     Support*.
+3. Rendre la connexion au réseau permanente (sinon elle disparaît quand le conteneur de Nginx
+   Proxy Manager est recréé, par exemple à sa mise à jour). Dans son `docker-compose.yml` :
+
+   ```yaml
+   services:
+     app:   # le service de Nginx Proxy Manager
+       networks: [default, lifeos-proxy]
+   networks:
+     lifeos-proxy:
+       external: true
+   ```
+
+Le certificat est alors celui de Nginx Proxy Manager : l'étape « Certificat » du §6 ne
+s'applique pas.
 
 **Tout de suite après** : copiez `infra/secrets/lifeos_documents_key` dans votre gestionnaire
 de mots de passe. Sans cette clé, les originaux des documents sont illisibles, y compris dans
@@ -90,11 +133,30 @@ docker compose up -d
 Le script le fait seul si la clé est fournie pendant l'installation. Sans clé, LifeOS
 fonctionne entièrement, sans l'assistant.
 
+### Comptes connectés (Google Agenda, Gmail : facultatif)
+
+Suivre le [guide Google](guide-google.md) : projet Google Cloud, écran de consentement
+publié, client OAuth « Application Web » dont l'URI de redirection est
+`https://<votre domaine>/connexions/retour`. Il faut un domaine public (§3). Ensuite :
+
+```bash
+cd /opt/lifeos/infra
+printf '%s' 'CODE_SECRET_DU_CLIENT' > secrets/lifeos_google_client_secret
+sed -i 's/^LIFEOS_CONNECTORS_PROVIDER=.*/LIFEOS_CONNECTORS_PROVIDER=google/' .env
+sed -i 's/^LIFEOS_GOOGLE_CLIENT_ID=.*/LIFEOS_GOOGLE_CLIENT_ID=<ID client>/' .env
+docker compose up -d
+```
+
+Puis **Réglages → Comptes connectés** dans LifeOS. La clé qui chiffre les jetons
+(`infra/secrets/lifeos_connectors_key`) est créée par `init-secrets.sh`. La perdre oblige
+seulement à reconnecter les comptes.
+
 ## 6. Certificat et premier accès
 
 1. Certificat : déposer `fullchain.pem` et `privkey.pem` dans `infra/traefik/certs/`, puis
    `cp infra/traefik/dynamic/tls.yml.example infra/traefik/dynamic/tls.yml`
-   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)).
+   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)). Derrière Nginx Proxy
+   Manager, c'est lui qui fournit le certificat (§4).
 2. Ouvrir le lien d'enrôlement sur l'appareil qui portera la première passkey (téléphone ou
    ordinateur), nommer l'appareil, valider.
 3. Dans **Réglages → Appareils et passkeys**, ajouter une **deuxième passkey** (autre
@@ -119,20 +181,46 @@ Si la carte n'est pas utilisable, le service revient seul sur le CPU.
 
 ## 8. Sauvegardes (à faire le premier jour)
 
+Prérequis : `restic` ≥ 0.17 (binaire officiel : Debian fournit une version plus ancienne, voir
+[restauration.md](restauration.md) §3, étape 1) et `jq`. Choisir un dépôt restic (NAS par
+SSH, rest-server, Backblaze B2, S3…), une copie **hors de la maison** si le dépôt n'y est pas
+déjà, et un sujet [ntfy](https://ntfy.sh) pour les alertes (application sur le téléphone) :
+
 ```bash
-sudo apt-get install -y restic          # ≥ 0.17, sinon binaire officiel
-export RESTIC_REPOSITORY=sftp:backup@nas:/srv/restic/lifeos
-export RESTIC_PASSWORD_FILE=/root/.config/lifeos/restic-password
-restic init
-/opt/lifeos/infra/scripts/backup.sh          # base + originaux chiffrés
-/opt/lifeos/infra/scripts/restore-check.sh   # vérification
+sudo /opt/lifeos/infra/scripts/install-backups.sh --repository sftp:backup@nas.lan:/srv/restic/lifeos \
+  --copy-repository b2:mon-bucket:lifeos --alert-url https://ntfy.sh/<sujet long et aléatoire>
+sudo /opt/lifeos/infra/scripts/export-keys.sh   # fiche de récupération
 ```
 
-Planifier `backup.sh` chaque nuit et `restore-check.sh` chaque semaine (cron ou timer
-systemd), avec les deux variables ci-dessus. Le mot de passe restic et le contenu de
-`infra/secrets/` se conservent **hors du serveur**.
+Le premier script installe les sauvegardes automatiques : chaque nuit, avec copie hors site ;
+une restauration de test chaque dimanche ; une alerte à chaque échec. Il lance aussi une
+première sauvegarde et les tests (détails : [exploitation.md §4](exploitation.md#4-sauvegardes-restic)).
+Les identifiants d'un dépôt en ligne (`B2_ACCOUNT_ID`…) se mettent dans
+`/etc/lifeos/backup.env`.
 
-## 9. Vérifier que tout va bien
+Le second affiche la **fiche de récupération** : clé des documents, mots de passe restic,
+réglages des dépôts, domaine. La copier dans votre gestionnaire de mots de passe : sans elle,
+aucune restauration n'est possible ([restauration.md](restauration.md)).
+
+## 9. Alertes (juste après les sauvegardes)
+
+La supervision prévient sur le **même sujet ntfy** que les sauvegardes quand LifeOS est
+injoignable, qu'un service ou le worker s'arrête, que des tâches échouent ou s'accumulent, que
+le disque se remplit, qu'une sauvegarde manque ou que le certificat va expirer. Créer d'abord un
+contrôle de **signal de vie** sur [healthchecks.io](https://healthchecks.io) (période 5 minutes,
+grâce 10 minutes, distinct de celui des sauvegardes), puis :
+
+```bash
+sudo /opt/lifeos/infra/scripts/install-monitoring.sh --deadman-url https://hc-ping.com/<uuid> --test
+```
+
+Une alerte de test arrive sur le téléphone dans la minute. Les notifications disent ce qui ne
+va pas et quoi faire, sans aucune donnée personnelle. Faire ensuite une fois l'exercice de
+panne (`docker compose stop worker`, l'alerte arrive en moins de 10 minutes, puis
+`docker compose start worker`) : [exploitation.md §5](exploitation.md#5-supervision-et-alertes)
+(e-mail ou Telegram en plus, reverse proxy sur une autre machine, autorité locale).
+
+## 10. Vérifier que tout va bien
 
 ```bash
 cd /opt/lifeos/infra
@@ -144,22 +232,39 @@ docker compose logs --tail 50 api worker  # aucun contenu personnel dans les log
 Dans l'application, l'accueil affiche le briefing du jour, et la page **Recherche** montre la
 progression de l'index sémantique.
 
-## 10. Mettre à jour
+Pour la machine définitive, faire la **recette** : temps et pointes de mémoire mesurés par
+`infra/scripts/recette.sh`, passkeys sur les vrais appareils, OCR de vrais tickets, dictée,
+alertes, mise à jour et retour arrière ([recette-serveur.md](recette-serveur.md)).
+
+## 11. Mettre à jour
 
 ```bash
-cd /opt/lifeos && git pull
-cd infra && ./scripts/init-secrets.sh && docker compose up -d --build
+cd /opt/lifeos
+infra/scripts/update.sh            # la dernière version publiée ; --to <version> pour une autre
 ```
 
-Faire une sauvegarde avant toute mise à jour (les migrations de base s'appliquent seules).
+Le script fait d'abord une sauvegarde, garde les images de la version en service, construit
+la nouvelle version, applique les migrations et vérifie que tout répond ; sinon, il revient
+seul à la version précédente. Retour arrière à la main : `infra/scripts/update.sh --rollback`
+([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)).
 
 ## Problèmes fréquents
 
 | Symptôme | Cause probable |
 |---|---|
-| « Opération annulée ou refusée par l'appareil » à l'enrôlement | domaine différent de `LIFEOS_WEBAUTHN_RP_ID`, ou pas de HTTPS |
+| `traefik` redémarre sans cesse, colonne PORTS vide dans `docker compose ps` | les ports 80/443 sont déjà pris par un autre reverse proxy : relancer avec `--behind-proxy` (§4) |
+| Nginx Proxy Manager affiche « 502 Bad Gateway » pour LifeOS | conteneur de Nginx Proxy Manager absent du réseau `lifeos-proxy` : `docker network connect lifeos-proxy <conteneur>` (§4, étape 3) |
+| « Opération annulée ou refusée par l'appareil » à l'enrôlement | domaine différent de `LIFEOS_WEBAUTHN_RP_ID`, ou pas de HTTPS (certificat autosigné : Chrome refuse alors les passkeys) |
 | Le micro n'apparaît pas | dictée désactivée (`LIFEOS_STT_PROVIDER`), navigateur sans enregistrement audio, ou page non servie en HTTPS |
 | Dictée « en attente » sans fin | modèle de transcription absent : `docker compose --profile setup run --rm stt-download` |
 | Documents « lecture locale indisponible » | service `ml` arrêté : `docker compose up -d ml` puis `docker compose logs ml` |
 | « Le stockage des documents n'est pas configuré » | `infra/secrets/lifeos_documents_key` absent : relancer `./scripts/init-secrets.sh` |
+| « Les comptes connectés ne sont pas configurés sur ce serveur » | `LIFEOS_CONNECTORS_PROVIDER=disabled`, ou client Google incomplet : [guide Google](guide-google.md) |
+| Google affiche « redirect_uri_mismatch » | URI de redirection du client OAuth différente de `https://<votre domaine>/connexions/retour` |
+| Alerte « LifeOS: lifeos-backup failed » | `journalctl -u lifeos-backup.service` sur la VM ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
+| Aucune alerte de test (`install-monitoring.sh --test`) | `docker compose logs alertmanager` : sujet ntfy ou jeton (`LIFEOS_ALERT_URL`, `LIFEOS_ALERT_TOKEN` dans `/etc/lifeos/backup.env`) |
+| Alerte « LifeOS injoignable » alors que tout répond | la sonde passe par le port 443 de la VM : pare-feu, ou reverse proxy sur une autre machine (`LIFEOS_PROBE_ADDRESS`, [exploitation.md §5](exploitation.md#5-supervision-et-alertes)) |
+| Alerte « Certificat refusé » avec une autorité locale (`mkcert`) | copier `rootCA.pem` dans `infra/blackbox/ca/`, puis `docker compose restart blackbox-exporter` |
+| `update.sh` : « local changes to tracked files » | un fichier suivi a été modifié : remettre les réglages dans `infra/.env` (ou un `compose.local.yaml`), puis `git checkout -- <fichier>` |
+| `update.sh` : « The update … FAILED » | la mise à jour a été annulée et l'ancienne version tourne : lire le contrôle de santé affiché, puis `docker compose logs --tail 100 migrate api` |
 | L'assistant répond « quota du jour atteint » | plafond gratuit Gemini : il se renouvelle chaque jour vers 9 h (heure de Paris) |

@@ -33,6 +33,7 @@ from lifeos.modules.goals.models import Goal
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.journal.models import JournalEntry
+from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks.models import Task
 
 log = get_logger(__name__)
@@ -62,6 +63,14 @@ def detail(document: Document) -> DocumentOut:
     )
 
 
+def original_withheld(document: Document) -> bool:
+    """A picture whose stored file was never re-encoded from its pixels: the upload itself,
+    with its metadata (GPS...), possibly something appended. Kept (to be read again), never
+    served (T26, ADR 0011): while it is being read, if reading it failed or crashed, or if
+    the owner typed its text instead."""
+    return document.kind == "image" and not document.original_sanitized
+
+
 def _fields(document: Document) -> dict[str, Any]:
     available = document.storage_key is not None
     return {
@@ -75,6 +84,7 @@ def _fields(document: Document) -> dict[str, Any]:
         "status": document.status,
         "error": document.error,
         "sensitivity": list(document.sensitivity or []),
+        "local_only": document.local_only,
         "text_source": document.text_source,
         "text_confidence": (
             float(document.text_confidence) if document.text_confidence is not None else None
@@ -83,6 +93,7 @@ def _fields(document: Document) -> dict[str, Any]:
         "processed_at": document.processed_at,
         "text_corrected_at": document.text_corrected_at,
         "original_available": available,
+        "original_downloadable": available and not original_withheld(document),
         "original_until": document.original_until,
         "keep_original": available and document.original_until is None,
         "source_type": document.source_type,
@@ -198,6 +209,12 @@ async def read_original(
     document = await get_document(ctx, document_id)
     if document.storage_key is None:
         raise ProblemError(410, "original_purged", "The original file is no longer kept")
+    if original_withheld(document):
+        if document.status in ("pending", "processing"):
+            raise ProblemError(409, "document_processing", "The picture is still being read")
+        raise ProblemError(
+            409, "original_not_sanitized", "The picture was never cleaned of its metadata"
+        )
     if not store.available:
         raise ProblemError(503, "documents_unavailable", "Document storage is unavailable")
     try:
@@ -285,6 +302,12 @@ async def update_document(
     await authorize(ctx, "document.write", document.space_id)
     _check_version(document, if_match)
     changes = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
+    if changes.get("local_only") is False and document.local_only:
+        # Letting the document go to the assistant again: reinforced (recent passkey). A
+        # category found by the detection stays: only a corrected text can remove it.
+        await authorize(ctx, "document.allow_cloud", document.space_id)
+    if "local_only" in changes:
+        document.local_only = changes["local_only"]
     if "title" in changes:
         title = " ".join(changes["title"].split())
         if not title:
@@ -328,7 +351,10 @@ async def update_document(
         document.sensitivity = categories
         document.analysis = analysis
     await ctx.db.flush()
-    await _audit(ctx, "document.update", document, fields=",".join(sorted(changes)))
+    details: dict[str, Any] = {"fields": ",".join(sorted(changes))}
+    if "local_only" in changes:
+        details["local_only"] = document.local_only
+    await _audit(ctx, "document.update", document, **details)
     return document
 
 
@@ -337,15 +363,14 @@ async def delete_document(ctx: Ctx, store: DocumentStore, document_id: uuid.UUID
     document = await get_document(ctx, document_id, for_update=True)
     await authorize(ctx, "document.delete", document.space_id)
     storage_key = document.storage_key
-    await ctx.db.delete(document)
-    await ctx.db.flush()
+    erased = await erasure.erase(ctx.db, document)
     if storage_key is not None:
         # A failure here leaves an orphan file, removed by the daily sweep.
         try:
             await asyncio.to_thread(store.delete, storage_key)
         except (StorageError, OSError) as exc:
             log.error("document_file_delete_failed", error=type(exc).__name__)
-    await _audit(ctx, "document.delete", document)
+    await _audit(ctx, "document.delete", document, **erased)
 
 
 async def reprocess_document(ctx: Ctx, document_id: uuid.UUID) -> Document:

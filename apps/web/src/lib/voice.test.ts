@@ -47,6 +47,14 @@ describe("dictation status", () => {
       "L'enregistrement dépasse la durée maximale.",
     );
     expect(dictationStatusText({ status: "failed", error: "weird" })).toBe("La transcription a échoué.");
+    // Refused or crashed by the local service (hostile or damaged audio, ADR 0011).
+    expect(dictationStatusText({ status: "failed", error: "unsupported_codec" })).toBe(
+      "Ce format audio n'est pas pris en charge.",
+    );
+    expect(dictationStatusText({ status: "failed", error: "too_slow" })).toMatch(/trop de temps/);
+    expect(dictationStatusText({ status: "failed", error: "transcription_crashed" })).toMatch(
+      /plusieurs fois de suite/,
+    );
     expect(dictationStatusText({ status: "pending", error: "transcription_unavailable" })).toMatch(
       /nouvel essai automatique/,
     );

@@ -1,0 +1,366 @@
+# Alerts of LifeOS (docs/exploitation.md §5). Each alert carries:
+#   labels:      severity (critical: act now; warning: within the day)
+#   annotations: title (notification title), summary (what is wrong), action (what to do)
+# Annotations are built from label values only (job, task, queue, purpose, dependency,
+# mountpoint, target) and numbers: never a title, a text, an e-mail or an identifier. They
+# are in French: they reach the owner as they are (Alertmanager, infra/alertmanager/).
+# Unit tests: alerts.test.yml (scripts/test-monitoring.sh).
+groups:
+  - name: lifeos-disponibilite
+    rules:
+      - alert: LifeOSInjoignable
+        expr: probe_success{job="public", module="https_reachable"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          title: LifeOS injoignable
+          summary: >-
+            LifeOS ne répond plus sur le port 443 de la machine
+            ({{ if eq $labels.target "web" }}pages web{{ else }}API{{ end }}).
+          action: >-
+            Sur la VM, docker compose ps puis docker compose logs --tail 100 traefik api web ;
+            derrière un reverse proxy, vérifier aussi celui-ci.
+
+      - alert: CertificatRefuse
+        expr: >-
+          probe_success{job="public", module="https_verified"} == 0
+          and on (target) probe_success{job="public", module="https_reachable"} == 1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          title: Certificat refusé
+          summary: >-
+            Le certificat présenté sur le port 443 ne serait pas accepté par un navigateur
+            (expiré, autosigné ou pour un autre nom) : les passkeys ne fonctionnent plus.
+          action: >-
+            Installer un certificat valide (docs/exploitation.md §2) ; autorité locale (mkcert) :
+            copier sa racine dans infra/blackbox/ca/.
+
+      - alert: CertificatBientotExpire
+        expr: >-
+          (probe_ssl_earliest_cert_expiry{job="public", module="https_reachable", target="api"}
+          - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          title: Certificat bientôt expiré
+          summary: Le certificat TLS expire dans {{ printf "%.0f" $value }} jour(s).
+          action: >-
+            Renouveler le certificat (docs/exploitation.md §2) ; derrière Nginx Proxy Manager,
+            vérifier son renouvellement automatique.
+
+      - alert: CertificatBientotExpire
+        expr: >-
+          (probe_ssl_earliest_cert_expiry{job="public", module="https_reachable", target="api"}
+          - time()) / 86400 < 3
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          title: Certificat bientôt expiré
+          summary: Le certificat TLS expire dans {{ printf "%.1f" $value }} jour(s).
+          action: >-
+            Renouveler le certificat maintenant (docs/exploitation.md §2) : une fois expiré,
+            les navigateurs refusent LifeOS.
+
+  - name: lifeos-services
+    rules:
+      - alert: ApiInjoignable
+        expr: up{job="lifeos-api"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          title: API arrêtée
+          summary: L'API de LifeOS ne répond plus sur le réseau interne.
+          action: docker compose ps api ; docker compose logs --tail 100 api.
+
+      - alert: DependanceIndisponible
+        expr: lifeos_dependency_up{dependency=~"database|redis"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          title: Base ou files de tâches indisponibles
+          summary: >-
+            {{ if eq $labels.dependency "database" }}La base de données PostgreSQL{{ else }}Redis
+            (files de tâches){{ end }} ne répond plus à l'API.
+          action: >-
+            docker compose ps ; docker compose logs --tail 100
+            {{ if eq $labels.dependency "database" }}postgres{{ else }}redis{{ end }}.
+
+      - alert: ServiceLocalIndisponible
+        expr: lifeos_dependency_up{dependency=~"ml|stt"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          title: Service local indisponible
+          summary: >-
+            {{ if eq $labels.dependency "ml" }}Le service ml (lecture des documents, OCR,
+            recherche par le sens){{ else }}Le service stt (dictée){{ end }} ne répond plus :
+            ces fonctions sont dégradées.
+          action: >-
+            docker compose ps {{ $labels.dependency }} ;
+            docker compose logs --tail 100 {{ $labels.dependency }}.
+
+      - alert: WorkerArrete
+        expr: up{job="lifeos-worker"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          title: Worker arrêté
+          summary: >-
+            Le worker ne répond plus : documents, dictées, rappels et tâches de ménage ne sont
+            plus traités.
+          action: docker compose ps worker ; docker compose logs --tail 100 worker.
+
+      - alert: TachesPlanifieesBloquees
+        expr: time() - max(lifeos_worker_heartbeat_timestamp_seconds{job="lifeos-worker"}) > 180
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          title: Tâches planifiées bloquées
+          summary: >-
+            Aucune tâche planifiée n'a été exécutée depuis {{ $value | humanizeDuration }} :
+            planificateur arrêté ou file de tâches bloquée.
+          action: >-
+            docker compose ps scheduler worker ; docker compose logs --tail 100 scheduler worker.
+
+      - alert: EchecsDeTaches
+        expr: sum by (task) (increase(lifeos_job_runs_total{outcome="failure"}[1h])) >= 3
+        labels:
+          severity: warning
+        annotations:
+          title: Tâches en échec
+          summary: >-
+            La tâche {{ $labels.task }} a échoué {{ printf "%.0f" $value }} fois en une heure.
+          action: docker compose logs --since 2h worker | grep job_failed.
+
+      - alert: TachesAbandonnees
+        expr: delta(lifeos_queue_dead_letters{job="lifeos-api"}[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          title: Tâches abandonnées
+          summary: >-
+            {{ printf "%.0f" $value }} tâche(s) de la file {{ $labels.queue }} abandonnée(s)
+            après leurs nouvelles tentatives.
+          action: >-
+            docker compose logs --since 2h worker | grep job_failed (gardées 7 jours dans
+            Redis, clé lifeos:{{ $labels.queue }}.XQ).
+
+      - alert: FileDeTachesEngorgee
+        expr: lifeos_queue_messages{job="lifeos-api"} > 50
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          title: File de tâches engorgée
+          summary: >-
+            {{ printf "%.0f" $value }} tâches attendent dans la file {{ $labels.queue }}
+            depuis plus de 30 minutes.
+          action: docker compose ps worker ; docker compose logs --tail 100 worker.
+
+      - alert: DocumentsEnAttente
+        expr: lifeos_documents_backlog_oldest_seconds{job="lifeos-api", purpose!="dictation"} > 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          title: Documents en attente de lecture
+          summary: >-
+            {{ if eq $labels.purpose "receipt" }}Un ticket de caisse{{ else if eq
+            $labels.purpose "attachment" }}Une pièce jointe{{ else }}Un document{{ end }}
+            attend sa lecture depuis {{ $value | humanizeDuration }}.
+          action: docker compose ps ml worker ; docker compose logs --tail 100 ml worker.
+
+      - alert: DicteesEnAttente
+        expr: lifeos_documents_backlog_oldest_seconds{job="lifeos-api", purpose="dictation"} > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          title: Dictées en attente
+          summary: Une dictée attend sa transcription depuis {{ $value | humanizeDuration }}.
+          action: docker compose ps stt worker ; docker compose logs --tail 100 stt worker.
+
+  - name: lifeos-machine
+    rules:
+      - alert: DisquePresquePlein
+        expr: >-
+          node_filesystem_avail_bytes{job="node", fstype!~"tmpfs|ramfs"}
+          / node_filesystem_size_bytes{job="node", fstype!~"tmpfs|ramfs"} < 0.15
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          title: Disque presque plein
+          summary: >-
+            Il ne reste que {{ $value | humanizePercentage }} d'espace libre sur
+            {{ $labels.mountpoint }}.
+          action: >-
+            df -h ; docker system df ; anciennes images : docker image prune
+            (docs/exploitation.md §6).
+
+      - alert: DisquePresquePlein
+        expr: >-
+          node_filesystem_avail_bytes{job="node", fstype!~"tmpfs|ramfs"}
+          / node_filesystem_size_bytes{job="node", fstype!~"tmpfs|ramfs"} < 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          title: Disque presque plein
+          summary: >-
+            Il ne reste que {{ $value | humanizePercentage }} d'espace libre sur
+            {{ $labels.mountpoint }} : la base et les sauvegardes risquent d'échouer.
+          action: df -h ; docker system df ; libérer de la place maintenant.
+
+      - alert: DisqueSeRemplit
+        expr: >-
+          predict_linear(node_filesystem_avail_bytes{job="node", fstype!~"tmpfs|ramfs"}[6h],
+          24 * 3600) < 0
+          and node_filesystem_avail_bytes{job="node", fstype!~"tmpfs|ramfs"}
+          / node_filesystem_size_bytes{job="node", fstype!~"tmpfs|ramfs"} < 0.4
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          title: Disque bientôt plein
+          summary: >-
+            Au rythme des 6 dernières heures, {{ $labels.mountpoint }} sera plein dans moins
+            de 24 heures.
+          action: df -h ; docker system df ; du -xsh /var/lib/docker/volumes/* | sort -h.
+
+      - alert: MemoireSaturee
+        expr: node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"} < 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          title: Mémoire saturée
+          summary: Il ne reste que {{ $value | humanizePercentage }} de mémoire disponible.
+          action: docker stats --no-stream ; dimensionnement dans docs/exploitation.md §7.
+
+      - alert: ProcessusTueFauteDeMemoire
+        expr: increase(node_vmstat_oom_kill{job="node"}[30m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          title: Processus tué faute de mémoire
+          summary: >-
+            Le noyau a tué {{ printf "%.0f" $value }} processus faute de mémoire dans la
+            dernière demi-heure.
+          action: >-
+            docker compose ps (redémarrages) ; journalctl -k | grep -i oom ;
+            docs/exploitation.md §7.
+
+      - alert: CollecteInterrompue
+        expr: up{job=~"node|public"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          title: Supervision incomplète
+          summary: >-
+            La collecte {{ if eq $labels.job "node" }}des mesures de la machine (disque,
+            mémoire, sauvegardes){{ else }}des sondes de l'adresse publique{{ end }} est
+            interrompue : ses alertes ne peuvent plus partir.
+          action: docker compose --profile monitoring ps ; docker compose logs --tail 50 node-exporter blackbox-exporter.
+
+  - name: lifeos-sauvegardes
+    rules:
+      - alert: SauvegardeAncienne
+        expr: time() - lifeos_backup_last_success_timestamp_seconds{job="node"} > 30 * 3600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          title: Sauvegarde trop ancienne
+          summary: La dernière sauvegarde réussie date de {{ $value | humanizeDuration }}.
+          action: >-
+            journalctl -u lifeos-backup.service ; puis sudo systemctl start
+            lifeos-backup.service (docs/exploitation.md §4).
+
+      - alert: SauvegardeAbsente
+        expr: >-
+          absent(lifeos_backup_last_success_timestamp_seconds{job="node"})
+          and on () up{job="node"} == 1
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          title: Aucune sauvegarde
+          summary: Aucune sauvegarde réussie n'est connue sur cette machine.
+          action: >-
+            sudo infra/scripts/install-backups.sh (docs/exploitation.md §4) ; métriques dans
+            /var/lib/lifeos/metrics.
+
+      - alert: CopieHorsSiteAncienne
+        expr: >-
+          time() - lifeos_backup_offsite_last_success_timestamp_seconds{job="node"}
+          > 30 * 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          title: Copie hors site trop ancienne
+          summary: La dernière copie hors de la machine date de {{ $value | humanizeDuration }}.
+          action: journalctl -u lifeos-backup.service (accès au dépôt hors site).
+
+      - alert: TestDeRestaurationAncien
+        expr: >-
+          time() - lifeos_restore_check_last_success_timestamp_seconds{job="node"}
+          > 8 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          title: Test de restauration trop ancien
+          summary: Le dernier test de restauration réussi date de {{ $value | humanizeDuration }}.
+          action: >-
+            journalctl -u lifeos-restore-check.service ; sudo systemctl start
+            lifeos-restore-check.service.
+
+      - alert: TestHorsSiteAncien
+        expr: >-
+          time() - lifeos_restore_check_offsite_last_success_timestamp_seconds{job="node"}
+          > 33 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          title: Test de restauration hors site trop ancien
+          summary: >-
+            Le dernier test de restauration depuis la copie hors site date de
+            {{ $value | humanizeDuration }}.
+          action: journalctl -u lifeos-restore-check-offsite.service.
+
+      - alert: OriginauxManquants
+        expr: lifeos_backup_missing_originals{job="node"} > 0
+        labels:
+          severity: warning
+        annotations:
+          title: Originaux absents de la sauvegarde
+          summary: >-
+            {{ printf "%.0f" $value }} original(aux) de document référencé(s) par la base
+            manque(nt) dans la dernière sauvegarde.
+          action: journalctl -u lifeos-backup.service ; restauration.md §4.
+
+  - name: lifeos-signal-de-vie
+    rules:
+      # Always firing: routed to the dead man's switch (another machine), which alerts when
+      # it stops hearing from this one (VM, Prometheus or Alertmanager down).
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          title: Signal de vie
+          summary: La supervision de LifeOS fonctionne.

@@ -32,10 +32,12 @@ from lifeos.modules.documents.extraction import (
 )
 from lifeos.modules.documents.models import Document
 from lifeos.modules.documents.router import content_disposition
+from lifeos.modules.documents.sensitivity import CLASSIFIER_VERSION
 from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.guardian.models import RESOURCES
 from lifeos.modules.guardian.policy import ACTIONS
 from lifeos.modules.guardian.principal import Principal
+from lifeos.modules.identity.models import UserSession
 from lifeos.modules.llm.fake import FakeProvider
 from lifeos.modules.retrieval.embedders import FakeEmbedder
 from lifeos.modules.retrieval.indexer import index_pending
@@ -69,6 +71,8 @@ def doc_settings(settings: Settings, tmp_path: Path) -> Settings:
             "documents_dir": str(tmp_path / "documents"),
             "documents_key": SecretStr(base64.b64encode(os.urandom(32)).decode()),
             "documents_max_bytes": MAX_BYTES,
+            # Pictures are accepted only when a reader can re-encode them.
+            "extraction_provider": "fake",
         }
     )
 
@@ -200,7 +204,10 @@ async def test_document_lifecycle_through_the_api(
     detail = (await client.get(f"/v1/documents/{document['id']}")).json()
     assert detail["status"] == "ready" and detail["extracted_text"] == NOTE.decode()
     assert detail["text_source"] == "text" and detail["sensitivity"] == []
-    assert detail["analysis"] == {"sensitivity_reasons": {}}
+    assert detail["analysis"] == {
+        "sensitivity_reasons": {},
+        "sensitivity_version": CLASSIFIER_VERSION,
+    }
     assert extractor.calls == 0  # plain text is decoded in-process
 
     listing = (await client.get("/v1/documents", params={"space_id": personal})).json()
@@ -268,6 +275,9 @@ def _ts(value: str) -> float:
         b"MZ\x90\x00\x03\x00\x00\x00 executable",
         b"PK\x03\x04 a zip archive",
         b"OggS\x00\x02 dictation is not uploaded here",
+        # HTML disguised as a text file (byte order mark, leading comment).
+        b"\xef\xbb\xbf<!DOCTYPE html><script>alert(1)</script>",
+        b"<!-- notes --><svg onload=alert(1)>",
     ],
 )
 async def test_dangerous_unknown_and_audio_types_are_refused(
@@ -404,6 +414,67 @@ async def test_images_are_ocrd_sanitized_and_classified_locally(
     async with database.sessionmaker() as session:
         row = await session.get(Document, uuid.UUID(document["id"]))
         assert row is not None and row.sha256 == hashlib.sha256(sanitized).hexdigest()
+
+
+async def test_a_picture_is_handed_back_only_once_re_encoded(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    doc_settings: Settings,
+) -> None:
+    """The upload itself (GPS metadata, a file not yet checked by the reader) is never
+    served: only the picture re-encoded from its pixels (T26, ADR 0011)."""
+    sanitized = b"\x89PNG\r\n\x1a\n" + b"re-encoded pixels, no metadata"
+    photo = await created(client, spaces["personal"], JPEG, filename="photo.jpg")
+    pending = await client.get(f"/v1/documents/{photo['id']}/original")
+    assert pending.status_code == 409 and pending.json()["code"] == "document_processing"
+    assert JPEG not in pending.content
+    async with database.sessionmaker() as session, session.begin():
+        await session.execute(
+            update(Document)
+            .where(Document.id == uuid.UUID(photo["id"]))
+            .values(status="processing", error="extraction_unavailable")
+        )
+    reading = await client.get(f"/v1/documents/{photo['id']}/original")
+    assert reading.status_code == 409 and reading.json()["code"] == "document_processing"
+    async with database.sessionmaker() as session, session.begin():
+        await session.execute(
+            update(Document).where(Document.id == uuid.UUID(photo["id"])).values(status="pending")
+        )
+
+    def cleaned(data: bytes, mime: str, purpose: str) -> Extraction:
+        return Extraction(text="", source="ocr", sanitized=sanitized, sanitized_mime="image/png")
+
+    extractor = FakeExtractor(handler=cleaned)
+    assert await process(database, store, extractor, photo["id"], doc_settings) == "ready"
+    ready = await client.get(f"/v1/documents/{photo['id']}/original")
+    assert ready.status_code == 200 and ready.content == sanitized
+    # A PDF or a text file holds no photo metadata: downloadable while it is read.
+    pdf = await created(client, spaces["personal"], PDF, filename="scan.pdf")
+    assert (await client.get(f"/v1/documents/{pdf['id']}/original")).content == PDF
+    downloads = [e for e in await _audit(database, photo["id"]) if e.action == "document.download"]
+    assert len(downloads) == 1
+
+
+async def test_a_polyglot_is_stored_and_served_as_its_signature_says(
+    client: AsyncClient, spaces: dict[str, str], doc_settings: Settings
+) -> None:
+    """A PDF that is also an HTML page stays a PDF: served as a download that a browser
+    neither sniffs nor renders, whatever its name."""
+    polyglot = b"%PDF-1.4\n<html><body><script>alert(document.cookie)</script></body></html>"
+    document = await created(client, spaces["personal"], polyglot, filename="page.html")
+    assert (document["kind"], document["mime"], document["title"]) == (
+        "pdf",
+        "application/pdf",
+        "page",
+    )
+    download = await client.get(f"/v1/documents/{document['id']}/original")
+    assert download.status_code == 200 and download.content == polyglot
+    assert download.headers["content-type"] == "application/pdf"
+    assert download.headers["x-content-type-options"] == "nosniff"
+    assert download.headers["content-security-policy"] == "sandbox; default-src 'none'"
+    assert download.headers["content-disposition"].startswith('attachment; filename="page.pdf"')
 
 
 async def test_receipts_get_a_local_proposal(
@@ -909,6 +980,135 @@ def test_document_jobs_are_scheduled() -> None:
 
     jobs = {job.id: job for job in build_scheduler().get_jobs()}
     assert "process_pending_documents" in jobs and "purge_document_originals" in jobs
+    assert "reclassify_documents" in jobs
+
+
+# --- Kept local: the owner's refusal, and the detection retested -----------------------------
+
+# Synthetic IBAN (valid key) grouped with non-breaking spaces, as copied from a web page.
+NBSP_IBAN = "Virement sur FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189"
+
+
+async def _audit_actions(database: Database, action: str) -> list[AuditEvent]:
+    async with database.sessionmaker() as session:
+        return list(await session.scalars(select(AuditEvent).where(AuditEvent.action == action)))
+
+
+async def test_kept_local_survives_corrections_and_new_readings(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    db: AsyncSession,
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    document = await created(client, spaces["personal"], NOTE)
+    assert document["local_only"] is False
+    await process(database, store, extractor, document["id"], doc_settings)
+    url = f"/v1/documents/{document['id']}"
+
+    kept = await client.patch(url, json={"local_only": True})
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["local_only"] is True and kept.json()["sensitivity"] == []
+    # A correction, a new title and a new reading never lift the owner's choice.
+    corrected = await client.patch(url, json={"extracted_text": "Liste de courses"})
+    assert corrected.json()["local_only"] is True
+    assert (await client.patch(url, json={"title": "Courses"})).json()["local_only"] is True
+    assert (await client.post(f"{url}/reprocess")).status_code == 202
+    await process(database, store, extractor, document["id"], doc_settings)
+    reread = (await client.get(url)).json()
+    assert reread["local_only"] is True and reread["text_corrected_at"] is None
+
+    # Lifting it lets the document go to the assistant again: a reinforced operation.
+    await db.execute(update(UserSession).values(authenticated_at=utcnow() - timedelta(hours=1)))
+    await db.commit()
+    refused = await client.patch(url, json={"local_only": False})
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "reauthentication_required"
+    assert (await client.get(url)).json()["local_only"] is True
+    # Adding protection never needs it.
+    assert (await client.patch(url, json={"local_only": True})).status_code == 200
+    await db.execute(update(UserSession).values(authenticated_at=utcnow()))
+    await db.commit()
+    lifted = await client.patch(url, json={"local_only": False})
+    assert lifted.status_code == 200 and lifted.json()["local_only"] is False
+
+    events = await _audit(database, document["id"])
+    updates = [e.details for e in events if e.action == "document.update"]
+    assert {"fields": "local_only", "local_only": True} in updates
+    assert updates[-1] == {"fields": "local_only", "local_only": False}
+    denied = await _audit_actions(database, "document.allow_cloud")
+    assert [e.outcome for e in denied] == ["denied"]
+
+
+async def test_a_detected_category_is_only_removed_by_a_corrected_text(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    document = await created(client, spaces["personal"], NOTE)
+    await process(database, store, extractor, document["id"], doc_settings)
+    url = f"/v1/documents/{document['id']}"
+    # Corrections are retested with the same rules: a bare IBAN with non-breaking spaces.
+    corrected = await client.patch(url, json={"extracted_text": NBSP_IBAN})
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["sensitivity"] == ["bank"]
+    assert "IBAN" in corrected.json()["analysis"]["sensitivity_reasons"]["bank"]
+    # The owner cannot clear it (only add protection): local_only False leaves it.
+    still = await client.patch(url, json={"local_only": False})
+    assert still.status_code == 200 and still.json()["sensitivity"] == ["bank"]
+    # A corrected text without the IBAN is classified again.
+    cleared = await client.patch(url, json={"extracted_text": "Virement fait, merci."})
+    assert cleared.json()["sensitivity"] == []
+
+
+async def test_documents_read_with_older_rules_are_classified_again(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    db: AsyncSession,
+    database: Database,
+    store: DocumentStore,
+    extractor: FakeExtractor,
+    doc_settings: Settings,
+) -> None:
+    personal = spaces["personal"]
+    missed = await created(client, personal, NBSP_IBAN.encode(), title="Virement")
+    flagged = await created(client, personal, RIB.encode(), title="RIB")
+    plain = await created(client, personal, NOTE, title="Notes")
+    for document in (missed, flagged, plain):
+        await process(database, store, extractor, document["id"], doc_settings)
+    # As stored by an older classifier: no version, the IBAN missed; and a category the
+    # current rules would not find (it must stay).
+    await db.execute(
+        update(Document)
+        .where(Document.id == uuid.UUID(missed["id"]))
+        .values(sensitivity=[], analysis={"sensitivity_reasons": {}})
+    )
+    await db.execute(
+        update(Document)
+        .where(Document.id == uuid.UUID(plain["id"]))
+        .values(sensitivity=["health"], analysis={"sensitivity_reasons": {"health": ["patient"]}})
+    )
+    await db.commit()
+
+    counts = await processing.reclassify_documents(database)
+    assert counts == {"checked": 2, "protected": 1}
+    now_missed = (await client.get(f"/v1/documents/{missed['id']}")).json()
+    assert now_missed["sensitivity"] == ["bank"]
+    assert "IBAN" in now_missed["analysis"]["sensitivity_reasons"]["bank"]
+    assert now_missed["analysis"]["sensitivity_version"] == CLASSIFIER_VERSION
+    still = (await client.get(f"/v1/documents/{plain['id']}")).json()
+    assert still["sensitivity"] == ["health"]  # never released by new rules
+    assert await processing.reclassify_documents(database) == {"checked": 0, "protected": 0}
+
+    events = await _audit_actions(database, "document.reclassify")
+    assert [(str(e.target_id), e.details) for e in events] == [
+        (missed["id"], {"added": "bank", "version": CLASSIFIER_VERSION})
+    ]
 
 
 async def test_the_title_counts_for_sensitivity(
@@ -957,9 +1157,98 @@ async def test_a_document_that_crashes_the_reader_fails_after_a_few_attempts(
             )
     failed = (await client.get(f"/v1/documents/{document['id']}")).json()
     assert (failed["status"], failed["error"]) == ("failed", "extraction_crashed")
-    # A picture that could not be read could not be cleaned either: not kept.
-    assert failed["original_available"] is False
-    assert _stored_files(doc_settings.documents_dir) == []
+    # A crash says nothing final about the file (the reader killed while the ml container
+    # ran short of memory): the picture is kept, to be read again, but never served as
+    # long as it was not re-encoded from its pixels.
+    assert (failed["original_available"], failed["original_downloadable"]) == (True, False)
+    assert len(_stored_files(doc_settings.documents_dir)) == 1
+    withheld = await client.get(f"/v1/documents/{document['id']}/original")
+    assert withheld.status_code == 409 and withheld.json()["code"] == "original_not_sanitized"
+    assert JPEG not in withheld.content
+    # Read again later (the container has its memory back): cleaned, then served.
+    sanitized = b"\x89PNG\r\n\x1a\n" + b"re-encoded pixels, no metadata"
+    retried = await client.post(f"/v1/documents/{document['id']}/reprocess")
+    assert retried.status_code == 202, retried.text
+    crashing.handler = lambda data, mime, purpose: Extraction(
+        text="", source="ocr", sanitized=sanitized, sanitized_mime="image/png"
+    )
+    assert await process(database, store, crashing, document["id"], doc_settings) == "ready"
+    ready = await client.get(f"/v1/documents/{document['id']}/original")
+    assert ready.status_code == 200 and ready.content == sanitized
+
+
+async def test_a_picture_never_re_encoded_is_never_served(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    doc_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whatever its status: an unexpected error while the clean copy is written (disk
+    full), a reader that returned no clean copy, a text typed by the owner."""
+
+    def full_disk(*args: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    def cleaned(data: bytes, mime: str, purpose: str) -> Extraction:
+        return Extraction(text="", source="ocr", sanitized=PNG, sanitized_mime="image/png")
+
+    photo = await created(client, spaces["personal"], JPEG, filename="photo.jpg")
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "write", full_disk)
+        outcome = await process(
+            database, store, FakeExtractor(handler=cleaned), photo["id"], doc_settings
+        )
+    assert outcome == "failed"
+    failed = (await client.get(f"/v1/documents/{photo['id']}")).json()
+    assert (failed["status"], failed["error"]) == ("failed", "processing_error")
+    # Kept, so that it can be read again once the disk has room, but not served.
+    assert (failed["original_available"], failed["original_downloadable"]) == (True, False)
+    response = await client.get(f"/v1/documents/{photo['id']}/original")
+    assert response.status_code == 409 and response.json()["code"] == "original_not_sanitized"
+    # Typing its text makes the document usable, not its original servable.
+    typed = await client.patch(
+        f"/v1/documents/{photo['id']}", json={"extracted_text": "Tableau blanc"}
+    )
+    assert typed.json()["status"] == "ready" and typed.json()["original_downloadable"] is False
+    assert (await client.get(f"/v1/documents/{photo['id']}/original")).status_code == 409
+
+    # Read without a clean copy (an older or faulty reader): ready, but not served either.
+    other = await created(client, spaces["personal"], PNG, filename="capture.png")
+    assert (
+        await process(database, store, FakeExtractor("Capture"), other["id"], doc_settings)
+        == "ready"
+    )
+    detail = (await client.get(f"/v1/documents/{other['id']}")).json()
+    assert (detail["status"], detail["original_downloadable"]) == ("ready", False)
+    assert (await client.get(f"/v1/documents/{other['id']}/original")).status_code == 409
+    downloads = [
+        e
+        for document_id in (photo["id"], other["id"])
+        for e in await _audit(database, document_id)
+        if e.action == "document.download"
+    ]
+    assert downloads == []
+
+
+async def test_pictures_are_refused_when_no_reader_is_configured(
+    app: FastAPI,
+    client: AsyncClient,
+    spaces: dict[str, str],
+    doc_settings: Settings,
+) -> None:
+    """Without the ml service (`LIFEOS_EXTRACTION_PROVIDER=disabled`), a picture would stay
+    pending for ever, neither read nor downloadable: refused at once, with its own code."""
+    for provider in ("disabled", "local"):
+        app.state.settings = doc_settings.model_copy(update={"extraction_provider": provider})
+        response = await upload(client, spaces["personal"], JPEG, filename="photo.jpg")
+        assert response.status_code == 415, response.text
+        assert response.json()["code"] == "image_reading_disabled"
+        # Text files and PDFs are still accepted (a PDF is stored and downloadable).
+        assert (await upload(client, spaces["personal"], NOTE)).status_code == 201
+        assert (await upload(client, spaces["personal"], PDF)).status_code == 201
+    assert len(_stored_files(doc_settings.documents_dir)) == 4
 
 
 async def test_an_unreadable_picture_is_not_kept_with_its_metadata(

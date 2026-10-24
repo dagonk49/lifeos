@@ -2,11 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { loginWithPasskey } from "@/lib/passkeys";
 import { SpaceProvider } from "@/lib/space";
 import type { DocumentDetail, DocumentSummary } from "@/lib/types";
 
 import { DocumentDetailPanel } from "./DocumentDetail";
 import { DocumentList } from "./DocumentList";
+
+vi.mock("@/lib/passkeys", () => ({ loginWithPasskey: vi.fn(async () => ({})) }));
 
 // Same shape as backend `service.detail` for a processed receipt.
 const receipt: DocumentDetail = {
@@ -26,8 +29,10 @@ const receipt: DocumentDetail = {
   processed_at: "2026-10-10T09:00:05Z",
   text_corrected_at: null,
   original_available: true,
+  original_downloadable: true,
   original_until: "2027-01-08T09:00:00Z",
   keep_original: false,
+  local_only: false,
   source_type: null,
   source_id: null,
   analysis: {
@@ -153,11 +158,53 @@ describe("DocumentDetailPanel", () => {
     expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ keep_original: true });
   });
 
+  it("keeps a document local at once; lifting it asks for a passkey", async () => {
+    const calls = mockApi();
+    renderPanel();
+    const keep = await screen.findByRole("checkbox", { name: "Toujours garder en local" });
+    expect((keep as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(keep);
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const patch = calls.find((c) => c.method === "PATCH");
+    expect(patch?.body).toEqual({ local_only: true });
+    expect(patch?.headers["If-Match"]).toBe("3");
+    expect(await screen.findByText("Gardé en local")).toBeTruthy();
+    expect(screen.getByText(/Le décocher demande une confirmation par passkey/)).toBeTruthy();
+  });
+
+  it("asks for a passkey, then retries, when the server wants a recent sign-in", async () => {
+    const kept: DocumentDetail = { ...receipt, local_only: true };
+    const patches: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === "PATCH") {
+          patches.push(JSON.parse(String(init.body)));
+          if (patches.length === 1) {
+            const problem = { status: 403, code: "reauthentication_required", title: "Recent authentication required" };
+            return new Response(JSON.stringify(problem), { status: 403 });
+          }
+          return new Response(JSON.stringify({ ...kept, local_only: false, version: 4 }), { status: 200 });
+        }
+        return new Response(JSON.stringify(kept), { status: 200 });
+      }),
+    );
+    renderPanel();
+    const keep = await screen.findByRole("checkbox", { name: "Toujours garder en local" });
+    expect((keep as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(keep);
+    await waitFor(() => expect(patches).toHaveLength(2));
+    expect(loginWithPasskey).toHaveBeenCalledOnce();
+    expect(patches).toEqual([{ local_only: false }, { local_only: false }]);
+    await waitFor(() => expect((keep as HTMLInputElement).checked).toBe(false));
+  });
+
   it("polls while the document is being read, then allows corrections", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const pending: DocumentDetail = {
       ...receipt,
       status: "processing",
+      original_downloadable: false,
       sensitivity: [],
       analysis: null,
       extracted_text: null,
@@ -170,11 +217,14 @@ describe("DocumentDetailPanel", () => {
     expect(await screen.findByText(/^Lecture en cours sur le serveur/)).toBeTruthy();
     expect((screen.getByLabelText("Texte du document") as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole("link", { name: "Ajouter aux finances" })).toBeNull();
+    // A picture is downloadable only once re-encoded (the server refuses the upload itself).
+    expect(screen.queryByRole("link", { name: "Télécharger l'original" })).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
     expect(await screen.findByRole("link", { name: "Ajouter aux finances" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Télécharger l'original" })).toBeTruthy();
     expect((screen.getByLabelText("Texte du document") as HTMLTextAreaElement).disabled).toBe(false);
     expect(calls.filter((c) => c.method === "GET")).toHaveLength(2);
   });
@@ -240,7 +290,7 @@ describe("DocumentList", () => {
       vi.fn(async (url: string) => {
         urls.push(url);
         const page = url.includes("cursor=c2")
-          ? { items: [summary("d3", { original_available: false, original_until: null })], next_cursor: null }
+          ? { items: [summary("d3", { original_available: false, original_downloadable: false, original_until: null })], next_cursor: null }
           : { items: [summary("d1"), summary("d2", { status: "failed", sensitivity: [] })], next_cursor: "c2" };
         return new Response(JSON.stringify(page), { status: 200 });
       }),

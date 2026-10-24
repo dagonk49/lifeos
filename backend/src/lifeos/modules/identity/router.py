@@ -1,16 +1,18 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from lifeos.api.deps import (
     SESSION_COOKIE,
     Auth,
+    AuthContext,
     DbSession,
     OptionalAuth,
-    RecentAuth,
     SettingsDep,
     client_ip,
-    get_recent_auth,
+    recent_auth,
+    require_recent_auth,
 )
 from lifeos.config import Settings
 from lifeos.core.errors import ProblemError
@@ -26,6 +28,7 @@ from lifeos.modules.identity.schemas import (
     PasskeyUpdate,
     RegistrationOptionsRequest,
     RegistrationVerifyRequest,
+    RevokedSessions,
     SessionInfo,
     SessionOut,
     SpaceOut,
@@ -68,7 +71,11 @@ async def _open_session(
 
 @router.post("/passkeys/registration/options")
 async def registration_options(
-    body: RegistrationOptionsRequest, db: DbSession, settings: SettingsDep, auth: OptionalAuth
+    body: RegistrationOptionsRequest,
+    request: Request,
+    db: DbSession,
+    settings: SettingsDep,
+    auth: OptionalAuth,
 ) -> CeremonyOptions:
     enrollment = None
     if body.enrollment_token:
@@ -80,7 +87,7 @@ async def registration_options(
             raise ProblemError(400, "enrollment_token_invalid", "Invalid enrollment token")
     elif auth is not None:
         # Adding a device to an existing account is a reinforced operation.
-        await get_recent_auth(auth, settings)
+        await require_recent_auth(request, auth, settings, action="auth.passkey.register")
         user = auth.user
     else:
         raise ProblemError(401, "unauthenticated", "Authentication required")
@@ -188,6 +195,18 @@ async def list_sessions(db: DbSession, auth: Auth) -> list[SessionOut]:
     ]
 
 
+@router.post("/sessions/revoke-others")
+async def revoke_other_sessions(
+    db: DbSession,
+    auth: Annotated[AuthContext, Depends(recent_auth("auth.session.revoke_others"))],
+) -> RevokedSessions:
+    """Signs out every other device (a lost phone, a copied cookie); reinforced."""
+    count = await identity.revoke_other_sessions(
+        db, user_id=auth.user.id, current_session_id=auth.session.id
+    )
+    return RevokedSessions(revoked=count)
+
+
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_session(session_id: uuid.UUID, db: DbSession, auth: Auth) -> None:
     await identity.revoke_session(
@@ -219,5 +238,9 @@ async def rename_passkey(
 
 
 @router.delete("/passkeys/{passkey_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_passkey(passkey_id: uuid.UUID, db: DbSession, auth: RecentAuth) -> None:
+async def revoke_passkey(
+    passkey_id: uuid.UUID,
+    db: DbSession,
+    auth: Annotated[AuthContext, Depends(recent_auth("auth.passkey.revoke"))],
+) -> None:
     await identity.revoke_passkey(db, user_id=auth.user.id, passkey_id=passkey_id)

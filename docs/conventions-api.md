@@ -15,10 +15,21 @@
 
 - Cookie de session `lifeos_session` (`HttpOnly`, `Secure`, `SameSite=Strict`).
 - Toute requête `POST`, `PUT`, `PATCH`, `DELETE` doit porter un en-tête `Origin` égal à
-  l'origine publique configurée (`LIFEOS_PUBLIC_ORIGIN`), sinon `403 origin_mismatch`.
-- `401 unauthenticated` : session absente, expirée ou révoquée.
+  l'origine publique configurée (`LIFEOS_PUBLIC_ORIGIN`), sinon `403 origin_mismatch`. Le
+  refus est journalisé, compté et audité (`http.origin_mismatch`, un événement par minute,
+  sans l'origine écrite par le client).
+- `401 unauthenticated` : session absente, expirée, inactive ou révoquée, ou compte
+  désactivé. La réutilisation d'une session connue mais refusée est auditée
+  (`auth.session.rejected`, une fois par session et par heure) ; un jeton inconnu ne l'est
+  pas.
+- Une session utilisée depuis un autre navigateur ou système que celui de sa connexion (les
+  numéros de version mis à part) reste valide, mais l'événement est audité
+  (`auth.session.ua_changed`, une fois par session et par heure).
 - `403 reauthentication_required` : opération sensible nécessitant une connexion de moins de
-  10 minutes.
+  10 minutes. Le refus est audité sous le nom de l'opération (`permission.grant`,
+  `space.cloud_consent`, `auth.passkey.revoke`…).
+- `POST /v1/auth/sessions/revoke-others` (renforcée) révoque toutes les sessions sauf la
+  session courante et répond `200 {"revoked": n}` ; audité `auth.session.revoke_others`.
 
 ## Erreurs (RFC 9457 « Problem Details »)
 
@@ -39,7 +50,10 @@
 - Erreurs de validation : `422 validation_error` avec un tableau `errors`
   (`loc`, `msg`, `type`).
 - Une ressource d'un espace non autorisé répond `404` (et non `403`) pour ne pas révéler son
-  existence.
+  existence. Un `space_id` explicite (paramètre, corps ou chemin) hors des espaces autorisés
+  répond `404 space_not_found` et est audité (`space.access`, un événement par minute et par
+  compte, avec le gabarit de la route) ; un `404` sur l'identifiant d'un objet ne l'est pas
+  (indiscernable d'un objet supprimé).
 
 ## Pagination
 
@@ -62,7 +76,17 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 - `429 rate_limited` avec `Retry-After` (Traefik sur `/v1/auth`).
 - `503 llm_unavailable` : fournisseur LLM désactivé ou injoignable (mode dégradé ; les données
   locales restent consultables).
-- `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint.
+- `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint ou, en facturation
+  payante, budget en dollars du jour ou du mois atteint.
+- `429 llm_daily_quota_reached` : plafond quotidien de requêtes du palier atteint
+  (facturation gratuite). Extensions `tier` (`fast` \| `deep`) et `limit` (limite appliquée,
+  marge déduite).
+- Ces deux refus ont lieu **avant** tout envoi, dès que la réservation de l'appel ne tient
+  plus dans la limite, appels en cours compris (ADR 0010).
+- `GET /v1/guardian/llm-usage` :
+  - `requests_today` compte les appels en cours ; `in_flight` les détaille par palier ;
+  - `daily_request_caps`, `daily_budget_usd` et `monthly_budget_usd` sont les limites
+    appliquées, marges déduites (`daily_request_margin`, `budget_margin_ratio`).
 
 ## Approbations
 
@@ -74,22 +98,58 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 - Toute proposition issue du LLM (ex. analyse du journal) passe par une approbation, quel que
   soit le niveau d'autonomie de l'action.
 - `403 approval_required` : action exécutée sans approbation valide (refus audité).
+- Une approbation sert une fois : une deuxième décision (requête rejouée, double clic,
+  proposition refusée ou expirée) répond `409 approval_not_pending` avec l'extension
+  `approval_status`, et est auditée (`approval.replay`). Seul le propriétaire décide : un
+  agent reçoit `403 action_denied` (audité). Des paramètres corrigés hors du schéma
+  répondent `422 invalid_action_params`, l'approbation restant en attente.
 - `501 action_not_available` : action déclarée dans la politique mais pas encore implémentée.
 
 ## Mode dégradé du chat
 
 `POST /v1/chat/conversations/{id}/messages` répond `201` même si l'IA est indisponible : le
 message de l'utilisateur est enregistré, `assistant_message` vaut `null` et `error` contient
-le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
+le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…). Le refus
+`agent_permission_required` (agent sans permission valide dans l'espace) est audité
+(`chat.agent_reply`) et rien n'est envoyé au LLM.
+
+`context.screen` n'accepte qu'une valeur d'une liste fermée (aujourd'hui `"chat"`), jamais
+un texte libre : toute autre valeur répond `422 validation_error`.
 
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :
 
-- `422 attachment_sensitive` (document sensible : jamais envoyé) ;
+- `422 attachment_sensitive` (document qui reste local : jamais envoyé) avec en extension
+  `document_id`, `sensitivity` (catégories enregistrées **et** trouvées à l'envoi par les
+  règles en vigueur) et `reason` : `detected` (classé sensible localement) ou `owner`
+  (« Toujours garder en local ») ;
 - `409 attachment_not_ready` ;
 - `422 attachment_unreadable` ;
 - `404 document_not_found` (autre espace ou dictée) ;
-- `403 attachment_not_allowed` (agent sans droit `documents`).
+- `403 attachment_not_allowed` (agent sans droit `documents`), audité (`document.attach`).
+
+Contrôle avant l'envoi : `POST /v1/chat/preview` (`space_id`, `content`, `agent`,
+`attachments`) applique les mêmes règles **sans rien enregistrer ni envoyer** et répond
+`200` :
+
+```json
+{
+  "masked": {"iban": 1, "email": 1},
+  "attachments": [
+    {"document_id": "…", "sent": true, "reason": null, "sensitivity": [], "masked": {"phone": 1}},
+    {"document_id": "…", "sent": false, "reason": "sensitive", "sensitivity": ["bank"], "masked": {}}
+  ]
+}
+```
+
+- `masked` compte par type les identifiants qui seront masqués (`email`, `phone`, `iban`,
+  `card`, `nir`, `secret`, `passport`, `id_number`, `tax_number`), jamais leurs valeurs ;
+- `reason` d'une pièce jointe laissée de côté : `sensitive`, `local_only`, `not_ready`,
+  `unreadable`, `not_found`, `not_allowed` (droits de l'agent qui répond) ;
+- un espace inconnu ou hors des espaces autorisés répond `404 space_not_found`.
+
+Le client n'affiche le récapitulatif que si quelque chose sera masqué ou laissé de côté,
+puis envoie le message avec les seules pièces jointes `sent`.
 
 ## Envois de fichiers (documents, dictées)
 
@@ -98,13 +158,22 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
   Un fichier vide répond `422 document_empty`.
 - Le type est reconnu à la signature du contenu ; un type non accepté répond
   `415 unsupported_type`. Sans clé de chiffrement configurée : `503 documents_unavailable`.
+  Une image, sans lecture locale configurée (`LIFEOS_EXTRACTION_PROVIDER=disabled`), répond
+  `415 image_reading_disabled` : elle ne serait ni lue ni téléchargeable.
 - `POST /v1/documents` répond `201` avec `status: "pending"`. La lecture (texte du PDF, OCR)
   a lieu en tâche de fond : suivre `GET /v1/documents/{id}` jusqu'à `ready` ou `failed`.
   L'`Idempotency-Key` est liée aux champs **et** à l'empreinte SHA-256 du fichier.
 - `GET /v1/documents/{id}/original` sert l'original déchiffré en pièce jointe, avec
   `nosniff`, `CSP sandbox` et `no-store`. Une fois l'original purgé : `410 original_purged`.
+  Une image n'est servie qu'une fois ré-encodée à partir de ses pixels (`original_downloadable`
+  dans le document) : pendant sa lecture, `409 document_processing` ; sinon (lecture en
+  échec ou interrompue, texte saisi à la main), `409 original_not_sanitized`. L'original
+  reste conservé pour une nouvelle lecture.
 - `PATCH /v1/documents/{id}` (`If-Match`) : titre, correction du texte extrait (la
-  sensibilité est recalculée), `keep_original`.
+  sensibilité est recalculée), `keep_original`, `local_only` (« Toujours garder en local » :
+  `true` immédiat ; `false` est une opération renforcée qui répond
+  `403 reauthentication_required` sans passkey récente, et ne retire jamais une catégorie
+  détectée).
 - `POST /v1/documents/{id}/reprocess` relance la lecture et remplace une correction.
 - `POST /v1/voice/dictations` (champs `file`, `space_id`) répond `202` avec une dictée
   `pending` :
@@ -112,6 +181,42 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
     `unreadable`…) ;
   - puis `DELETE` une fois le texte utilisé ;
   - `503 transcription_unavailable` si la dictée est désactivée (`GET /v1/voice/status`).
+
+## Comptes connectés (OAuth, ADR 0012)
+
+- `GET /v1/connectors/providers` : fournisseurs configurés (`[]` si
+  `LIFEOS_CONNECTORS_PROVIDER=disabled`).
+- `GET /v1/connectors/accounts` : comptes, statut (`active` \| `reauth_required` \|
+  `revoked`), `capabilities` (usages que le fournisseur a **réellement** accordés), `grants`
+  (consentements actifs par espace), `sources`. Jamais un jeton, même chiffré.
+- `POST /v1/connectors/oauth/start` `{provider, space_id, capabilities, account_id?}` →
+  `{authorization_url}`. Opération renforcée : `403 reauthentication_required` sans passkey
+  récente. `account_id` sert au consentement incrémental et à la reconnexion.
+- Le fournisseur renvoie le navigateur vers la **page web** `/connexions/retour`, pas vers
+  l'API : le cookie `SameSite=Strict` n'accompagne pas sa redirection. La page retire le
+  code de l'adresse et envoie, une seule fois, `POST /v1/connectors/oauth/callback`
+  `{state, code | null, error | null}` → `{account, space_id, requested, granted, missing}`.
+  - `400 oauth_state_invalid` : état inconnu, expiré (10 minutes), déjà utilisé ou d'un autre
+    propriétaire ;
+  - `400 connector_consent_denied` (`reason` en extension, ex. `access_denied`) : refus chez
+    le fournisseur ;
+  - `400 oauth_code_invalid` : code refusé par le fournisseur (expiré, déjà utilisé, PKCE) ;
+  - `502 connector_provider_error` : fournisseur injoignable ou réponse inexploitable.
+- `PUT /v1/connectors/accounts/{id}/grants` `{space_id, capabilities}` : les usages de ce
+  compte dans cet espace, exactement. Ajouter est renforcé ; retirer est immédiat.
+  `409 connector_scope_missing` (`capabilities` en extension) si le fournisseur ne les a pas
+  accordés : il faut un nouveau consentement (`oauth/start` avec `account_id`).
+- `DELETE /v1/connectors/grants/{id}` : retrait immédiat d'un consentement.
+- `DELETE /v1/connectors/accounts/{id}?purge=false|true` → `{account_id, remote_revocation,
+  purged}`. Révocation chez le fournisseur (`done` \| `failed` \| `not_needed`), jetons
+  effacés quoi qu'il arrive, consentements retirés, approbations en attente expirées.
+  `purge=true` supprime aussi le compte et les données synchronisées ; sinon le compte reste
+  visible, `revoked`.
+- Utilisation par les autres modules (synchronisation, actions) : `409 connector_reauth_required`
+  ou `409 connector_disconnected` si le compte n'est pas actif ; `403
+  connector_capability_missing` sans consentement de l'espace pour cet usage ; `403
+  agent_permission_required` pour un agent sans permission `calendar` ou `email`.
+- `503 connectors_unavailable` : connecteurs désactivés ou clé des jetons absente.
 
 ## Familles de routes
 
@@ -134,4 +239,4 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
-| `/v1/connectors` | 5 | OAuth, scopes, révocation, synchronisation |
+| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, déconnexion |

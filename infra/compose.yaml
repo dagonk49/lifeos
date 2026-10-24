@@ -4,7 +4,9 @@ name: lifeos
 
 x-backend: &backend
   build: { context: ../backend, target: app }
-  image: lifeos-backend:local
+  # Tag of the deployed version (infra/scripts/update.sh): images of earlier versions stay
+  # on the machine, so a rollback needs no rebuild.
+  image: lifeos-backend:${LIFEOS_IMAGE_TAG:-local}
   restart: unless-stopped
   env_file: .env
   environment:
@@ -24,11 +26,15 @@ x-backend: &backend
 
 x-ml: &ml
   build: { context: ../backend, target: ml }
-  image: lifeos-ml:local
+  image: lifeos-ml:${LIFEOS_IMAGE_TAG:-local}
   env_file: .env
   environment:
-    # The ml service never calls the LLM nor the database.
+    # The ml service never calls the LLM, the database nor a connected account.
     LIFEOS_LLM_PROVIDER: disabled
+    LIFEOS_CONNECTORS_PROVIDER: disabled
+  # A minimal init as PID 1 (ADR 0011): an OCR process killed with its extraction child is
+  # orphaned, and only an init reaps it (the service, as PID 1, would keep it as a zombie).
+  init: true
   read_only: true
   tmpfs: [/tmp]
   cap_drop: [ALL]
@@ -37,11 +43,12 @@ x-ml: &ml
 
 x-stt: &stt
   build: { context: ../backend, target: stt }
-  image: lifeos-stt:local
+  image: lifeos-stt:${LIFEOS_IMAGE_TAG:-local}
   env_file: .env
   environment:
-    # The stt service never calls the LLM nor the database.
+    # The stt service never calls the LLM, the database nor a connected account.
     LIFEOS_LLM_PROVIDER: disabled
+    LIFEOS_CONNECTORS_PROVIDER: disabled
   read_only: true
   tmpfs: [/tmp]
   cap_drop: [ALL]
@@ -103,6 +110,8 @@ services:
       retries: 20
     logging: *logging
 
+  # migrate and scheduler read .env without the connector secrets: they never build the
+  # connectors (only the api checks the key and the client, at start; ADR 0012).
   migrate:
     <<: *backend
     command: ["alembic", "upgrade", "head"]
@@ -119,6 +128,9 @@ services:
       - lifeos_database_password
       - lifeos_gemini_api_key
       - lifeos_documents_key
+      # Connected accounts (ADR 0012): key of the sealed OAuth tokens, Google client secret.
+      - lifeos_connectors_key
+      - lifeos_google_client_secret
     volumes: &documents-volume [documents:/data/documents]
     mem_limit: 768m
     depends_on:
@@ -129,8 +141,15 @@ services:
 
   worker:
     <<: *backend
+    # One process: it serves its metrics on :9101 (LIFEOS_WORKER_METRICS_PORT), for the
+    # monitoring (internal network) and for this health check.
     command: ["dramatiq", "lifeos.workers.actors", "--processes", "1", "--threads", "4"]
-    healthcheck: { disable: true }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9101/', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     # Extraction, sanitized images and retention of the document originals.
     secrets: *documents-secrets
     volumes: *documents-volume
@@ -170,6 +189,7 @@ services:
     restart: "no"
     environment:
       LIFEOS_LLM_PROVIDER: disabled
+      LIFEOS_CONNECTORS_PROVIDER: disabled
       HF_HUB_OFFLINE: "0"
     secrets: [lifeos_hf_token]
     volumes: [models:/models]
@@ -196,6 +216,7 @@ services:
     restart: "no"
     environment:
       LIFEOS_LLM_PROVIDER: disabled
+      LIFEOS_CONNECTORS_PROVIDER: disabled
       HF_HUB_OFFLINE: "0"
     volumes: [stt-models:/models]
     networks: [egress]
@@ -203,7 +224,7 @@ services:
 
   web:
     build: ../apps/web
-    image: lifeos-web:local
+    image: lifeos-web:${LIFEOS_IMAGE_TAG:-local}
     restart: unless-stopped
     mem_limit: 512m
     read_only: true
@@ -236,20 +257,136 @@ services:
       web: { condition: service_healthy }
     logging: *logging
 
+  # --- Monitoring (profile `monitoring`, infra/scripts/install-monitoring.sh) --------------
+  # Metrics, alert rules (prometheus/alerts.yml) and 15 days of history.
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.5.5
     profiles: [monitoring]
     restart: unless-stopped
+    # Writes the public probe targets from LIFEOS_DOMAIN, then starts Prometheus.
+    entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint.sh"]
     command:
       - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
+    environment:
+      LIFEOS_DOMAIN: ${LIFEOS_DOMAIN:?set LIFEOS_DOMAIN in infra/.env}
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus/entrypoint.sh:/etc/prometheus/entrypoint.sh:ro
       - prometheusdata:/prometheus
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # `internal` to scrape the api and the worker; `monitoring` for the exporters.
     networks: [internal, monitoring]
     # Local access only (e.g. through an SSH tunnel).
     ports: ["127.0.0.1:9090:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     mem_limit: 512m
+    logging: *logging
+
+  # Sends the alerts (ntfy, optionally e-mail or Telegram) and the dead man's switch signal.
+  # Its configuration holds the channel's secrets: generated by install-monitoring.sh.
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - --config.file=/run/secrets/alertmanager_config
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+      # A single instance: no cluster port.
+      - --cluster.listen-address=
+    secrets: [alertmanager_config]
+    volumes:
+      - ./alertmanager/lifeos.tmpl:/etc/alertmanager/lifeos.tmpl:ro
+      - alertmanagerdata:/alertmanager
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Reaches the notification services on the Internet (no published port).
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    mem_limit: 64m
+    logging: *logging
+
+  # The VM: disk space, memory, OOM kills, and the backup metrics (textfile collector,
+  # written by infra/scripts/backup.sh and restore-check.sh). The host's root is mounted
+  # read-only, for its file systems' sizes only.
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.filesystem
+      - --collector.loadavg
+      - --collector.meminfo
+      - --collector.pressure
+      - --collector.textfile
+      - --collector.textfile.directory=/textfile
+      - --collector.time
+      - --collector.vmstat
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|run|sys|textfile|etc/hostname|etc/hosts|etc/resolv\.conf|var/lib/docker/.+|var/lib/containers/.+)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+      - ${LIFEOS_METRICS_DIR:-/var/lib/lifeos/metrics}:/textfile:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 64m
+    logging: *logging
+
+  # LifeOS as the owner's devices reach it: https://<domain>/ through this machine's port
+  # 443 (Traefik, or the reverse proxy of compose.proxy.yaml), certificate included.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.28.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    user: "65534:65534"
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    environment:
+      # System authorities, plus a local one (mkcert) put in blackbox/ca/.
+      SSL_CERT_DIR: /etc/ssl/certs:/etc/lifeos-ca
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+      - ./blackbox/ca:/etc/lifeos-ca:ro
+    # The domain resolves to this machine (its port 443), whatever the DNS answers inside
+    # Docker; a reverse proxy on another machine: LIFEOS_PROBE_ADDRESS=<its IP address>.
+    extra_hosts:
+      - "${LIFEOS_DOMAIN:?set LIFEOS_DOMAIN in infra/.env}:${LIFEOS_PROBE_ADDRESS:-host-gateway}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9115/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 64m
     logging: *logging
 
 networks:
@@ -264,6 +401,8 @@ volumes:
   pgdata:
   redisdata:
   prometheusdata:
+  # Silences and notification log of Alertmanager.
+  alertmanagerdata:
   # Embedding model files (re-downloadable: excluded from backups).
   models:
   # Speech model files (re-downloadable: excluded from backups).
@@ -284,3 +423,12 @@ secrets:
   # Optional (gated models only): a Hugging Face read token, used by ml-download.
   lifeos_hf_token:
     file: ./secrets/lifeos_hf_token
+  # AES-256-GCM key of the OAuth tokens of the connected accounts (ADR 0012).
+  lifeos_connectors_key:
+    file: ./secrets/lifeos_connectors_key
+  # Secret of the Google OAuth client (empty while LIFEOS_CONNECTORS_PROVIDER is not google).
+  lifeos_google_client_secret:
+    file: ./secrets/lifeos_google_client_secret
+  # Alertmanager configuration with the alert channel (install-monitoring.sh).
+  alertmanager_config:
+    file: ./secrets/alertmanager.yml

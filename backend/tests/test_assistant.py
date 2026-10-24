@@ -85,7 +85,7 @@ async def test_chat_context_is_minimal_and_scoped_to_the_space(
             f"/v1/chat/conversations/{conversation}/messages",
             json={
                 "content": "Quand faire la révision de ma voiture ? Mon tel 06 11 22 33 44",
-                "context": {"screen": "tasks"},
+                "context": {"screen": "chat"},
             },
         )
     ).json()
@@ -96,7 +96,7 @@ async def test_chat_context_is_minimal_and_scoped_to_the_space(
     assert "Clio grise" in request.system
     assert "Tesla" not in request.system  # other space
     assert "jardinage" not in request.system  # not relevant to the question
-    assert "écran « tasks »" in request.system
+    assert "écran « chat »" in request.system
     assert "06 11 22 33 44" not in request.messages[-1].text
 
 

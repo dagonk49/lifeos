@@ -30,9 +30,19 @@ def build_scheduler() -> BlockingScheduler:
         id="purge_auth_artifacts",
     )
     scheduler.add_job(
+        actors.purge_connector_states.send,
+        CronTrigger(hour=3, minute=15, timezone=tz),
+        id="purge_connector_states",
+    )
+    scheduler.add_job(
         actors.purge_audit_events.send,
         CronTrigger(hour=3, minute=40, timezone=tz),
         id="purge_audit_events",
+    )
+    scheduler.add_job(
+        actors.purge_decided_items.send,
+        CronTrigger(hour=3, minute=15, timezone=tz),
+        id="purge_decided_items",
     )
     scheduler.add_job(
         actors.purge_messages.send,
@@ -46,6 +56,22 @@ def build_scheduler() -> BlockingScheduler:
     )
     scheduler.add_job(
         actors.expire_approvals.send, CronTrigger(minute=5, timezone=tz), id="expire_approvals"
+    )
+    # Abandoned LLM quota reservations: also released before each new reservation; this
+    # keeps the usage panel right when no call follows.
+    scheduler.add_job(
+        actors.release_llm_reservations.send,
+        IntervalTrigger(minutes=5, timezone=tz),
+        id="release_llm_reservations",
+        misfire_grace_time=300,
+    )
+    # Supervision: proves the scheduler -> Redis -> worker chain runs (alert
+    # TachesPlanifieesBloquees, docs/exploitation.md §5).
+    scheduler.add_job(
+        actors.heartbeat.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="heartbeat",
+        misfire_grace_time=30,
     )
     # Reminders are "real time": checked every minute, never coalesced into the past.
     scheduler.add_job(
@@ -66,6 +92,13 @@ def build_scheduler() -> BlockingScheduler:
         IntervalTrigger(minutes=1, timezone=tz),
         id="process_pending_documents",
         misfire_grace_time=60,
+    )
+    # After an update of the sensitivity rules, stored documents are classified again
+    # (attachments are also checked with the current rules when sent).
+    scheduler.add_job(
+        actors.reclassify_documents.send,
+        IntervalTrigger(hours=1, timezone=tz),
+        id="reclassify_documents",
     )
     scheduler.add_job(
         actors.purge_document_originals.send,

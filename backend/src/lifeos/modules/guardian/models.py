@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lifeos.db.base import Base, UUIDPrimaryKey
@@ -19,6 +19,9 @@ RESOURCES = (
     "reviews",
     "documents",
     "finances",
+    # Connected accounts (ADR 0012): on top of the owner's consent for the space.
+    "calendar",
+    "email",
 )
 
 
@@ -79,12 +82,25 @@ class Approval(UUIDPrimaryKey, Base):
     created_at: Mapped[datetime]
 
 
+# "reserved": quota held while the call runs (ADR 0010), then settled into "ok" or "error",
+# or released as "abandoned" when its process died. Keep in sync with the migrations and
+# docs/modele-de-donnees.md.
+LLM_OUTCOMES = ("ok", "denied", "budget_exceeded", "error", "reserved", "abandoned")
+
+
 class LLMCall(UUIDPrimaryKey, Base):
     """Metering and audit of cloud calls. Never stores prompts or outputs."""
 
     __tablename__ = "llm_calls"
     __table_args__ = (
-        CheckConstraint("outcome IN ('ok', 'denied', 'budget_exceeded', 'error')", name="outcome"),
+        CheckConstraint(_in("outcome", LLM_OUTCOMES), name="outcome"),
+        # Pending reservations only: the release sweep and the in-flight count stay cheap.
+        Index(
+            "ix_llm_calls_reserved",
+            "user_id",
+            "created_at",
+            postgresql_where="outcome = 'reserved'",
+        ),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -104,4 +120,14 @@ class LLMCall(UUIDPrimaryKey, Base):
     outcome: Mapped[str] = mapped_column(Text)
     error_code: Mapped[str | None] = mapped_column(Text)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    # Estimate held before the call, counted only while outcome = 'reserved'; kept
+    # afterwards to compare with the real usage.
+    reserved_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    reserved_cost_usd: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6), default=0, server_default="0"
+    )
+    # When the reservation was settled with the real usage, or released as abandoned.
+    settled_at: Mapped[datetime | None]
+    # Links the call to the run that made it (e.g. a workflow run); no foreign key.
+    correlation_id: Mapped[uuid.UUID | None]
     created_at: Mapped[datetime] = mapped_column(index=True)

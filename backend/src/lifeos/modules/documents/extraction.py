@@ -25,12 +25,22 @@ Responses:
     (orientation applied, every metadata block such as EXIF/GPS dropped), base64; the API
     stores it INSTEAD of the upload;
   - `sanitized_mime` (`image/png` | `image/jpeg` | `image/webp` | null).
-- `422` JSON `{"code": "unreadable" | "too_many_pages" | "encrypted" | ...}`: the file
-  cannot be read; it is not retried.
-- `413` (too large) and `415` (unsupported type): not retried either.
-- `503`, any other error, timeout: extraction unavailable, retried later.
+- `422` JSON `{"code": ...}`: the file cannot be read; it is not retried. Codes:
+  `unreadable` (corrupt, or a decoder failed on it), `encrypted`, `too_many_pages`,
+  `image_too_large` (dimensions checked before decoding), `too_large` (the isolated reader
+  ran out of memory), `too_slow` (the reader was killed at its time limit).
+- `413` (too large) and `415` (unsupported type, or the declared type is not the one found
+  by signature): not retried either.
+- `500` or a dropped connection: the service failed on this file (retried a few times,
+  then `extraction_crashed`; the original is kept, and can be read again). That includes
+  JSON `{"code": "extraction_crashed"}`: the isolated reader was ended by a signal (the
+  kernel's OOM killer, which picks it first when the container runs short, or a decoder
+  crash), which says nothing final about the file.
+- `503` (`busy`), any other error, timeout: extraction unavailable, retried later.
 
-The service stores nothing and never logs content.
+Hostile files (ADR 0011) are read in a confined child process of the service, with the
+decoder imposed by the detected type: a refusal is a stable 422 code, never a crash of the
+service. The service stores nothing and never logs content.
 """
 
 import base64
@@ -233,6 +243,11 @@ class RemoteExtractor:
         except ValueError as exc:
             raise ExtractionError("ml service returned invalid JSON") from exc
         return parse_response(payload)
+
+
+def extraction_enabled(settings: Settings) -> bool:
+    """Images and PDFs are read (`build_extractor` gives an extractor)."""
+    return settings.extraction_provider in ("fake", "remote")
 
 
 def build_extractor(settings: Settings) -> Extractor | None:

@@ -3,6 +3,12 @@
 from lifeos.core.idempotency import IdempotencyKey
 from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.chat.models import Conversation, Message
+from lifeos.modules.connectors.models import (
+    ConnectorAccount,
+    ConnectorGrant,
+    ConnectorSource,
+    OAuthState,
+)
 from lifeos.modules.documents.models import Document
 from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
 from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
@@ -34,6 +40,9 @@ __all__ = [
     "AuditEvent",
     "AuthChallenge",
     "CategoryRule",
+    "ConnectorAccount",
+    "ConnectorGrant",
+    "ConnectorSource",
     "Conversation",
     "Document",
     "Embedding",
@@ -51,6 +60,7 @@ __all__ = [
     "MemoryRevision",
     "Message",
     "Notification",
+    "OAuthState",
     "PasskeyCredential",
     "Review",
     "Space",

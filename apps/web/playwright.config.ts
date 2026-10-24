@@ -26,6 +26,10 @@ const backendEnv = {
   LIFEOS_DOCUMENTS_KEY: "ZTJlLW9ubHktZG9jdW1lbnRzLWtleS0zMi1ieXRlcyE=",
   LIFEOS_EXTRACTION_PROVIDER: "fake",
   LIFEOS_STT_PROVIDER: "fake",
+  // Connected accounts (step 5): the in-memory fake provider ("Démo") agrees at once and
+  // sends the browser back to /connexions/retour; tokens sealed with a throw-away key.
+  LIFEOS_CONNECTORS_PROVIDER: "fake",
+  LIFEOS_CONNECTORS_KEY: "ZTJlLW9ubHktY29ubmVjdG9ycy1rZXktMzJieXRlcyE=",
   LIFEOS_LOG_LEVEL: "WARNING",
 };
 

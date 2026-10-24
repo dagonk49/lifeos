@@ -7,11 +7,11 @@ owner sees and approves, exactly), a preview builder and a handler.
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.security import utcnow
@@ -24,6 +24,9 @@ Handler = Callable[[Ctx, uuid.UUID, Any], Awaitable[dict[str, Any]]]
 Previewer = Callable[[Any], dict[str, Any]]
 
 APPROVAL_TTL = timedelta(days=7)
+# Decided approvals stay in the owner's history this long, then are purged: their
+# parameters and preview hold the proposed texts (docs/politique-de-donnees.md §1).
+DECIDED_RETENTION = timedelta(days=90)
 
 
 @dataclass(frozen=True)
@@ -186,11 +189,49 @@ async def list_approvals(ctx: Ctx, *, status: str | None, limit: int = 100) -> l
     return list(rows)
 
 
-async def _pending(ctx: Ctx, approval_id: uuid.UUID) -> Approval:
+async def _deny_decision(
+    ctx: Ctx,
+    approval_id: uuid.UUID,
+    *,
+    action: str,
+    space_id: uuid.UUID | None,
+    details: dict[str, audit.DetailValue],
+) -> None:
+    await audit.record_detached(
+        ctx.database,
+        action=action,
+        outcome="denied",
+        actor_type=ctx.principal.kind,
+        actor_id=ctx.principal.actor_id,
+        user_id=ctx.principal.user_id,
+        space_id=space_id,
+        target_type="approval",
+        target_id=approval_id,
+        details=details,
+    )
+
+
+async def _pending(ctx: Ctx, approval_id: uuid.UUID, *, operation: str) -> Approval:
+    """The approval, locked, if a decision can still be taken on it.
+
+    A second decision (a replayed request, a double click, a decision on an expired or
+    rejected proposal) is refused and audited: an approval is used once at most.
+    """
     approval = await get_approval(ctx, approval_id, for_update=True)
     if approval.status == "pending" and approval.expires_at <= utcnow():
         approval.status = "expired"
     if approval.status != "pending":
+        await _deny_decision(
+            ctx,
+            approval.id,
+            action="approval.replay",
+            space_id=approval.space_id,
+            details={
+                "operation": operation,
+                "status": approval.status,
+                "action": approval.action,
+            },
+        )
         raise ProblemError(
             409,
             "approval_not_pending",
@@ -205,9 +246,24 @@ async def approve(
 ) -> Approval:
     """The owner approves (optionally after editing the exact parameters), then it runs."""
     if ctx.principal.kind != "user":
+        # Agents propose, the owner decides: never an approval by an agent or a job.
+        await _deny_decision(
+            ctx,
+            approval_id,
+            action="approval.approve",
+            space_id=None,
+            details={"reason": "owner_only"},
+        )
         raise ProblemError(403, "action_denied", "Only the owner can approve")
-    approval = await _pending(ctx, approval_id)
+    approval = await _pending(ctx, approval_id, operation="approve")
     if approval.level == "reinforced" and not ctx.principal.recent_auth:
+        await _deny_decision(
+            ctx,
+            approval.id,
+            action="approval.approve",
+            space_id=approval.space_id,
+            details={"reason": "reauthentication_required", "action": approval.action},
+        )
         raise ProblemError(403, "reauthentication_required", "Recent authentication required")
     entry = _registered(approval.action)
     if edited_params is not None:
@@ -241,7 +297,7 @@ async def approve(
 
 
 async def reject(ctx: Ctx, approval_id: uuid.UUID) -> Approval:
-    approval = await _pending(ctx, approval_id)
+    approval = await _pending(ctx, approval_id, operation="reject")
     approval.status = "rejected"
     approval.decided_at = utcnow()
     await audit.record(
@@ -265,3 +321,24 @@ async def expire_stale(session: Any) -> int:
         .values(status="expired")
     )
     return int(result.rowcount or 0)
+
+
+async def purge_decided(session: Any, *, now: datetime | None = None) -> int:
+    """Approvals decided (or expired) more than DECIDED_RETENTION ago; audited by count."""
+    cutoff = (now or utcnow()) - DECIDED_RETENTION
+    result = await session.execute(
+        delete(Approval).where(
+            Approval.status != "pending",
+            func.coalesce(Approval.decided_at, Approval.expires_at) < cutoff,
+        )
+    )
+    count = int(result.rowcount or 0)
+    if count:
+        await audit.record(
+            session,
+            action="approval.purge",
+            actor_type="system",
+            actor_id="purge_approvals",
+            details={"count": count},
+        )
+    return count

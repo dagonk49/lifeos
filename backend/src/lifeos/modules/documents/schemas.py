@@ -42,6 +42,9 @@ class DocumentUpdate(BaseModel):
     extracted_text: str | None = Field(default=None, max_length=MAX_TEXT_CHARS)
     # True: keep the original indefinitely; False: purge it after the retention period.
     keep_original: bool | None = None
+    # « Toujours garder en local »: True is immediate; False (sending the document to the
+    # assistant again) is a reinforced operation, and never clears a detected category.
+    local_only: bool | None = None
 
 
 class DocumentSummary(BaseModel):
@@ -56,12 +59,17 @@ class DocumentSummary(BaseModel):
     # Machine-readable reason of a pending (retry) or failed status.
     error: str | None
     sensitivity: list[str]
+    # Kept local by the owner, whatever the detection finds.
+    local_only: bool
     text_source: str | None
     text_confidence: float | None
     pages: int | None
     processed_at: datetime | None
     text_corrected_at: datetime | None
     original_available: bool
+    # The original can be downloaded: kept, and for a picture, re-encoded from its pixels
+    # (a picture never cleaned of its metadata is kept to be read again, never served).
+    original_downloadable: bool
     # Purge date of the original (in the past once purged); None while it is kept.
     original_until: datetime | None
     keep_original: bool

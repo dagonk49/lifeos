@@ -210,6 +210,16 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
 - **`users.llm_paused`** : arrêt d'urgence de tout appel cloud.
 - **`llm_calls`** : + `tier` (`fast` \| `deep`), `cost_usd numeric(12,6)` (estimé),
   `cached_tokens`. Toujours **aucun contenu**.
+- **`llm_calls`**, migration 0007 ([ADR 0010](adr/0010-reservation-des-quotas-llm.md)) :
+  - `outcome` s'étend à `reserved` (quota réservé pendant l'appel) et `abandoned`
+    (réservation libérée après la mort de son processus ; la requête reste comptée) ;
+  - `reserved_tokens integer` et `reserved_cost_usd numeric(12,6)` : estimation réservée
+    avant l'appel, comptée seulement tant que la ligne est `reserved`, conservée ensuite
+    pour comparaison ;
+  - `settled_at timestamptz null` : rapprochement avec la consommation réelle, ou
+    libération ;
+  - `correlation_id uuid null` : exécution à l'origine de l'appel (sans clé étrangère) ;
+  - index partiel `ix_llm_calls_reserved (user_id, created_at) WHERE outcome = 'reserved'`.
 
 ## 5. Étape 4 — multimodal (migrations 0004 et 0005)
 
@@ -222,12 +232,21 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     (`pending` \| `processing` \| `ready` \| `failed` \| `rejected`), `error`.
   - Lecture locale :
     - `sensitivity text[]` (`identity`, `health`, `bank`, classées localement) ;
+    - `local_only boolean NOT NULL DEFAULT false` (migration 0008) : « Toujours garder en
+      local », le refus du propriétaire, en plus de la détection ; jamais modifié par une
+      relecture, une correction ou un reclassement. Le lever est une opération renforcée
+      (`document.allow_cloud`). Au retour à 0007, un document gardé en local sans catégorie
+      reçoit `sensitivity = {identity}` pour rester protégé ;
     - `extracted_text`, `text_source` (`pdf` \| `ocr` \| `text` \| `speech`),
       `text_confidence numeric(4,3)`, `text_corrected_at`, `pages` ;
-    - `analysis jsonb` (raisons de sensibilité, lecture du ticket ; jamais d'autorité),
-      `processed_at`.
+    - `analysis jsonb` (raisons de sensibilité, `sensitivity_version` = version des règles
+      de détection appliquées, lecture du ticket ; jamais d'autorité), `processed_at`.
   - Original : `storage_key` (fichier chiffré ; `NULL` une fois purgé), `original_until`
-    (`NULL` = conservé sans limite).
+    (`NULL` = conservé sans limite), `original_sanitized boolean NOT NULL DEFAULT false`
+    (migration 0009) : pour une image, le fichier conservé est la copie ré-encodée à partir
+    des pixels, et non l'envoi brut. Seule une image dans ce cas est servie (ADR 0011).
+    La migration le pose sur les images dont le remplacement figure au journal d'audit
+    (`document.process`, `sanitized: true`).
   - Provenance : `source_type` / `source_id` (message, conversation, entrée de journal,
     tâche, objectif, opération).
   - `version`, `search_vector` (titre + texte extrait), `created_at`, `updated_at`.
@@ -258,10 +277,81 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   (« classer une dépense » : automatique et corrigeable).
 - **`agent_permissions.resource`** : s'étend à `documents` et `finances`.
 
-## 6. Prévu ensuite
+## 6. Étape 5 — comptes connectés (migration 0010, ADR 0012)
+
+Les jetons ne sont jamais en clair : AES-256-GCM avec la clé `lifeos_connectors_key`, au
+format `LOS1 | id de clé | nonce | chiffré`, avec en données associées l'identifiant du
+compte (ou de l'état) et la nature du jeton (`refresh`, `access`, `pkce`). Aucune de ces
+colonnes ne sort par l'API ni par l'export.
+
+- **`connector_accounts`** : un compte externe relié par OAuth, commun à tous les espaces.
+  - `id`, `user_id`, `provider` (`google` \| `fake`), `subject` (identifiant stable du compte
+    chez le fournisseur, `sub` OpenID ; unique avec `user_id` et `provider`), `email`
+    (affichée au propriétaire).
+  - `status` : `active` ; `reauth_required` (renouvellement refusé ou clé perdue : jetons
+    effacés, notification) ; `revoked` (déconnecté par le propriétaire : jetons effacés).
+  - `scopes text[]` : scopes **réellement accordés** par le fournisseur.
+  - `refresh_token_enc bytea`, `access_token_enc bytea`, `access_expires_at` : jetons
+    scellés, effacés à la déconnexion.
+  - `last_error` (code de motif, jamais un message du fournisseur), `connected_at`,
+    `revoked_at`, horodatages.
+- **`connector_grants`** : le consentement du propriétaire. Ce compte peut servir cet usage
+  dans cet espace.
+  - `id`, `user_id`, `account_id` (cascade), `space_id` (cascade).
+  - `capability` : `calendar.read` \| `calendar.write` \| `mail.read` \| `mail.send`.
+  - `expires_at`, `revoked_at`, `created_at`. Index unique partiel `(account_id, space_id,
+    capability) WHERE revoked_at IS NULL` : un seul consentement actif, les retirés restent
+    en historique.
+- **`connector_sources`** : un agenda ou un libellé de messagerie du compte, rattaché par le
+  propriétaire à **un** espace.
+  - `id`, `user_id`, `space_id`, `account_id` (cascade), `kind` (`calendar` \|
+    `mail_label`), `provider_ref` (unique par compte et type), `name`, `enabled`,
+    `last_synced_at`, `last_error`, horodatages.
+  - Les colonnes de synchronisation (curseur…) viendront avec l'agenda et la messagerie. Les
+    lignes synchronisées référenceront leur source avec `ON DELETE CASCADE` : supprimer le
+    compte supprime ses données.
+- **`oauth_states`** : un consentement en cours, à usage unique.
+  - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
+    jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).
+  - `space_id`, `capabilities text[]` demandées, `account_id null` (consentement
+    incrémental ou reconnexion d'un compte connu).
+  - `expires_at` (10 minutes), `used_at`, `created_at`. Purgé un jour après son expiration
+    ou son usage.
+- **`agent_permissions.resource`** : s'étend à `calendar` et `email`. Un agent a besoin de
+  cette permission **en plus** du consentement du compte dans l'espace.
+
+## 7. Prévu ensuite
 
 | Table | Étape | Notes |
 |---|---|---|
-| `connectors`, `connector_grants` | 5 | OAuth, scopes, expiration, révocation |
+| événements d'agenda, e-mails synchronisés | 5 | rattachés à une `connector_sources` (cascade), tâches 14 et 17 |
 | `push_devices` | 5 | jetons de notification mobile |
 | import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |
+
+## 7. Migrations
+
+Fichiers `backend/migrations/versions/AAAAMMJJ_NNNN_sujet.py` écrits à la main, numéros
+séquentiels (`0009` après `0008`), contraintes nommées par la convention (`ck_<table>_<nom>`).
+La CI vérifie `alembic upgrade head` puis `alembic check` (modèles et schéma identiques), et
+`backend/tests/test_migrations.py`, sur une base à part (`<base de test>_migrations`, créée par
+un superutilisateur pour l'extension `vector`), fait redescendre puis remonter chaque migration
+et vérifie qu'un retour arrière garde les données et leurs protections.
+Comme une mise à jour peut revenir en arrière ([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)) :
+
+- **Compatibles avec la version précédente** (*expand / contract*) : une migration ajoute
+  (table, colonne avec valeur par défaut ou nullable, index) ; ce qui disparaît (colonne,
+  table, contrainte resserrée) ne disparaît qu'à une version suivante, une fois que plus aucun
+  code déployé ne s'en sert. Un retour arrière fait tourner l'ancien code sur le schéma
+  redescendu, et la version précédente doit aussi supporter le nouveau schéma pendant la
+  mise à jour.
+- **`downgrade()` toujours écrit**, et qui préserve les protections et les comptes : une
+  protection que l'ancien schéma ne connaît pas se reporte sur la plus proche qu'il connaît
+  (0008 : un document « toujours gardé en local » devient sensible), un appel compté le reste
+  (0007 : une réservation devient un appel en échec).
+- **`Downgrade: lossy`** dans la docstring quand la descente perd des données du propriétaire
+  (une colonne ou une table qu'il remplit et que l'ancien schéma ne peut pas garder) :
+  `update.sh --rollback` restaure alors la sauvegarde préalable au lieu de redescendre le
+  schéma (ce qui a été écrit depuis la mise à jour est perdu).
+- Les migrations d'une même mise à jour s'appliquent dans une seule transaction : une
+  migration qui échoue laisse le schéma tel qu'il était (retour arrière automatique,
+  `scripts/test-update.sh`).

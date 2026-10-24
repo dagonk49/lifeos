@@ -17,8 +17,10 @@ import {
   formatCount,
   formatRatio,
   formatUsd,
+  inFlightLabel,
   indexInProgress,
   indexProgressLabel,
+  marginNote,
   matchBadge,
   modelLabel,
   outcomeInfo,
@@ -115,9 +117,34 @@ describe("tiers", () => {
   it("lists the daily quotas of both tiers, missing values as zero", () => {
     const quotas = tierQuotas({ fast: 320 }, { fast: 400, deep: 15 });
     expect(quotas).toEqual([
-      { tier: "fast", label: "Rapide", used: 320, limit: 400, percent: 80, level: "warning" },
-      { tier: "deep", label: "Approfondi", used: 0, limit: 15, percent: 0, level: "ok" },
+      { tier: "fast", label: "Rapide", used: 320, limit: 400, percent: 80, level: "warning", inFlight: 0 },
+      { tier: "deep", label: "Approfondi", used: 0, limit: 15, percent: 0, level: "ok", inFlight: 0 },
     ]);
+  });
+
+  it("keeps the calls in flight of each tier, already counted in the day's requests", () => {
+    const quotas = tierQuotas({ fast: 3, deep: 1 }, { fast: 398, deep: 13 }, { fast: 2 });
+    expect(quotas.map((q) => [q.tier, q.used, q.inFlight])).toEqual([
+      ["fast", 3, 2],
+      ["deep", 1, 0],
+    ]);
+    expect(inFlightLabel(0)).toBe("");
+    expect(inFlightLabel(1)).toBe("dont 1 appel en cours");
+    expect(inFlightLabel(2)).toBe("dont 2 appels en cours");
+    expect(inFlightLabel(Number.NaN)).toBe("");
+  });
+
+  it("explains the safety margins under the configured caps and budgets", () => {
+    const free = { billing: "free" as const, daily_request_margin: 2, budget_margin_ratio: 0.05 };
+    expect(marginNote(free)).toBe("Marge de sécurité : 2 requêtes gardées sous chaque plafond configuré.");
+    expect(marginNote({ ...free, daily_request_margin: 1 })).toBe(
+      "Marge de sécurité : 1 requête gardée sous chaque plafond configuré.",
+    );
+    expect(marginNote({ ...free, daily_request_margin: 0 })).toBe("");
+    expect(marginNote({ ...free, billing: "paid" })).toBe(
+      "Marge de sécurité : 5 % des budgets sont gardés en réserve.",
+    );
+    expect(marginNote({ ...free, billing: "paid", budget_margin_ratio: 0 })).toBe("");
   });
 
   it("names unconfigured models", () => {
@@ -201,6 +228,8 @@ describe("recent calls", () => {
     expect(outcomeInfo("ok")).toEqual({ label: "Réussi", tone: "teal" });
     expect(outcomeInfo("budget_exceeded")).toEqual({ label: "Limite atteinte", tone: "amber" });
     expect(outcomeInfo("error")).toEqual({ label: "Échec", tone: "red" });
+    expect(outcomeInfo("reserved")).toEqual({ label: "En cours", tone: "blue" });
+    expect(outcomeInfo("abandoned")).toEqual({ label: "Abandonné", tone: "neutral" });
     expect(outcomeInfo("weird")).toEqual({ label: "weird", tone: "neutral" });
   });
 

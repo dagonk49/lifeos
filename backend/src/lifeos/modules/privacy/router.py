@@ -16,6 +16,7 @@ from lifeos.api.deps import CtxDep
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat.models import Conversation, Message
+from lifeos.modules.connectors.models import ConnectorAccount, ConnectorGrant, ConnectorSource
 from lifeos.modules.documents.models import Document
 from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
 from lifeos.modules.guardian.models import AgentPermission
@@ -69,6 +70,22 @@ async def export(ctx: CtxDep) -> JSONResponse:
         select(AgentPermission).where(AgentPermission.user_id == uid)
     )
     space_rows = await ctx.db.scalars(select(Space).where(Space.id.in_(spaces)))
+    # Connected accounts: what was authorised, where. Never the (sealed) tokens.
+    accounts = []
+    for account in await ctx.db.scalars(
+        select(ConnectorAccount)
+        .where(ConnectorAccount.user_id == uid)
+        .order_by(ConnectorAccount.created_at)
+    ):
+        row = _row(account)
+        row.pop("refresh_token_enc")
+        row.pop("access_token_enc")
+        accounts.append(row)
+    connector_grants = await ctx.db.scalars(
+        select(ConnectorGrant)
+        .where(ConnectorGrant.user_id == uid, ConnectorGrant.space_id.in_(spaces))
+        .order_by(ConnectorGrant.created_at)
+    )
     data = {
         "format": "lifeos-export",
         "version": 1,
@@ -92,6 +109,9 @@ async def export(ctx: CtxDep) -> JSONResponse:
         "finance_category_rules": await rows(CategoryRule),
         "transactions": await rows(Transaction),
         "agent_permissions": [_row(p) for p in permissions],
+        "connector_accounts": accounts,
+        "connector_grants": [_row(g) for g in connector_grants],
+        "connector_sources": await rows(ConnectorSource),
     }
     await audit.record(
         ctx.db,

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ApprovalReview } from "@/components/ApprovalReview";
+import { EraseConfirm } from "@/components/EraseConfirm";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
@@ -20,6 +21,7 @@ function EntryCard({ entry }: { entry: JournalEntry }) {
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState(entry.content);
   const [approval, setApproval] = useState<Approval | null>(null);
+  const [erasing, setErasing] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["journal"] });
 
   const save = useMutation({
@@ -33,10 +35,6 @@ function EntryCard({ entry }: { entry: JournalEntry }) {
       setEditing(false);
       void refresh();
     },
-  });
-  const remove = useMutation({
-    mutationFn: () => api(`/v1/journal/${entry.id}`, { method: "DELETE" }),
-    onSuccess: refresh,
   });
   const analyze = useMutation({
     mutationFn: () => api<Approval>(`/v1/journal/${entry.id}/analyze`, { method: "POST" }),
@@ -78,10 +76,27 @@ function EntryCard({ entry }: { entry: JournalEntry }) {
           <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
             Modifier
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => remove.mutate()}>
+          <Button size="sm" variant="ghost" onClick={() => setErasing(true)} disabled={erasing}>
             Supprimer
           </Button>
         </div>
+      )}
+      {erasing && (
+        <EraseConfirm
+          question={`Supprimer l'entrée du ${formatDate(entry.entry_date)} ?`}
+          confirmLabel="Supprimer l'entrée"
+          deletePath={`/v1/journal/${entry.id}`}
+          derivedPath={`/v1/journal/${entry.id}/derived`}
+          onDone={(withDerived) => {
+            setErasing(false);
+            void refresh();
+            if (withDerived) {
+              void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+              void queryClient.invalidateQueries({ queryKey: ["memory"] });
+            }
+          }}
+          onCancel={() => setErasing(false)}
+        />
       )}
       {analyze.error && (
         <div className="mt-2">

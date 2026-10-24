@@ -11,10 +11,13 @@ from lifeos.core.idempotency import purge_expired_keys
 from lifeos.logging import configure_logging, get_logger
 from lifeos.modules.audit.service import purge_older_than
 from lifeos.modules.chat.service import purge_expired_messages
+from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
-from lifeos.modules.guardian.actions import expire_stale
+from lifeos.modules.guardian.actions import expire_stale, purge_decided
+from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.notifications.service import dispatch_reminders
+from lifeos.modules.notifications.service import purge_old as purge_old_notifications
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
 from lifeos.modules.voice import processing as voice
@@ -30,14 +33,29 @@ from lifeos.workers.jobs import (
     run_task,
     transcriber,
 )
+from lifeos.workers.metrics import HEARTBEAT_QUEUE, beat
 
 configure_logging(get_settings())
 log = get_logger("lifeos.actors")
 
 
+# Supervision (docs/exploitation.md §5): sent every minute by the scheduler. A heartbeat
+# older than two minutes is dropped (AgeLimit): after a stop, the backlog of heartbeats is
+# not replayed.
+@dramatiq.actor(queue_name=HEARTBEAT_QUEUE, max_retries=0, max_age=120_000, time_limit=10_000)
+def heartbeat() -> None:
+    beat()
+
+
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def purge_auth_artifacts() -> None:
     await run_job("purge_auth_artifacts", purge_expired)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_connector_states() -> None:
+    """Consents in progress (OAuth states) expired or used more than a day ago."""
+    await run_job("purge_connector_states", purge_oauth_states)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
@@ -64,6 +82,25 @@ async def purge_idempotency_keys() -> None:
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def expire_approvals() -> None:
     await run_job("expire_approvals", expire_stale)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_decided_items() -> None:
+    """Approvals decided and notifications read more than 90 days ago (their texts may
+    quote the owner's data)."""
+    await run_job("purge_approvals", purge_decided)
+    await run_job("purge_notifications", purge_old_notifications)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def release_llm_reservations() -> None:
+    """LLM quota reservations whose process died during the call (ADR 0010)."""
+    ttl = get_settings().llm_reservation_ttl
+
+    async def job(session: AsyncSession) -> int:
+        return await release_stale_reservations(session, ttl=ttl)
+
+    await run_job("release_llm_reservations", job)
 
 
 @dramatiq.actor(queue_name="realtime", max_retries=5, time_limit=60_000)
@@ -129,6 +166,13 @@ async def process_pending_documents() -> None:
             database(), document_store(), extractor(), settings=get_settings()
         ),
     )
+
+
+@dramatiq.actor(queue_name="documents", max_retries=1, time_limit=30 * 60_000)
+async def reclassify_documents() -> None:
+    """Documents classified with older rules: classified again, locally (categories are
+    only added). Nothing to do once every document is up to date."""
+    await run_task("reclassify_documents", lambda: documents.reclassify_documents(database()))
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3, time_limit=30 * 60_000)

@@ -4,15 +4,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { AgentAccessPanel } from "@/components/AgentAccessPanel";
+import { ConnectorsPanel } from "@/components/ConnectorsPanel";
+import { SessionList } from "@/components/SessionList";
 import { UsagePanel } from "@/components/UsagePanel";
 import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
 import { api, errorMessage, withReauth } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { loginWithPasskey, registerPasskey } from "@/lib/passkeys";
-import type { AgentPermission, AuditEvent, Passkey, SessionInfo, Settings, Space } from "@/lib/types";
+import type { AgentPermission, AuditEvent, Passkey, Settings, Space } from "@/lib/types";
 
 const AGENTS = ["core", "planning", "memory", "coaching", "finance", "projects", "documents"];
-const RESOURCES = ["tasks", "journal", "facts", "memories", "messages"];
+// Mirror of guardian/models.py RESOURCES.
+const RESOURCES = [
+  "tasks",
+  "journal",
+  "facts",
+  "memories",
+  "messages",
+  "goals",
+  "reviews",
+  "documents",
+  "finances",
+  "calendar",
+  "email",
+];
 
 function useInvalidate(...keys: string[]) {
   const queryClient = useQueryClient();
@@ -139,14 +154,9 @@ function PreferencesSection() {
 }
 
 function DevicesSection() {
-  const invalidate = useInvalidate("sessions", "passkeys");
-  const sessions = useQuery({ queryKey: ["sessions"], queryFn: () => api<SessionInfo[]>("/v1/auth/sessions") });
+  const invalidate = useInvalidate("passkeys", "sessions");
   const passkeys = useQuery({ queryKey: ["passkeys"], queryFn: () => api<Passkey[]>("/v1/auth/passkeys") });
   const [label, setLabel] = useState("");
-  const revokeSession = useMutation({
-    mutationFn: (id: string) => api(`/v1/auth/sessions/${id}`, { method: "DELETE" }),
-    onSuccess: invalidate,
-  });
   const revokePasskey = useMutation({
     mutationFn: (id: string) =>
       withReauth(() => api(`/v1/auth/passkeys/${id}`, { method: "DELETE" }), loginWithPasskey),
@@ -194,26 +204,7 @@ function DevicesSection() {
         <Alert tone="error">{errorMessage(revokePasskey.error ?? addPasskey.error)}</Alert>
       )}
 
-      <h3 className="mt-4 text-sm font-medium">Sessions ouvertes</h3>
-      <ul className="divide-y divide-stone-100 text-sm dark:divide-stone-800">
-        {sessions.data?.map((s) => (
-          <li key={s.id} className="flex items-center justify-between gap-2 py-2">
-            <span className="min-w-0">
-              <span className="line-clamp-1">{s.user_agent ?? "Appareil inconnu"}</span>
-              <span className="block text-xs text-stone-500">
-                Dernière activité {formatDateTime(s.last_seen_at)} {s.ip && `· ${s.ip}`}
-              </span>
-            </span>
-            {s.current ? (
-              <Badge tone="teal">Cette session</Badge>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => revokeSession.mutate(s.id)}>
-                Révoquer
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
+      <SessionList />
     </Section>
   );
 }
@@ -369,6 +360,10 @@ export default function SettingsPage() {
           <UsagePanel />
         </div>
         <AgentAccessPanel className="lg:col-span-2" />
+        {/* Anchor of the return page of a connection (/connexions/retour). */}
+        <div id="connexions" className="scroll-mt-4 lg:col-span-2">
+          <ConnectorsPanel />
+        </div>
         <DevicesSection />
         <PermissionsSection />
         <AuditSection />

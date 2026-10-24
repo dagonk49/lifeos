@@ -70,6 +70,7 @@ function DocumentRow({
               {SENSITIVITY_LABELS[category] ?? category}
             </Badge>
           ))}
+          {document.local_only && <Badge tone="violet">Gardé en local</Badge>}
         </div>
         <p className="mt-1.5 text-xs text-stone-500">
           {formatDate(document.created_at)} · {formatFileSize(document.size_bytes)} · {originalLabel(document)}

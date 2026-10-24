@@ -27,8 +27,11 @@ exposé ; PostgreSQL, Redis, MinIO et consoles d'administration ne doivent jamai
 
 ## Conséquences
 
-- Mise à jour = `docker compose pull/build` puis `up -d` ; migrations appliquées par le service
-  `migrate` avant le démarrage de l'API.
+- Mise à jour par `infra/scripts/update.sh` : images étiquetées par commit
+  (`LIFEOS_IMAGE_TAG`), celles des versions précédentes gardées sur la machine (retour arrière
+  sans reconstruction), sauvegarde préalable, migrations appliquées par le service `migrate`
+  avant le démarrage de l'API, contrôle de santé puis retour arrière automatique en cas
+  d'échec ([exploitation.md §6](../exploitation.md#6-mise-à-jour-et-retour-arrière)).
 - Le certificat TLS est fourni à Traefik (fichiers ou ACME DNS) : à configurer selon le domaine
   choisi.
 

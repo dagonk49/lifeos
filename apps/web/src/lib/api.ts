@@ -117,6 +117,8 @@ const MESSAGES: Record<string, string> = {
   llm_invalid_output: "La réponse de l'IA n'a pas pu être validée. Réessayez.",
   approval_required: "Cette action demande votre approbation explicite.",
   reauthentication_required: "Confirmez votre identité avec votre passkey.",
+  origin_mismatch:
+    "Requête refusée : elle ne provient pas de l'adresse de LifeOS. Rechargez la page ; si l'erreur persiste, vérifiez LIFEOS_PUBLIC_ORIGIN.",
   version_conflict: "Cet élément a été modifié ailleurs : rechargez la page.",
   memory_protected: "Ce souvenir est protégé : confirmez la suppression.",
   last_passkey: "Impossible de révoquer votre dernière passkey.",
@@ -133,6 +135,10 @@ const MESSAGES: Record<string, string> = {
     "Le stockage des documents n'est pas configuré sur le serveur (clé de chiffrement absente).",
   document_not_found: "Ce document est introuvable ou a été supprimé.",
   document_processing: "Le document est encore en cours de lecture.",
+  original_not_sanitized:
+    "Cette image n'a pas encore été nettoyée de ses métadonnées (position GPS…) : relancez sa lecture pour pouvoir la télécharger.",
+  image_reading_disabled:
+    "La lecture des images n'est pas activée sur ce serveur : envoyez un PDF ou un texte, ou activez le service de lecture locale.",
   original_purged: "L'original n'est plus conservé (durée de conservation écoulée).",
   document_title_required: "Le titre ne peut pas être vide.",
   document_not_reprocessable: "Ce document ne peut pas être relu.",
@@ -151,8 +157,28 @@ const MESSAGES: Record<string, string> = {
   transaction_not_found: "Cette opération est introuvable ou a été supprimée.",
   transcription_unavailable: "La dictée n'est pas activée sur ce serveur.",
   dictation_not_found: "Cette dictée a expiré ou a été supprimée.",
+  // Connected accounts (step 5, ADR 0012)
+  connectors_unavailable:
+    "Les comptes connectés ne sont pas configurés sur ce serveur (voir le guide d'installation).",
+  invalid_capabilities: "Choisissez au moins un usage à autoriser.",
+  oauth_state_invalid:
+    "Cette demande de connexion a expiré ou a déjà servi : recommencez depuis les réglages.",
+  oauth_code_invalid:
+    "Le fournisseur a refusé la connexion (code expiré ou déjà utilisé) : recommencez depuis les réglages.",
+  connector_consent_denied: "L'accès n'a pas été accordé chez le fournisseur : aucun compte n'a été connecté.",
+  connector_provider_error: "Le fournisseur du compte ne répond pas correctement. Réessayez plus tard.",
+  connector_not_found: "Ce compte connecté est introuvable.",
+  connector_grant_not_found: "Cette autorisation a déjà été retirée.",
+  connector_reauth_required: "Ce compte doit être reconnecté (Réglages > Comptes connectés).",
+  connector_disconnected: "Ce compte est déconnecté : connectez-le à nouveau pour l'utiliser.",
+  connector_scope_missing:
+    "Ces accès n'ont pas été accordés chez le fournisseur : cochez-les de nouveau pour les accepter sur sa page.",
+  connector_account_mismatch:
+    "Un autre compte a été choisi chez le fournisseur : rien n'a été modifié et l'accès reçu a été retiré. Recommencez en choisissant le même compte.",
+  invalid_reconnect: "Ce compte connecté est introuvable : actualisez la page.",
+  connector_capability_missing: "Ce compte n'est pas autorisé pour cet usage dans cet espace.",
   attachment_sensitive:
-    "Ce document est sensible : son contenu n'est jamais envoyé à l'assistant IA.",
+    "Ce document reste sur votre serveur (sensible ou gardé en local) : son contenu n'est jamais envoyé à l'assistant IA. Retirez-le du message.",
   attachment_not_ready: "La pièce jointe est encore en cours de lecture.",
   attachment_unreadable: "La pièce jointe n'a pas pu être lue : aucun texte à transmettre.",
   attachment_not_allowed:

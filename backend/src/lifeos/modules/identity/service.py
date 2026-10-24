@@ -1,9 +1,11 @@
 """Users, spaces, enrollment tokens and sessions."""
 
+import re
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
+from typing import Literal
 
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -157,13 +159,44 @@ async def create_session(
     return record, token
 
 
-async def resolve_session(
+# Why a known session token no longer opens a session.
+SessionRefusal = Literal["revoked", "expired", "idle", "disabled"]
+
+
+@dataclass(frozen=True)
+class SessionCheck:
+    session: UserSession
+    user: User
+    # None: the session is valid (and was touched).
+    refusal: SessionRefusal | None
+
+
+def _refusal(
+    user_session: UserSession, user: User, settings: Settings, now: datetime
+) -> SessionRefusal | None:
+    if user.disabled_at is not None:
+        return "disabled"
+    if user_session.revoked_at is not None:
+        return "revoked"
+    if user_session.expires_at <= now:
+        return "expired"
+    if user_session.last_seen_at + timedelta(days=settings.session_idle_days) <= now:
+        return "idle"
+    return None
+
+
+async def check_session(
     session: AsyncSession,
     settings: Settings,
     token: str,
     *,
     ip: str | None = None,
-) -> tuple[UserSession, User] | None:
+) -> SessionCheck | None:
+    """The session a cookie designates, with the reason it is refused, if it is.
+
+    None: unknown token (nothing to attribute it to). A refused session is returned so
+    that its reuse can be audited (a stolen cookie replayed after revocation).
+    """
     now = utcnow()
     row = (
         await session.execute(
@@ -175,18 +208,40 @@ async def resolve_session(
     if row is None:
         return None
     user_session, user = row
-    if (
-        user_session.revoked_at is not None
-        or user_session.expires_at <= now
-        or user_session.last_seen_at + timedelta(days=settings.session_idle_days) <= now
-        or user.disabled_at is not None
-    ):
-        return None
-    if now - user_session.last_seen_at >= _TOUCH_INTERVAL:
+    refusal = _refusal(user_session, user, settings, now)
+    if refusal is None and now - user_session.last_seen_at >= _TOUCH_INTERVAL:
         user_session.last_seen_at = now
         if ip:
             user_session.ip = _parse_ip(ip)
-    return user_session, user
+    return SessionCheck(session=user_session, user=user, refusal=refusal)
+
+
+async def resolve_session(
+    session: AsyncSession,
+    settings: Settings,
+    token: str,
+    *,
+    ip: str | None = None,
+) -> tuple[UserSession, User] | None:
+    check = await check_session(session, settings, token, ip=ip)
+    if check is None or check.refusal is not None:
+        return None
+    return check.session, check.user
+
+
+_VERSION_RE = re.compile(r"\d+(?:[._]\d+)*")
+
+
+def same_device(recorded: str | None, current: str | None) -> bool:
+    """Whether a request's User-Agent matches the one the session was opened with.
+
+    Version numbers are ignored: a browser or system update is not a change of device.
+    """
+
+    def family(user_agent: str | None) -> str:
+        return _VERSION_RE.sub("", (user_agent or "")[:_USER_AGENT_MAX]).strip()
+
+    return family(recorded) == family(current)
 
 
 async def list_sessions(session: AsyncSession, user_id: uuid.UUID) -> list[UserSession]:
@@ -231,6 +286,34 @@ async def revoke_session(
         target_id=session_id,
         details={"reason": reason},
     )
+
+
+async def revoke_other_sessions(
+    session: AsyncSession, *, user_id: uuid.UUID, current_session_id: uuid.UUID
+) -> int:
+    """« Déconnecter les autres sessions »: every open session but the current one."""
+    result = await session.execute(
+        update(UserSession)
+        .where(
+            UserSession.user_id == user_id,
+            UserSession.id != current_session_id,
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > utcnow(),
+        )
+        .values(revoked_at=utcnow(), revoked_reason="others")
+    )
+    count = int(result.rowcount or 0)  # type: ignore[attr-defined]
+    await audit.record(
+        session,
+        action="auth.session.revoke_others",
+        actor_type="user",
+        actor_id=user_id,
+        user_id=user_id,
+        target_type="session",
+        target_id=current_session_id,
+        details={"count": count},
+    )
+    return count
 
 
 async def revoke_all_sessions(session: AsyncSession, *, user_id: uuid.UUID, reason: str) -> int:
