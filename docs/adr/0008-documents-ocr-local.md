@@ -60,7 +60,9 @@ chat (F01). Les contraintes sont les suivantes :
    - **Chaque extraction tourne dans un processus enfant à mémoire bornée** (1,25 Gio par
      défaut, `LIFEOS_EXTRACTION_MEMORY_MB`). Un fichier hostile, par exemple une image
      énorme décrite en quelques kilo-octets dans un PDF, échoue au lieu d'épuiser le
-     service, qui porte aussi le modèle d'embeddings.
+     service, qui porte aussi le modèle d'embeddings. Le confinement (groupe de
+     processus, choix du noyau en cas de manque de mémoire, pas de fichier `core`) est
+     décrit dans l'[ADR 0011](0011-antivirus-et-fichiers-hostiles.md).
      - Les images trop grandes d'un PDF sont refusées avant le rendu.
      - Les grandes photos JPEG sont décodées à échelle réduite.
    - Un document sur lequel le service plante trois fois de suite échoue définitivement
@@ -115,7 +117,8 @@ chat (F01). Les contraintes sont les suivantes :
     - originaux servis en téléchargement avec `nosniff` et `CSP sandbox`, jamais affichés
       en ligne ni exécutés.
   - À reconsidérer avec les connecteurs e-mail (étape 5), dont les fichiers viennent de
-    tiers.
+    tiers : critères, décision et conception en cas d'import de fichiers de tiers dans
+    l'[ADR 0011](0011-antivirus-et-fichiers-hostiles.md).
 - **OCR par Gemini (vision).** Plus robuste sur les photos difficiles, mais il enverrait
   l'image entière au cloud, y compris les documents sensibles avant toute détection. Il
   consommerait aussi le quota gratuit. Il pourra devenir une option explicite par document

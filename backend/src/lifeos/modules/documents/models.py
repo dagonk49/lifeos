@@ -60,6 +60,10 @@ class Document(UUIDPrimaryKey, Owned, Timestamps, Base):
     processed_at: Mapped[datetime | None]
     # Encrypted original on disk; None once purged (or never kept).
     storage_key: Mapped[str | None] = mapped_column(Text)
+    # A picture's stored file is the copy re-encoded from its pixels (no GPS, no metadata,
+    # nothing appended), not the upload: only then is it served (T26, ADR 0011). Set when
+    # the worker writes that copy; meaningless for other kinds.
+    original_sanitized: Mapped[bool] = mapped_column(default=False, server_default="false")
     # Purge date of the original; None while it is kept indefinitely (owner's choice).
     original_until: Mapped[datetime | None] = mapped_column(index=True)
     # Provenance: where the document comes from or what it is attached to.

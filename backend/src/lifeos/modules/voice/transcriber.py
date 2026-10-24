@@ -12,9 +12,18 @@ Request fields:
 Responses:
 - `200` JSON `{"text", "language", "duration", "speech", "model", "device"}`: French
   transcript (empty if nothing was said), audio and speech durations in seconds;
-- `422` JSON `{"code": "unreadable" | "too_long"}`, `413` and `415`: not retried;
+- `422` JSON `{"code": ...}`, `413` and `415`: not retried. Codes: `unreadable`
+  (corrupt, no audio track, or the decoder failed on it), `too_long`,
+  `unsupported_codec` (an audio codec outside the allowed list), `too_slow` (the decoder
+  was killed at its time limit);
+- `500` or a dropped connection: the service failed on this recording (retried a few
+  times, then `transcription_crashed`). That includes JSON
+  `{"code": "transcription_crashed"}`: the isolated decoder was ended by a signal (the
+  kernel's OOM killer, or a crash), which says nothing final about the recording;
 - `503` (`model_unavailable`, `busy`), any other error, timeout: retried later.
 
+Recordings are decoded in a confined child process of the service (ADR 0011), with the
+demuxer imposed by the detected type: a hostile file is refused before reaching the model.
 The service stores nothing and never logs audio or text.
 """
 

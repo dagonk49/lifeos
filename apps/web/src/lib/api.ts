@@ -133,6 +133,10 @@ const MESSAGES: Record<string, string> = {
     "Le stockage des documents n'est pas configuré sur le serveur (clé de chiffrement absente).",
   document_not_found: "Ce document est introuvable ou a été supprimé.",
   document_processing: "Le document est encore en cours de lecture.",
+  original_not_sanitized:
+    "Cette image n'a pas encore été nettoyée de ses métadonnées (position GPS…) : relancez sa lecture pour pouvoir la télécharger.",
+  image_reading_disabled:
+    "La lecture des images n'est pas activée sur ce serveur : envoyez un PDF ou un texte, ou activez le service de lecture locale.",
   original_purged: "L'original n'est plus conservé (durée de conservation écoulée).",
   document_title_required: "Le titre ne peut pas être vide.",
   document_not_reprocessable: "Ce document ne peut pas être relu.",

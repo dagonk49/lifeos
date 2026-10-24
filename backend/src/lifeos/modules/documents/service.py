@@ -62,6 +62,14 @@ def detail(document: Document) -> DocumentOut:
     )
 
 
+def original_withheld(document: Document) -> bool:
+    """A picture whose stored file was never re-encoded from its pixels: the upload itself,
+    with its metadata (GPS...), possibly something appended. Kept (to be read again), never
+    served (T26, ADR 0011): while it is being read, if reading it failed or crashed, or if
+    the owner typed its text instead."""
+    return document.kind == "image" and not document.original_sanitized
+
+
 def _fields(document: Document) -> dict[str, Any]:
     available = document.storage_key is not None
     return {
@@ -84,6 +92,7 @@ def _fields(document: Document) -> dict[str, Any]:
         "processed_at": document.processed_at,
         "text_corrected_at": document.text_corrected_at,
         "original_available": available,
+        "original_downloadable": available and not original_withheld(document),
         "original_until": document.original_until,
         "keep_original": available and document.original_until is None,
         "source_type": document.source_type,
@@ -199,6 +208,12 @@ async def read_original(
     document = await get_document(ctx, document_id)
     if document.storage_key is None:
         raise ProblemError(410, "original_purged", "The original file is no longer kept")
+    if original_withheld(document):
+        if document.status in ("pending", "processing"):
+            raise ProblemError(409, "document_processing", "The picture is still being read")
+        raise ProblemError(
+            409, "original_not_sanitized", "The picture was never cleaned of its metadata"
+        )
     if not store.available:
         raise ProblemError(503, "documents_unavailable", "Document storage is unavailable")
     try:

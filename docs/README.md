@@ -29,6 +29,7 @@
 | [0008](adr/0008-documents-ocr-local.md) | Documents : originaux chiffrés, lecture et OCR en local | Acceptée |
 | [0009](adr/0009-voix-locale.md) | Voix : dictée transcrite en local, lecture par les voix de l'appareil | Acceptée |
 | [0010](adr/0010-reservation-des-quotas-llm.md) | Plafonds IA fiables : réservation atomique des quotas avant l'appel | Acceptée |
+| [0011](adr/0011-antivirus-et-fichiers-hostiles.md) | Fichiers hostiles : confinement et limites, pas d'antivirus pour l'instant | Acceptée |
 
 ## Points encore ouverts
 

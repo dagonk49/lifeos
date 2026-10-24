@@ -213,8 +213,13 @@ async def _fail(
     return "failed"
 
 
-async def _crashed(database: Database, store: DocumentStore, job: _Job, *, error: str) -> Outcome:
-    """The service failed on this document: retried later, failed after MAX_FAILURES."""
+async def _crashed(database: Database, job: _Job, *, error: str) -> Outcome:
+    """The service failed on this document: retried later, failed after MAX_FAILURES.
+
+    The original is kept, even a picture's: a crash (the reader killed when the `ml`
+    container ran short of memory, a decoder that crashed) says nothing final about the
+    file, which the owner can have read again. A picture that was never re-encoded is not
+    served meanwhile (`original_sanitized`)."""
     async with database.sessionmaker() as session, session.begin():
         failures = await session.scalar(
             update(Document)
@@ -226,8 +231,7 @@ async def _crashed(database: Database, store: DocumentStore, job: _Job, *, error
     if failures is None:
         return "skipped"
     if failures >= MAX_FAILURES:
-        drop = store if job.kind == "image" else None
-        return await _fail(database, job, error=error, drop_original=drop)
+        return await _fail(database, job, error=error)
     return await _release(database, job, error="extraction_unavailable")
 
 
@@ -276,6 +280,8 @@ async def _save(
             document.mime = mime
             document.size_bytes = len(data)
             document.sha256 = hashlib.sha256(data).hexdigest()
+            # Written: the stored file is the clean copy from now on (it can be served).
+            document.original_sanitized = True
             replaced = True
         categories, analysis = analyse(
             text,
@@ -337,7 +343,7 @@ async def _process(
             )
         except ExtractionCrashError as exc:
             log.warning("extraction_crashed", document=str(job.id), error=str(exc)[:200])
-            return await _crashed(database, store, job, error="extraction_crashed")
+            return await _crashed(database, job, error="extraction_crashed")
         except ExtractionError as exc:
             log.warning("extraction_unavailable", document=str(job.id), error=str(exc)[:200])
             return await _release(database, job, error="extraction_unavailable")

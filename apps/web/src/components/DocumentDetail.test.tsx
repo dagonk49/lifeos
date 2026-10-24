@@ -29,6 +29,7 @@ const receipt: DocumentDetail = {
   processed_at: "2026-10-10T09:00:05Z",
   text_corrected_at: null,
   original_available: true,
+  original_downloadable: true,
   original_until: "2027-01-08T09:00:00Z",
   keep_original: false,
   local_only: false,
@@ -203,6 +204,7 @@ describe("DocumentDetailPanel", () => {
     const pending: DocumentDetail = {
       ...receipt,
       status: "processing",
+      original_downloadable: false,
       sensitivity: [],
       analysis: null,
       extracted_text: null,
@@ -215,11 +217,14 @@ describe("DocumentDetailPanel", () => {
     expect(await screen.findByText(/^Lecture en cours sur le serveur/)).toBeTruthy();
     expect((screen.getByLabelText("Texte du document") as HTMLTextAreaElement).disabled).toBe(true);
     expect(screen.queryByRole("link", { name: "Ajouter aux finances" })).toBeNull();
+    // A picture is downloadable only once re-encoded (the server refuses the upload itself).
+    expect(screen.queryByRole("link", { name: "Télécharger l'original" })).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
     expect(await screen.findByRole("link", { name: "Ajouter aux finances" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Télécharger l'original" })).toBeTruthy();
     expect((screen.getByLabelText("Texte du document") as HTMLTextAreaElement).disabled).toBe(false);
     expect(calls.filter((c) => c.method === "GET")).toHaveLength(2);
   });
@@ -285,7 +290,7 @@ describe("DocumentList", () => {
       vi.fn(async (url: string) => {
         urls.push(url);
         const page = url.includes("cursor=c2")
-          ? { items: [summary("d3", { original_available: false, original_until: null })], next_cursor: null }
+          ? { items: [summary("d3", { original_available: false, original_downloadable: false, original_until: null })], next_cursor: null }
           : { items: [summary("d1"), summary("d2", { status: "failed", sensitivity: [] })], next_cursor: "c2" };
         return new Response(JSON.stringify(page), { status: 200 });
       }),

@@ -1,8 +1,9 @@
 """Local text extraction of the `ml` service (CI job `ml-model`: needs the `ml` extra and
 Tesseract with the French model).
 
-Documents are generated here (text rendered by Pillow, minimal PDFs written by hand):
-no binary fixture to trust, and the expected text is known.
+Documents are generated in code (`ml_samples`: text rendered by Pillow, minimal PDFs
+written by hand): no binary fixture to trust, and the expected text is known. Hostile
+files: `test_hostile_files`.
 """
 
 import base64
@@ -18,6 +19,7 @@ import pytest
 pytest.importorskip("pypdfium2")
 pytest.importorskip("pillow_heif")
 
+from ml_samples import encode, image_pdf, render, text_pdf
 from PIL import Image, ImageDraw, ImageFont
 
 from lifeos.config import Settings
@@ -42,57 +44,6 @@ RECEIPT = [
     "TOTAL TTC             6,43",
     "CB                    6,43",
 ]
-
-
-def render(
-    lines: list[str], *, size: int = 36, width: int = 900, font_path: Path | None = None
-) -> Image.Image:
-    font = (
-        ImageFont.truetype(str(font_path), size) if font_path else ImageFont.load_default(size=size)
-    )
-    image = Image.new("RGB", (width, (size + 14) * len(lines) + 80), "white")
-    draw = ImageDraw.Draw(image)
-    for index, line in enumerate(lines):
-        draw.text((40, 40 + index * (size + 14)), line, fill="black", font=font)
-    return image
-
-
-def encode(image: Image.Image, fmt: str, **params: object) -> bytes:
-    buffer = io.BytesIO()
-    image.save(buffer, format=fmt, **params)
-    return buffer.getvalue()
-
-
-def text_pdf(pages: list[str]) -> bytes:
-    """A minimal PDF with a real text layer (Helvetica), one line per page."""
-    count = len(pages)
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids ["
-        + b" ".join(f"{4 + 2 * i} 0 R".encode() for i in range(count))
-        + f"] /Count {count} >>".encode(),
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ]
-    for index, text in enumerate(pages):
-        stream = f"BT /F1 14 Tf 72 720 Td ({text}) Tj ET".encode("latin-1")
-        objects.append(
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-            b"/Resources << /Font << /F1 3 0 R >> >> "
-            + f"/Contents {5 + 2 * index} 0 R >>".encode()
-        )
-        objects.append(f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream")
-    out = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
-    xref = len(out)
-    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
-    for offset in offsets:
-        out += f"{offset:010d} 00000 n \n".encode()
-    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n".encode()
-    out += f"startxref\n{xref}\n%%EOF\n".encode()
-    return bytes(out)
 
 
 # --- Images --------------------------------------------------------------------------------
@@ -315,56 +266,6 @@ async def test_service_checks_type_and_size() -> None:
 
 
 # --- Hostile or huge files -----------------------------------------------------------------
-
-
-def image_pdf(width: int, height: int, mask: int = 0) -> bytes:
-    """A small PDF whose single page draws a huge image of zeros (Flate compressed), and
-    optionally a huge soft mask: kilobytes on disk, gigabytes once decoded."""
-    import zlib
-
-    def flate(w: int, h: int, channels: int) -> bytes:
-        compressor = zlib.compressobj(9)
-        row = b"\x00" * (w * channels)
-        return b"".join(compressor.compress(row) for _ in range(h)) + compressor.flush()
-
-    smask = b" /SMask 6 0 R" if mask else b""
-    picture = flate(width, height, 3)
-    content = b"q 612 0 0 792 0 0 cm /Im0 Do Q"
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
-        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
-        b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB "
-        b"/BitsPerComponent 8%s /Filter /FlateDecode /Length %d >>\nstream\n"
-        % (width, height, smask, len(picture))
-        + picture
-        + b"\nendstream",
-    ]
-    if mask:
-        alpha = flate(mask, mask, 1)
-        objects.append(
-            b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray "
-            b"/BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n"
-            % (mask, mask, len(alpha))
-            + alpha
-            + b"\nendstream"
-        )
-    out = bytearray(b"%PDF-1.7\n")
-    offsets = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
-    xref = len(out)
-    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
-    for offset in offsets:
-        out += b"%010d 00000 n \n" % offset
-    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
-        len(objects) + 1,
-        xref,
-    )
-    return bytes(out)
 
 
 def test_huge_image_inside_a_pdf_is_refused_before_rendering() -> None:

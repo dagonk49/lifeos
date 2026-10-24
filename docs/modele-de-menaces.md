@@ -49,10 +49,10 @@ Sorties du LLM = NON FIABLES (validées par schéma avant toute action)
 | T14 | Exfiltration via la sortie du LLM (liens/images Markdown vers un domaine tiers) | réponses affichées en texte brut (aucun HTML ni Markdown interprété) ; CSP `img-src 'self' data:` et `connect-src 'self'` | 2 |
 | T15 | Coût LLM incontrôlé (boucle, abus) | projet Gemini **sans compte de facturation** (rien ne peut être facturé, ADR 0007) ; plafonds quotidiens par palier et budget mensuel ; arrêt d'urgence ; aucune nouvelle tentative automatique ; limites de profondeur et d'appels par requête | 2, 3 |
 | T16 | Hallucination présentée comme un fait | `origin` + `confidence` ; distinction fait / inférence dans l'interface ; corrections prioritaires | 2 |
-| T17 | Fichiers malveillants (bombe de décompression, PDF ou image piégés, HTML/SVG actifs) | liste blanche par **signature** ; taille bornée pendant la lecture ; analyse dans `ml` ou `stt` isolés (sans sortie, lecture seule, sans privilèges), chaque extraction dans un processus enfant à mémoire bornée ; décodeur imposé par le type détecté ; contrôle des dimensions avant décodage (images, images d'un PDF) ; audio décodé progressivement et refusé dès la durée maximale dépassée ; trois plantages de suite → échec définitif ; images ré-encodées à partir des pixels ; originaux servis en téléchargement (`nosniff`, `CSP sandbox`, `no-store`). Pas d'antivirus (coût RAM ; voir ADR 0008), à revoir avec l'e-mail | 4 |
+| T17 | Fichiers malveillants (bombe de décompression ou de calcul, PDF, image ou audio piégés, fichiers déguisés ou polyglottes, HTML/SVG actifs) | liste blanche par **signature** (balisage refusé comme texte, même après BOM ou commentaire) ; taille bornée pendant la lecture ; analyse dans `ml` ou `stt` isolés (sans sortie, lecture seule, sans privilèges) ; **chaque analyse dans un processus enfant confiné** (`lifeos.isolation` : mémoire bornée, premier tué par le noyau si la mémoire manque, tué avec son groupe de processus au délai, Tesseract compris et récupéré par l'init du conteneur, sans fichier `core`) ; décodeur et démultiplexeur imposés par le type détecté, liste courte de codecs audio, piste vidéo jamais décodée ; contrôle des dimensions avant décodage (images, images d'un PDF) et du nombre de passes d'un JPEG ; audio décodé progressivement et refusé dès la durée maximale dépassée ; trois plantages de suite → échec définitif ; images ré-encodées à partir des pixels, jamais servies avant ; originaux servis en téléchargement (`nosniff`, `CSP sandbox`, `no-store`). **Pas d'antivirus** pour les fichiers déposés par le propriétaire (ADR 0011 : critères, mémoire, accès sortant) ; pièces jointes d'e-mail importées seulement à la demande, avec provenance et avertissement ; antivirus (`clamd` sans sortie, `freshclam` à part) si des fichiers de tiers sont un jour importés automatiquement | 4 |
 | T24 | Fuite d'un document sensible vers le cloud (pièce jointe, agent) | classement local identité / santé / banque avant tout usage, retesté à chaque correction et de nouveau à l'envoi avec les règles en vigueur, reclassement des documents lus par d'anciennes règles (catégories seulement ajoutées) ; refus manuel « Toujours garder en local », jamais levé par une relecture et levé seulement avec une passkey récente ; refus côté serveur avant enregistrement du message ; agents limités aux métadonnées des tickets ; audit `document.attach` | 4 |
 | T25 | Injection de prompt par le contenu d'un document joint | texte présenté comme données délimitées ; le Guardian décide hors LLM ; aucune action sans approbation (T10) | 4 |
-| T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; une image illisible (donc non nettoyable) n'est pas conservée | 4 |
+| T26 | Métadonnées révélatrices (GPS, appareil) dans les photos | ré-encodage sans EXIF / XMP / ICC ; le fichier nettoyé remplace l'envoi ; l'envoi brut n'est jamais servi pendant la lecture (409) ; une image illisible (donc non nettoyable) n'est pas conservée | 4 |
 | T27 | Conservation abusive de la voix | enregistrement chiffré puis supprimé dès la transcription (ou le refus) ; dictées effacées après 24 h ; transcription locale ; lecture à voix haute avec les seules voix locales de l'appareil | 4 |
 | T28 | Perte ou vol de la clé des documents | secret Docker séparé des données ; non inclus dans les sauvegardes (seule son empreinte SHA-256 tronquée accompagne chaque sauvegarde) ; copie hors du serveur via la fiche de récupération ; clé écrasée ou remplacée détectée par le test de restauration hebdomadaire (empreinte et déchiffrement des originaux), qui alerte ; une restauration avec une autre clé est refusée avant de remplacer quoi que ce soit | 4 |
 | T18 | SSRF via connecteurs / URLs | liste d'hôtes autorisés, pas de requête vers des adresses privées | 5 |
@@ -102,9 +102,23 @@ jamais mises en cache (`no-store`). Limites restantes :
   correction, renommage et relecture, levé seulement avec une passkey récente ; catégorie
   détectée jamais retirée par le propriétaire ni par le reclassement ; corpus synthétique de
   documents français (`backend/tests/fixtures/sensitivity`, bruit d'OCR et variantes
-  typographiques) ; `lifeos-admin sensitivity-check` n'affiche aucune valeur.
+  typographiques) ; `lifeos-admin sensitivity-check` n'affiche aucune valeur ; photo en
+  cours de lecture jamais servie ; polyglotte PDF + HTML servi comme un PDF à télécharger.
+- Fichiers hostiles (ADR 0011, corpus généré dans le code, job CI `ml-model`) : PDF
+  corrompus ou piégés (tronqués, boucles d'arbre de pages, de table xref et de longueur,
+  imbrication profonde, nombre de pages et taille de page démesurés, JavaScript, `/Launch`,
+  fichier joint, chiffrés, images et instructions de dessin géantes, polyglotte HTML),
+  images démesurées ou malformées (zTXt et iCCP de 1 Go, PNG tronqué ou animé, toile WebP
+  géante, JPEG à 2 000 passes, en-têtes JPEG et HEIC mensongers, polyglotte JPEG + ZIP) et
+  audio malformé ou déguisé (vidéos, codecs hors liste, AC-3 derrière ID3, en-têtes WAV
+  mensongers, bruit après chaque signature, type déclaré faux) → échec rapide avec un code
+  stable et définitif, ou résultat borné, sans processus restant ; Tesseract bloqué tué avec
+  l'enfant ; décodeur qui plante → seul l'enfant meurt ; santé et embeddings répondent
+  pendant une extraction lente ; le modèle de transcription reste chargé et transcrit la
+  dictée suivante ; enfant dans son propre groupe, `oom_score_adj` 1000, sans `core`.
 - Voix : enregistrement supprimé après transcription comme après refus ; dictées hors
-  recherche et index ; une seule transcription à la fois.
+  recherche et index ; une seule transcription à la fois ; enregistrement hostile refusé
+  avant d'atteindre le modèle.
 - Client web (CSP) : chaque page, publique, authentifiée ou 404, reçoit un nonce différent à
   chaque réponse, porté par tous ses scripts, sans `'unsafe-inline'` ; un nonce envoyé par le
   client est ignoré ; script en ligne, nonce deviné, script de même origine et gestionnaire

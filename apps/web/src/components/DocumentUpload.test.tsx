@@ -24,6 +24,7 @@ const created: DocumentDetail = {
   processed_at: null,
   text_corrected_at: null,
   original_available: true,
+  original_downloadable: true,
   original_until: "2027-01-10T10:00:00Z",
   keep_original: false,
   local_only: false,

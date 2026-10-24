@@ -242,7 +242,11 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     - `analysis jsonb` (raisons de sensibilité, `sensitivity_version` = version des règles
       de détection appliquées, lecture du ticket ; jamais d'autorité), `processed_at`.
   - Original : `storage_key` (fichier chiffré ; `NULL` une fois purgé), `original_until`
-    (`NULL` = conservé sans limite).
+    (`NULL` = conservé sans limite), `original_sanitized boolean NOT NULL DEFAULT false`
+    (migration 0009) : pour une image, le fichier conservé est la copie ré-encodée à partir
+    des pixels, et non l'envoi brut. Seule une image dans ce cas est servie (ADR 0011).
+    La migration le pose sur les images dont le remplacement figure au journal d'audit
+    (`document.process`, `sanitized: true`).
   - Provenance : `source_type` / `source_id` (message, conversation, entrée de journal,
     tâche, objectif, opération).
   - `version`, `search_vector` (titre + texte extrait), `created_at`, `updated_at`.

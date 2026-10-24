@@ -36,6 +36,7 @@ function document(id: string, overrides: Partial<DocumentSummary> = {}): Documen
     processed_at: "2026-10-11T08:00:00Z",
     text_corrected_at: null,
     original_available: true,
+    original_downloadable: true,
     original_until: null,
     keep_original: false,
     local_only: false,

@@ -229,6 +229,25 @@ def test_storage_requires_a_valid_key(tmp_path: object) -> None:
         ("Notes de réunion\nAccents : é è à ç".encode(), "text"),
         # French typography: non-breaking and narrow spaces are text.
         ("IBAN\u00a0:\u00a0FR76\u00a03000\u00a06000\u202f€".encode(), "text"),
+        # Angle brackets that open no tag a browser would sniff as markup.
+        (b"<3 merci !\na < b et b > c\n<brouillon> liste", "text"),
+        ("\ufeffNotes avec une marque d'ordre".encode(), "text"),
+        # Markup further in stays text: browsers only sniff the start, and the original is
+        # served as a text/plain download (nosniff, sandbox), never rendered.
+        (b"Notes\n<script>alert(1)</script>", "text"),
+        # Markdown notes that open with an HTML comment or a common fragment (README
+        # headers): text, served as a text/plain download, never rendered.
+        (b"<!-- markdownlint-disable -->\n# Notes\n", "text"),
+        (b'<p align="center"><img src="logo.png"></p>\n\n# Projet\n', "text"),
+        (b'<div align="center">\n\n# Projet\n</div>', "text"),
+        (b"<h1>Compte rendu</h1>\nPr\xc3\xa9sents : A, B", "text"),
+        (b"<b>Important</b> : rappeler le notaire", "text"),
+        (b"\n\t <p>Bonjour<img src=x onerror=alert(1)></p>", "text"),
+        (b"<a href='https://example.org'>lien</a>", "text"),
+        # Polyglots keep the type of their signature (images are re-encoded, originals are
+        # downloads): the other reading is never used.
+        (b"%PDF-1.4\n<html><script>alert(1)</script></html>", "pdf"),
+        (b"\xff\xd8\xff\xe0 jpeg then PK\x03\x04 a zip archive", "image"),
     ],
 )
 def test_allowed_types_are_detected_by_signature(data: bytes, kind: str) -> None:
@@ -245,6 +264,25 @@ def test_allowed_types_are_detected_by_signature(data: bytes, kind: str) -> None
         b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
         b"<!DOCTYPE html><html><script>x</script></html>",
         b"\x00\x01\x02 binary noise \x00",
+        # A web page, a script, SVG or XML disguised as text: behind a byte order mark,
+        # spaces or comments, or in capitals.
+        "\ufeff<!DOCTYPE html><html><script>x</script></html>".encode(),
+        b"<!-- note --><svg onload=alert(1)>",
+        b"<!-- a -->\n<!-- b -->\n  <html><body>x</body></html>",
+        b"<HTML><BODY onload=alert(1)>",
+        b"<SCRIPT>alert(1)</SCRIPT>",
+        b"<svg/onload=alert(1)>",
+        b"<iframe src=x>",
+        b"<?xml version='1.0'?><svg xmlns='http://www.w3.org/2000/svg'/>",
+        # Executables, archives and other formats renamed .pdf, .jpg or .txt.
+        b"#!/bin/sh\x00\nrm -rf /",
+        b"\xca\xfe\xba\xbe mach-o or java class",
+        b"Rar!\x1a\x07\x00 archive",
+        b"7z\xbc\xaf\x27\x1c archive",
+        b"\x1f\x8b\x08\x00 gzip",
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 Office document with macros",
+        b"GIF89a\x01\x00\x01\x00",
+        b"II*\x00 TIFF",
     ],
 )
 def test_dangerous_or_unknown_types_are_refused(data: bytes) -> None:

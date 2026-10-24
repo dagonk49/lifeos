@@ -29,6 +29,9 @@ x-ml: &ml
   environment:
     # The ml service never calls the LLM nor the database.
     LIFEOS_LLM_PROVIDER: disabled
+  # A minimal init as PID 1 (ADR 0011): an OCR process killed with its extraction child is
+  # orphaned, and only an init reaps it (the service, as PID 1, would keep it as a zombie).
+  init: true
   read_only: true
   tmpfs: [/tmp]
   cap_drop: [ALL]

@@ -115,7 +115,13 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
                 memory_mb=settings.extraction_memory_mb,
             )
         except extraction.ExtractFailure as exc:
-            log.info("extraction_refused", mime=mime, code=exc.code)
+            log.info(
+                "extraction_refused",
+                mime=mime,
+                code=exc.code,
+                peak_mb=exc.peak_mb,
+                signal=exc.signal,
+            )
             return JSONResponse({"code": exc.code}, status_code=exc.status)
         finally:
             extraction_slot.release()
@@ -128,6 +134,8 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
             chars=len(result.text),
             sanitized=result.sanitized is not None,
             seconds=round(time.monotonic() - started, 2),
+            # Memory of the isolated extraction: sizes LIFEOS_EXTRACTION_MEMORY_MB.
+            peak_mb=result.peak_mb,
         )
         return {
             "text": result.text,

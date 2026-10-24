@@ -67,6 +67,9 @@ class DocumentSummary(BaseModel):
     processed_at: datetime | None
     text_corrected_at: datetime | None
     original_available: bool
+    # The original can be downloaded: kept, and for a picture, re-encoded from its pixels
+    # (a picture never cleaned of its metadata is kept to be read again, never served).
+    original_downloadable: bool
     # Purge date of the original (in the past once purged); None while it is kept.
     original_until: datetime | None
     keep_original: bool

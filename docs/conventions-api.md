@@ -134,11 +134,17 @@ puis envoie le message avec les seules pièces jointes `sent`.
   Un fichier vide répond `422 document_empty`.
 - Le type est reconnu à la signature du contenu ; un type non accepté répond
   `415 unsupported_type`. Sans clé de chiffrement configurée : `503 documents_unavailable`.
+  Une image, sans lecture locale configurée (`LIFEOS_EXTRACTION_PROVIDER=disabled`), répond
+  `415 image_reading_disabled` : elle ne serait ni lue ni téléchargeable.
 - `POST /v1/documents` répond `201` avec `status: "pending"`. La lecture (texte du PDF, OCR)
   a lieu en tâche de fond : suivre `GET /v1/documents/{id}` jusqu'à `ready` ou `failed`.
   L'`Idempotency-Key` est liée aux champs **et** à l'empreinte SHA-256 du fichier.
 - `GET /v1/documents/{id}/original` sert l'original déchiffré en pièce jointe, avec
   `nosniff`, `CSP sandbox` et `no-store`. Une fois l'original purgé : `410 original_purged`.
+  Une image n'est servie qu'une fois ré-encodée à partir de ses pixels (`original_downloadable`
+  dans le document) : pendant sa lecture, `409 document_processing` ; sinon (lecture en
+  échec ou interrompue, texte saisi à la main), `409 original_not_sanitized`. L'original
+  reste conservé pour une nouvelle lecture.
 - `PATCH /v1/documents/{id}` (`If-Match`) : titre, correction du texte extrait (la
   sensibilité est recalculée), `keep_original`, `local_only` (« Toujours garder en local » :
   `true` immédiat ; `false` est une opération renforcée qui répond

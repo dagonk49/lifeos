@@ -600,6 +600,8 @@ export interface DocumentSummary {
   processed_at: string | null;
   text_corrected_at: string | null;
   original_available: boolean;
+  /** Kept and, for a picture, re-encoded from its pixels: the server serves it. */
+  original_downloadable: boolean;
   /** Purge date of the original; null while it is kept indefinitely. */
   original_until: string | null;
   keep_original: boolean;

@@ -7,6 +7,7 @@ detection, CTranslate2 decoding, the HTTP contract and the API's client.
 """
 
 import io
+import multiprocessing
 from pathlib import Path
 
 import httpx
@@ -16,7 +17,9 @@ np = pytest.importorskip("numpy")
 av = pytest.importorskip("av")
 pytest.importorskip("faster_whisper")
 
+import stt_samples as samples  # noqa: E402
 from ctranslate2.specs import whisper_spec  # noqa: E402
+from stt_samples import FORMATS, record  # noqa: E402
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers  # noqa: E402
 
 from lifeos.config import Settings  # noqa: E402
@@ -111,58 +114,6 @@ def build_tiny_whisper(out: Path) -> Path:
     return out
 
 
-def speechlike(seconds: float, rate: int = 48_000) -> object:
-    """A modulated harmonic tone with a pause: enough for the voice activity detector."""
-    t = np.arange(int(rate * seconds)) / rate
-    signal = (
-        0.3 * np.sin(2 * np.pi * 220 * t)
-        + 0.15 * np.sin(2 * np.pi * 440 * t)
-        + 0.07 * np.sin(2 * np.pi * 880 * t)
-    ) * (0.5 + 0.5 * np.sin(2 * np.pi * 3 * t))
-    signal[int(1.0 * rate) : int(1.5 * rate)] = 0
-    return np.stack([signal, signal]).astype(np.float32)
-
-
-# (file name, container, codec, container options, sample format): what browsers record.
-FORMATS = {
-    "audio/webm": ("webm", "libopus", {"live": "1"}, "fltp"),  # Chrome, Edge, Firefox
-    "audio/ogg": ("ogg", "libopus", {}, "flt"),  # Firefox
-    # Safari: fragmented AAC in MP4.
-    "audio/mp4": ("mp4", "aac", {"movflags": "frag_keyframe+empty_moov+default_base_moof"}, "fltp"),
-    "audio/wav": ("wav", "pcm_s16le", {}, "s16"),
-}
-
-
-def record(mime: str, seconds: float = 3.0) -> bytes:
-    from av.audio.resampler import AudioResampler
-
-    container_format, codec, options, sample_format = FORMATS[mime]
-    rate = 48_000
-    samples = speechlike(seconds, rate)
-    buffer = io.BytesIO()
-    with av.open(buffer, "w", format=container_format, options=options) as container:
-        stream = container.add_stream(codec, rate=rate)
-        stream.layout = "stereo"
-        resampler = AudioResampler(format=sample_format, layout="stereo", rate=rate)
-        step = 4800
-        for start in range(0, samples.shape[1], step):  # type: ignore[attr-defined]
-            frame = av.AudioFrame.from_ndarray(
-                samples[:, start : start + step].copy(),  # type: ignore[index]
-                format="fltp",
-                layout="stereo",
-            )
-            frame.sample_rate, frame.pts = rate, start
-            for converted in resampler.resample(frame):
-                for packet in stream.encode(converted):
-                    container.mux(packet)
-        for converted in resampler.resample(None):
-            for packet in stream.encode(converted):
-                container.mux(packet)
-        for packet in stream.encode(None):
-            container.mux(packet)
-    return buffer.getvalue()
-
-
 @pytest.fixture(scope="module")
 def tiny_model(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return build_tiny_whisper(tmp_path_factory.mktemp("whisper") / "tiny")
@@ -184,7 +135,7 @@ def settings(tiny_model: Path) -> Settings:
 def test_browser_recordings_are_transcribed_offline(settings: Settings, mime: str) -> None:
     engine = Engine(settings)
     data = record(mime)
-    transcript = engine.transcribe(data, max_seconds=60)
+    transcript = engine.transcribe(data, mime=mime, max_seconds=60)
     assert transcript.duration == pytest.approx(3.0, abs=0.15)
     assert isinstance(transcript.text, str)
     assert engine.loaded and engine.device == "cpu"
@@ -193,23 +144,24 @@ def test_browser_recordings_are_transcribed_offline(settings: Settings, mime: st
 def test_limits_and_unreadable_audio(settings: Settings) -> None:
     engine = Engine(settings)
     with pytest.raises(SttFailure) as error:
-        engine.transcribe(record("audio/ogg", seconds=8.0), max_seconds=2)
+        engine.transcribe(record("audio/ogg", seconds=8.0), mime="audio/ogg", max_seconds=2)
     assert (error.value.code, error.value.status) == ("too_long", 422)
     # A recording stopped at the limit overshoots it slightly: accepted.
-    assert engine.transcribe(record("audio/ogg", seconds=3.0), max_seconds=2).duration > 2
+    ogg = record("audio/ogg", seconds=3.0)
+    assert engine.transcribe(ogg, mime="audio/ogg", max_seconds=2).duration > 2
     webm = record("audio/webm")
     with pytest.raises(SttFailure) as error:
-        engine.transcribe(webm[:40] + bytes(len(webm) - 40), max_seconds=60)
+        engine.transcribe(webm[:40] + bytes(len(webm) - 40), mime="audio/webm", max_seconds=60)
     assert error.value.code == "unreadable"
     # A tap on the button: nothing to transcribe, the model is not even loaded.
     fresh = Engine(settings)
-    tap = fresh.transcribe(record("audio/wav", seconds=0.1), max_seconds=60)
+    tap = fresh.transcribe(record("audio/wav", seconds=0.1), mime="audio/wav", max_seconds=60)
     assert tap.text == "" and not fresh.loaded
 
 
 def test_model_is_unloaded_when_idle(settings: Settings) -> None:
     engine = Engine(settings.model_copy(update={"stt_idle_unload_s": 0}))
-    engine.transcribe(record("audio/ogg"), max_seconds=60)
+    engine.transcribe(record("audio/ogg"), mime="audio/ogg", max_seconds=60)
     assert engine.loaded
     assert engine.unload_if_idle()
     assert not engine.loaded and engine.device is None
@@ -218,7 +170,7 @@ def test_model_is_unloaded_when_idle(settings: Settings) -> None:
 def test_missing_model_is_unavailable_not_unreadable(settings: Settings, tmp_path: Path) -> None:
     engine = Engine(settings.model_copy(update={"stt_model": str(tmp_path / "absent")}))
     with pytest.raises(SttFailure) as error:
-        engine.transcribe(record("audio/ogg"), max_seconds=60)
+        engine.transcribe(record("audio/ogg"), mime="audio/ogg", max_seconds=60)
     assert (error.value.code, error.value.status) == ("model_unavailable", 503)
 
 
@@ -249,6 +201,32 @@ async def test_http_contract_and_api_client(settings: Settings) -> None:
         assert health["loaded"] is True and health["device"] == "cpu"
 
 
+async def test_hostile_recordings_over_http_leave_the_service_up(settings: Settings) -> None:
+    """Refused with a stable code that the API never retries (ADR 0011); the decoding child
+    died, not the service: the model stays loaded and the next dictation is transcribed."""
+    async with _client(settings) as client:
+        remote = RemoteTranscriber(settings, client=client)
+        await remote.transcribe(record("audio/ogg"), "audio/ogg", max_seconds=60)
+        refused = {
+            "unreadable": (samples.mp4_video_only(), "audio/mp4"),
+            "unsupported_codec": (samples.wav_adpcm(), "audio/wav"),
+            "too_long": (samples.wav_slow_rate(), "audio/wav"),
+        }
+        for code, (data, mime) in refused.items():
+            with pytest.raises(UntranscribableAudio) as error:
+                await remote.transcribe(data, mime, max_seconds=60)
+            assert error.value.code == code
+        # Disguised: the declared type is not the one found by signature.
+        with pytest.raises(UntranscribableAudio) as error:
+            await remote.transcribe(record("audio/ogg"), "audio/webm", max_seconds=60)
+        assert error.value.code == "unsupported_type"
+        health = (await client.get("/healthz")).json()
+        assert health["loaded"] is True
+        result = await remote.transcribe(record("audio/webm"), "audio/webm", max_seconds=60)
+        assert result.duration == pytest.approx(3.0, abs=0.15)
+    assert multiprocessing.active_children() == []
+
+
 def test_long_audio_is_refused_while_decoding(settings: Settings) -> None:
     """Ten minutes of silence in a small file: refused once the decoded part passes the
     limit, never expanded in memory first."""
@@ -274,6 +252,7 @@ def test_long_audio_is_refused_while_decoding(settings: Settings) -> None:
     from lifeos.stt.engine import decode
 
     with pytest.raises(SttFailure) as error:
-        decode(data, max_seconds=30)
+        decode(data, mime="audio/ogg", max_seconds=30)
     assert error.value.code == "too_long"
-    assert len(decode(data, max_seconds=900)) == rate * seconds * 2  # resampled to 16 kHz
+    # Resampled to 16 kHz.
+    assert len(decode(data, mime="audio/ogg", max_seconds=900)) == rate * seconds * 2

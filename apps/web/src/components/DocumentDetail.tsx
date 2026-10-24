@@ -8,6 +8,7 @@ import { DocumentStatusBadge } from "@/components/DocumentList";
 import { Alert, Badge, Button, Field, Input, Spinner, Textarea } from "@/components/ui";
 import { api, errorMessage, isApiError, withReauth } from "@/lib/api";
 import {
+  canDownloadOriginal,
   canEditText,
   detailPollInterval,
   documentKeys,
@@ -580,7 +581,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
             Renommer
           </Button>
         )}
-        {document.original_available && (
+        {canDownloadOriginal(document) && (
           <a href={documentPath(document.id, "/original")} download className={LINK_SECONDARY}>
             Télécharger l&apos;original
           </a>

@@ -43,7 +43,9 @@ haute. Les contraintes sont les suivantes :
      dictée, pour rendre sa mémoire au reste.
    - Une transcription à la fois.
    - Le décodage audio (FFmpeg via PyAV) des fichiers non fiables a lieu dans ce
-     conteneur.
+     conteneur, dans un processus enfant confiné, avec le démultiplexeur imposé par le
+     type détecté et une liste courte de codecs
+     ([ADR 0011](0011-antivirus-et-fichiers-hostiles.md)).
    - Variante GPU : image `stt-gpu` et `compose.gpu.yaml` (réservation du périphérique
      NVIDIA).
 3. **Une dictée est transitoire.**
