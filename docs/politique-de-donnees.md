@@ -24,7 +24,9 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Consentements OAuth en cours (`oauth_states`) | expiration ou usage + 1 jour (valables 10 minutes) | empreinte du `state` seulement, vérificateur PKCE scellé ; purge quotidienne avec événement d'audit |
 | Sessions | expiration + 30 jours | purge quotidienne |
 | Défis WebAuthn, jetons d'enrôlement | expiration + 1 jour | purge quotidienne |
-| Clés d'idempotence | 24 heures | purge quotidienne |
+| Clés d'idempotence | 24 heures | purge quotidienne ; la réponse gardée d'un objet supprimé est remplacée par un refus (`410`), jamais par son contenu |
+| Approbations décidées ou expirées | **90 jours** après la décision ou l'expiration | purge quotidienne avec audit (nombre) ; leurs paramètres citent les textes proposés |
+| Notifications | **90 jours** après lecture (ou après livraison si jamais lues) | purge quotidienne avec audit (nombre) ; un rappel cite le titre de la tâche |
 | Journal d'audit | 1 an (**à valider**) | purge dédiée, seule exception au mode append-only |
 | Journal des appels LLM (`llm_calls`) | 1 an (**à valider**) | ne contient aucun contenu |
 | Logs applicatifs | 14 jours | rotation Docker ; aucun contenu personnel brut |
@@ -32,23 +34,53 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Alertes (silences, journal des notifications d'Alertmanager) | 5 jours | rétention par défaut d'Alertmanager ; textes fixes des règles, aucune donnée personnelle |
 | Journal des déploiements (`infra/state/deployments.tsv`) | tant que l'installation existe | dates, commits, étiquettes d'images, révisions du schéma, résultat ; aucune donnée personnelle |
 | Rapports de recette (`infra/state/recette/`) | jusqu'à leur suppression à la main | durées, statuts, tailles et mémoire, sur des entrées synthétiques ([recette-serveur.md](recette-serveur.md)) |
-| Sauvegardes (y compris celles d'avant une mise à jour, étiquetées `pre-update`) | 14 quotidiennes + 4 hebdomadaires (≈ 35 jours), copie hors site comprise | `restic forget --prune` sur le dépôt principal et sur la copie, chaque nuit ; originaux et configuration suivent leur sauvegarde de base ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
+| Sauvegardes (y compris celles d'avant une mise à jour, étiquetées `pre-update`) | 14 quotidiennes + 4 hebdomadaires : une donnée supprimée en disparaît **sous 23 jours** (au plus 35 si des nuits manquent), copie hors site comprise (§2) | `restic forget --prune` sur le dépôt principal et sur la copie, chaque nuit ; originaux et configuration suivent leur sauvegarde de base ([exploitation.md §4](exploitation.md#4-sauvegardes-restic)) |
 
 ## 2. Effacement (droit à l'oubli)
 
-- Supprimer un message, un fait, un souvenir ou une entrée de journal supprime la ligne, ses
-  liens, ses embeddings et ses entrées de cache. L'audit ne conserve que l'identifiant de
-  l'objet et l'action, **jamais le contenu** : il n'empêche donc pas l'effacement.
-- Les faits extraits d'un message purgé restent ; leur provenance indique une source
-  supprimée.
+- **Supprimer un objet l'efface partout dans LifeOS**, dans la même transaction : la ligne,
+  ses liens, ses vecteurs (déclencheurs `*_delete_embeddings`), son texte extrait et son
+  original chiffré (document, dictée), ainsi que les copies qui le citent :
+  - la réponse gardée par une clé d'idempotence (remplacée par un refus `410`) ;
+  - les propositions et approbations (en attente ou décidées) qui en citent le texte ;
+  - les rappels et notifications qui le nomment ;
+  - les bilans qui l'avaient retenu : il est retiré de leurs faits, et leur lecture par
+    l'assistant est effacée (« Établir à nouveau » la refait).
+  Il ne revient plus ni dans la recherche (plein texte et sémantique), ni dans le contexte
+  envoyé à l'assistant ou aux agents, ni dans l'export (`backend/tests/test_erasure.py`).
+- **Un fait** : sa suppression efface toute sa chaîne de corrections (versions précédentes
+  comprises), pas seulement la dernière version.
+- **Une entrée de journal ou une conversation** : ce qui en a été tiré (faits, tâches,
+  souvenirs) est montré avant la suppression et **reste par défaut** ; il n'est supprimé que
+  si le propriétaire coche « Supprimer aussi ce qui en a été tiré ». Ce qui reste indique une
+  source supprimée.
+- Les faits extraits d'un message purgé (90 jours) restent ; leur provenance indique une
+  source supprimée.
+- **Ce qui reste volontairement** : une opération financière tirée d'un ticket supprimé garde
+  son marchand et son montant (c'est une donnée comptable du propriétaire) ; un message qui
+  citait un souvenir supprimé reste tel qu'il a été écrit (le supprimer à part) ; le journal
+  d'audit garde l'identifiant de l'objet et l'action, **jamais le contenu** ; ce qui a été
+  envoyé à Gemini relève de sa propre conservation (§3).
 - **Sauvegardes** : elles ne sont pas réécrites. Une donnée supprimée disparaît des
-  sauvegardes à la fin de leur rotation (**≈ 35 jours au plus**), dans le dépôt principal
-  comme dans la copie hors site (même rétention, appliquée à chaque copie). En cas de
-  restauration, les suppressions survenues après la date de la sauvegarde doivent être
-  rejouées : le journal d'audit de l'ancienne base (identifiants d'objets supprimés) sert de
-  liste de rejeu ([restauration.md](restauration.md) §3, étape 10). Si l'ancien serveur est
-  perdu, ce journal l'est aussi : les suppressions des dernières heures sont à refaire de
-  mémoire.
+  sauvegardes quand la dernière sauvegarde qui la contient sort de la rotation
+  (`infra/scripts/lib/backup.sh`, `apply_retention`, chaque nuit, sur le dépôt principal
+  **et** sur la copie hors site) :
+  - les 14 sauvegardes quotidiennes la gardent au plus 14 jours ;
+  - les 4 hebdomadaires (la dernière de chaque semaine, semaine en cours comprise) gardent
+    la sauvegarde de fin de la semaine précédant la suppression jusqu'au début de la
+    troisième semaine suivante, soit **au plus 22 jours**, puis la nuit suivante l'efface
+    (`restic forget --prune`) : **sous 23 jours** avec une sauvegarde chaque nuit ;
+  - si des nuits manquent (machine éteinte, échec), une semaine sans sauvegarde ne compte
+    pas et la sauvegarde la plus ancienne reste plus longtemps : **35 jours au plus** tant
+    qu'une sauvegarde est faite au moins une fois par semaine ;
+  - hors de LifeOS : les instantanés du NAS ou du stockage qui héberge le dépôt restic
+    prolongent cette durée de leur propre rétention ; les aligner ou les déclarer.
+- **Restauration** : `restore.sh` rejoue de lui-même les suppressions faites après la
+  sauvegarde restaurée, à partir du journal d'audit de la base qu'il remplace (identifiants
+  seulement), puis vérifie la base ; rien de supprimé ne revient
+  ([restauration.md](restauration.md) §3, étape 10). Sur une machine vierge, l'ancienne base
+  n'est plus là : la liste vient d'une copie de l'ancienne base si elle existe, sinon les
+  suppressions des dernières heures sont à refaire de mémoire.
 - **Originaux manquants après une restauration** : ils sont signalés par identifiant de
   document, jamais masqués. Le propriétaire peut les récupérer dans une sauvegarde plus
   ancienne, ou les déclarer perdus (`lifeos-admin reconcile-originals --yes`, audité

@@ -7,11 +7,11 @@ owner sees and approves, exactly), a preview builder and a handler.
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.security import utcnow
@@ -24,6 +24,9 @@ Handler = Callable[[Ctx, uuid.UUID, Any], Awaitable[dict[str, Any]]]
 Previewer = Callable[[Any], dict[str, Any]]
 
 APPROVAL_TTL = timedelta(days=7)
+# Decided approvals stay in the owner's history this long, then are purged: their
+# parameters and preview hold the proposed texts (docs/politique-de-donnees.md §1).
+DECIDED_RETENTION = timedelta(days=90)
 
 
 @dataclass(frozen=True)
@@ -318,3 +321,24 @@ async def expire_stale(session: Any) -> int:
         .values(status="expired")
     )
     return int(result.rowcount or 0)
+
+
+async def purge_decided(session: Any, *, now: datetime | None = None) -> int:
+    """Approvals decided (or expired) more than DECIDED_RETENTION ago; audited by count."""
+    cutoff = (now or utcnow()) - DECIDED_RETENTION
+    result = await session.execute(
+        delete(Approval).where(
+            Approval.status != "pending",
+            func.coalesce(Approval.decided_at, Approval.expires_at) < cutoff,
+        )
+    )
+    count = int(result.rowcount or 0)
+    if count:
+        await audit.record(
+            session,
+            action="approval.purge",
+            actor_type="system",
+            actor_id="purge_approvals",
+            details={"count": count},
+        )
+    return count

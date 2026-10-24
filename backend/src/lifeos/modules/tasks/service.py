@@ -10,6 +10,7 @@ from lifeos.modules.audit import service as audit
 from lifeos.modules.goals.service import check_task_goal
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks.models import Task
 from lifeos.modules.tasks.schemas import TaskCreate, TaskOut, TaskUpdate
 
@@ -131,7 +132,8 @@ async def update_task(
 async def delete_task(ctx: Ctx, task_id: uuid.UUID) -> None:
     task = await get_task(ctx, task_id)
     await authorize(ctx, "task.delete", task.space_id)
-    await ctx.db.delete(task)
+    # Its reminders (« Rappel : <titre> ») and its mentions in past reviews go with it.
+    erased = await erasure.erase(ctx.db, task)
     await audit.record(
         ctx.db,
         action="task.delete",
@@ -141,4 +143,5 @@ async def delete_task(ctx: Ctx, task_id: uuid.UUID) -> None:
         space_id=task.space_id,
         target_type="task",
         target_id=task.id,
+        details=dict(erased),
     )

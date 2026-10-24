@@ -249,11 +249,21 @@ def check(state: dict[str, Any]) -> None:
     print("ok - the original decrypts to the uploaded content")
 
 
+def delete_task(state: dict[str, Any]) -> None:
+    """The owner erases the task after the backup: a restore must not bring it back."""
+    client = Client()
+    login(client, state["passkey"])
+    client.json("DELETE", f"/v1/tasks/{state['task']}", expect=204)
+    print("ok - task deleted")
+
+
 if __name__ == "__main__":
     command, argument = sys.argv[1], sys.argv[2]
     if command == "setup":
         setup(argument)
     elif command == "check":
         check(json.loads(argument))
+    elif command == "delete-task":
+        delete_task(json.loads(argument))
     else:
         sys.exit(f"unknown command {command}")

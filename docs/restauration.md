@@ -215,24 +215,37 @@ vérifié, 2 restauré mais des originaux manquent (§4), 1 échec.
 
 ### Étape 10 : après la restauration
 
-- **Rejouer les effacements** faits après la sauvegarde
-  ([politique-de-donnees.md §2](politique-de-donnees.md#2-effacement-droit-à-loubli)). Si
-  l'ancienne base est accessible (sauvegarde de sécurité de `restore.sh`, ancien serveur), la
-  liste des suppressions vient de son journal d'audit :
+- **Effacements faits après la sauvegarde** : `restore.sh` les rejoue de lui-même
+  ([politique-de-donnees.md §2](politique-de-donnees.md#2-effacement-droit-à-loubli)). Avant
+  de remplacer la base, il lit dans son journal d'audit les suppressions faites depuis la
+  sauvegarde (identifiants seulement, depuis une heure avant celle-ci), les range à côté de
+  la sauvegarde de sécurité (`/var/backups/lifeos/erasures-since-<run>-<date>.csv`), puis,
+  une fois la sauvegarde restaurée et migrée, les rejoue (`lifeos-admin replay-erasures`) :
+  lignes, vecteurs, originaux et copies qui les citent. Il le dit (`Erased: …`) et sort en
+  erreur (1) si le rejeu échoue, avec la commande à relancer.
+  - Pour **récupérer un objet supprimé par erreur**, restaurer avec `--no-replay`, puis
+    supprimer de nouveau tout le reste de la liste depuis l'interface.
+  - Sur une **machine vierge** (ancien serveur perdu), il n'y a pas de base à lire : si
+    l'ancienne base existe encore ailleurs (copie, ancien disque), rejouer sa liste à la main :
 
-  ```bash
-  docker compose exec -T postgres createdb -U postgres lifeos_avant
-  docker compose exec -T postgres pg_restore -U postgres -d lifeos_avant < /var/backups/lifeos/pre-restore-<date>.pgdump
-  docker compose exec postgres psql -U postgres -d lifeos_avant -c \
-    "SELECT occurred_at, action, target_type, target_id FROM audit_events
-     WHERE action LIKE '%delete%' AND occurred_at > '<date de la sauvegarde>' ORDER BY occurred_at"
-  docker compose exec -T postgres dropdb -U postgres lifeos_avant
-  ```
+    ```bash
+    docker compose exec -T postgres createdb -U postgres lifeos_avant
+    docker compose exec -T postgres pg_restore -U postgres -d lifeos_avant < ancienne-base.pgdump
+    docker compose exec -T postgres psql -U postgres -d lifeos_avant -c "COPY (
+      SELECT occurred_at, user_id, action, target_type, target_id FROM audit_events
+      WHERE outcome = 'success' AND target_id IS NOT NULL
+        AND (action LIKE '%.delete' OR action = 'fact.retract')
+        AND occurred_at >= '<date de la sauvegarde>'::timestamptz - interval '1 hour'
+      ORDER BY id) TO STDOUT WITH (FORMAT csv, HEADER)" > effacements.csv
+    docker compose run --rm --no-deps -T api lifeos-admin replay-erasures - < effacements.csv
+    docker compose run --rm --no-deps -T api lifeos-admin replay-erasures - --yes < effacements.csv
+    docker compose exec -T postgres dropdb -U postgres lifeos_avant
+    ```
 
-  Supprimer à nouveau ces objets depuis l'interface. Si l'ancien serveur est perdu, ces
-  suppressions sont perdues avec lui : les refaire de mémoire.
+    (Sans `--yes`, la commande liste seulement ce qu'elle effacerait.) Sinon, ces
+    suppressions sont perdues avec l'ancien serveur : les refaire de mémoire.
 - Supprimer `/root/documents-key` (`shred -u`) et, une fois la restauration validée, la
-  sauvegarde de sécurité de `/var/backups/lifeos/`.
+  sauvegarde de sécurité et la liste des effacements de `/var/backups/lifeos/`.
 - **Vraie reprise** : réinstaller les sauvegardes sur la nouvelle machine, avec le même dépôt
   (`sudo infra/scripts/install-backups.sh`), puis `sudo infra/scripts/export-keys.sh --check`.
   **Exercice** : ne jamais lancer `install-backups.sh` sur la VM d'exercice (elle écrirait

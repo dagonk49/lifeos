@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,10 @@ from lifeos.modules.audit import service as audit
 from lifeos.modules.identity.models import User
 from lifeos.modules.notifications.models import Notification
 from lifeos.modules.tasks.models import Task
+
+# Read (or dismissed) notifications are purged this long after being read, unread ones
+# this long after being delivered (docs/politique-de-donnees.md §1).
+RETENTION = timedelta(days=90)
 
 
 def next_delivery(
@@ -129,3 +133,27 @@ async def dispatch_reminders(session: AsyncSession) -> int:
             details={"reminders": len(rows), "created": created},
         )
     return created
+
+
+async def purge_old(session: AsyncSession, *, now: datetime | None = None) -> int:
+    """Notifications read more than RETENTION ago, or delivered that long ago and never
+    read; audited by count. Their titles may quote a task (« Rappel : <titre> »)."""
+    cutoff = (now or utcnow()) - RETENTION
+    result = await session.execute(
+        delete(Notification).where(
+            or_(
+                and_(Notification.read_at.is_not(None), Notification.read_at < cutoff),
+                and_(Notification.read_at.is_(None), Notification.deliver_after < cutoff),
+            )
+        )
+    )
+    count = int(result.rowcount or 0)  # type: ignore[attr-defined]
+    if count:
+        await audit.record(
+            session,
+            action="notification.purge",
+            actor_type="system",
+            actor_id="purge_notifications",
+            details={"count": count},
+        )
+    return count

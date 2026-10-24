@@ -13,10 +13,11 @@ from lifeos.modules.audit.service import purge_older_than
 from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
-from lifeos.modules.guardian.actions import expire_stale
+from lifeos.modules.guardian.actions import expire_stale, purge_decided
 from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.notifications.service import dispatch_reminders
+from lifeos.modules.notifications.service import purge_old as purge_old_notifications
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
 from lifeos.modules.voice import processing as voice
@@ -81,6 +82,14 @@ async def purge_idempotency_keys() -> None:
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def expire_approvals() -> None:
     await run_job("expire_approvals", expire_stale)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_decided_items() -> None:
+    """Approvals decided and notifications read more than 90 days ago (their texts may
+    quote the owner's data)."""
+    await run_job("purge_approvals", purge_decided)
+    await run_job("purge_notifications", purge_old_notifications)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)

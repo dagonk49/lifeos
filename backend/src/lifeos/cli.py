@@ -142,6 +142,66 @@ async def _reconcile_originals(documents_dir: Path | None, apply: bool, empty_ok
         await db.dispose()
 
 
+async def _replay_erasures(listing: list[str], apply: bool) -> int:
+    """Erases again what was erased after the restored backup (docs/restauration.md)."""
+    from lifeos.core.idempotency import purge_expired_keys
+    from lifeos.modules.audit import service as audit
+    from lifeos.modules.chat.service import purge_expired_messages
+    from lifeos.modules.documents.processing import purge_originals
+    from lifeos.modules.documents.storage import DocumentStore, StorageError
+    from lifeos.modules.guardian.actions import purge_decided
+    from lifeos.modules.notifications.service import purge_old
+    from lifeos.modules.privacy import erasure
+    from lifeos.modules.voice.service import purge_dictations
+
+    erasures = erasure.parse_erasures(listing)
+    settings = get_settings()
+    store = DocumentStore(settings)
+    db = Database(settings.database_url, pool_size=1)
+    try:
+        async with db.sessionmaker() as session, session.begin():
+            result = await erasure.replay(session, erasures, apply=apply)
+            if apply:
+                # Retention purges whose deadline passed since the backup: now, not tonight.
+                await purge_expired_messages(session)
+                await purge_originals(session, store)
+                await purge_dictations(session, store)
+                await purge_expired_keys(session)
+                await purge_decided(session)
+                await purge_old(session)
+                await audit.record(
+                    session,
+                    action="privacy.replay_erasures",
+                    actor_type="system",
+                    actor_id=erasure.REPLAY_ACTOR,
+                    details={
+                        "listed": len(erasures),
+                        "erased": sum(result.erased.values()),
+                        "absent": result.absent,
+                        "refused": result.refused,
+                    },
+                )
+    except (OSError, DBAPIError) as exc:
+        print(f"Error: database unreachable ({type(exc).__name__})", file=sys.stderr)
+        return 1
+    finally:
+        await db.dispose()
+    if apply:
+        # Once committed: a file is never removed for a row that stays.
+        for key in result.files:
+            try:
+                await asyncio.to_thread(store.delete, key)
+            except (StorageError, OSError) as exc:
+                print(f"warning: original not removed ({type(exc).__name__})", file=sys.stderr)
+    verb = "Erased" if apply else "To erase"
+    print(f"{len(erasures)} replayable erasure(s) listed.")
+    print(f"{verb}: {erasure.summary(result.erased)}.")
+    print(f"Already absent: {result.absent}; not the owner's: {result.refused}.")
+    if not apply:
+        print("Dry run: nothing changed. Run again with --yes to apply.")
+    return 0
+
+
 async def _sensitivity_check(paths: list[Path], expect: Path | None) -> int:
     """Classifies and masks local files as uploads would be; prints no value, no text."""
     from lifeos.modules.documents import corpus
@@ -243,6 +303,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--even-if-empty", action="store_true", help=argparse.SUPPRESS)
 
     p = sub.add_parser(
+        "replay-erasures",
+        help="after a restore: erase again what was erased after the backup (list exported "
+        "by restore.sh from the replaced database's audit trail)",
+    )
+    p.add_argument(
+        "list",
+        metavar="LIST",
+        help="CSV export (occurred_at,user_id,action,target_type,target_id), '-' for "
+        "standard input",
+    )
+    p.add_argument("--yes", action="store_true", help="apply (otherwise a dry run)")
+
+    p = sub.add_parser(
         "sensitivity-check",
         help="measure the local sensitivity filter on files (prints no value, no text)",
     )
@@ -284,6 +357,17 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(
                 _reconcile_originals(args.documents_dir, args.yes, args.even_if_empty)
             )
+        if args.command == "replay-erasures":
+            try:
+                listing = (
+                    sys.stdin.read()
+                    if args.list == "-"
+                    else Path(args.list).read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError) as exc:
+                print(f"Error: cannot read {args.list} ({type(exc).__name__})", file=sys.stderr)
+                return 1
+            return asyncio.run(_replay_erasures(listing.splitlines(), args.yes))
         if args.command == "sensitivity-check":
             return asyncio.run(_sensitivity_check(args.paths, args.expect))
         return asyncio.run(_revoke_sessions(args.email))

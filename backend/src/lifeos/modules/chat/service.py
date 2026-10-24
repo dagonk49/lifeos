@@ -34,7 +34,9 @@ from lifeos.modules.llm.base import LLMMessage, LLMRequest
 from lifeos.modules.memory import service as memory
 from lifeos.modules.memory.models import Memory
 from lifeos.modules.memory.schemas import MemoryCreate
+from lifeos.modules.privacy import erasure
 from lifeos.modules.retrieval.context import ContextItem, relevant_context
+from lifeos.modules.tasks import service as tasks
 
 RAW_RETENTION = timedelta(days=90)
 HISTORY_MESSAGES = 20
@@ -144,9 +146,39 @@ async def rename_conversation(ctx: Ctx, conversation_id: uuid.UUID, title: str) 
     return conversation
 
 
-async def delete_conversation(ctx: Ctx, conversation_id: uuid.UUID) -> None:
+async def derived(ctx: Ctx, conversation_id: uuid.UUID) -> erasure.Derived:
+    """Facts and tasks saved from this conversation (validated consolidations) and the
+    memories saved from its messages."""
     conversation = await get_conversation(ctx, conversation_id)
-    await ctx.db.delete(conversation)
+    return await erasure.derived_from(
+        ctx.db, ctx.principal.user_id, "conversation", conversation.id
+    )
+
+
+async def delete_conversation(
+    ctx: Ctx, conversation_id: uuid.UUID, *, with_derived: bool = False
+) -> None:
+    """Erasure of the conversation, its messages (cascade) and the consolidations that
+    quote it. What was saved from it stays, unless `with_derived`."""
+    conversation = await get_conversation(ctx, conversation_id)
+    details: dict[str, Any] = {}
+    if with_derived:
+        found = await erasure.derived_from(
+            ctx.db, ctx.principal.user_id, "conversation", conversation.id
+        )
+        for fact in found.facts:
+            await memory.delete_fact(ctx, fact.id)
+        for task in found.tasks:
+            await tasks.delete_task(ctx, task.id)
+        for saved in found.memories:
+            # Listed to the owner before this explicit choice: protected ones too.
+            await memory.delete_memory(ctx, saved.id, confirm=True)
+        details = {
+            "derived_facts": len(found.facts),
+            "derived_tasks": len(found.tasks),
+            "derived_memories": len(found.memories),
+        }
+    details.update(await erasure.erase(ctx.db, conversation))
     await audit.record(
         ctx.db,
         action="conversation.delete",
@@ -156,6 +188,7 @@ async def delete_conversation(ctx: Ctx, conversation_id: uuid.UUID) -> None:
         space_id=conversation.space_id,
         target_type="conversation",
         target_id=conversation.id,
+        details=details,
     )
 
 
@@ -421,7 +454,7 @@ async def set_retained(ctx: Ctx, message_id: uuid.UUID, retained: bool) -> Messa
 
 async def delete_message(ctx: Ctx, message_id: uuid.UUID) -> None:
     message = await get_message(ctx, message_id)
-    await ctx.db.delete(message)
+    erased = await erasure.erase(ctx.db, message)
     await audit.record(
         ctx.db,
         action="message.delete",
@@ -431,6 +464,7 @@ async def delete_message(ctx: Ctx, message_id: uuid.UUID) -> None:
         space_id=message.space_id,
         target_type="message",
         target_id=message.id,
+        details=dict(erased),
     )
 
 

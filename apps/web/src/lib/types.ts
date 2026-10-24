@@ -808,3 +808,11 @@ export interface Dictation {
   expires_at: string;
   created_at: string;
 }
+
+/** Something saved from a journal entry or a conversation, listed before deleting it. */
+export interface DerivedItem {
+  type: "fact" | "task" | "memory";
+  id: Uuid;
+  /** Statement or title. */
+  text: string;
+}

@@ -33,6 +33,7 @@ from lifeos.modules.goals.models import Goal
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.journal.models import JournalEntry
+from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks.models import Task
 
 log = get_logger(__name__)
@@ -362,15 +363,14 @@ async def delete_document(ctx: Ctx, store: DocumentStore, document_id: uuid.UUID
     document = await get_document(ctx, document_id, for_update=True)
     await authorize(ctx, "document.delete", document.space_id)
     storage_key = document.storage_key
-    await ctx.db.delete(document)
-    await ctx.db.flush()
+    erased = await erasure.erase(ctx.db, document)
     if storage_key is not None:
         # A failure here leaves an orphan file, removed by the daily sweep.
         try:
             await asyncio.to_thread(store.delete, storage_key)
         except (StorageError, OSError) as exc:
             log.error("document_file_delete_failed", error=type(exc).__name__)
-    await _audit(ctx, "document.delete", document)
+    await _audit(ctx, "document.delete", document, **erased)
 
 
 async def reprocess_document(ctx: Ctx, document_id: uuid.UUID) -> Document:

@@ -9,6 +9,7 @@ import { AgentSelector } from "@/components/AgentSelector";
 import { AgentSuggestion } from "@/components/AgentSuggestion";
 import { ChatAttachments } from "@/components/ChatAttachments";
 import { ConsolidationPanel } from "@/components/ConsolidationPanel";
+import { EraseConfirm } from "@/components/EraseConfirm";
 import { SendReviewPanel } from "@/components/SendReview";
 import { SpeakButton } from "@/components/SpeakButton";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
@@ -259,13 +260,7 @@ export default function ChatPage() {
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => api(`/v1/chat/conversations/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      openConversation(null, null);
-      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    },
-  });
+  const [erasing, setErasing] = useState<string | null>(null);
 
   // Same rules as the sending, checked on the server: nothing is saved or sent.
   const check = useMutation({
@@ -362,7 +357,7 @@ export default function ChatPage() {
           title={detail.data?.title ?? "Nouvelle conversation"}
           actions={
             current && (
-              <Button variant="ghost" size="sm" onClick={() => remove.mutate(current)}>
+              <Button variant="ghost" size="sm" onClick={() => setErasing(current)} disabled={erasing === current}>
                 Supprimer
               </Button>
             )
@@ -370,6 +365,24 @@ export default function ChatPage() {
           footer={`Espace : ${spaceName(detail.data?.space_id ?? writeSpaceId)} · conversations brutes conservées 90 jours sauf « Conserver »`}
         >
           <div className="flex min-h-[40vh] flex-col gap-3">
+            {erasing && erasing === current && (
+              <EraseConfirm
+                question="Supprimer cette conversation et tous ses messages ?"
+                confirmLabel="Supprimer la conversation"
+                deletePath={`/v1/chat/conversations/${erasing}`}
+                derivedPath={`/v1/chat/conversations/${erasing}/derived`}
+                onDone={(withDerived) => {
+                  setErasing(null);
+                  openConversation(null, null);
+                  void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                  if (withDerived) {
+                    void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+                    void queryClient.invalidateQueries({ queryKey: ["memory"] });
+                  }
+                }}
+                onCancel={() => setErasing(null)}
+              />
+            )}
             {current && detail.data?.id === current && detail.data.messages.length > 0 && (
               <ConsolidationPanel key={detail.data.id} conversation={detail.data} />
             )}

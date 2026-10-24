@@ -45,6 +45,7 @@ from lifeos.modules.finance.schemas import (
 )
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.privacy import erasure
 
 _CENTS = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -290,9 +291,15 @@ async def delete_category(ctx: Ctx, category_id: uuid.UUID) -> None:
     """Its transactions become uncategorised; its learned rules go with it."""
     category = await get_category(ctx, category_id)
     await authorize(ctx, "finance.write", category.space_id)
-    await ctx.db.delete(category)
-    await ctx.db.flush()
-    await _audit(ctx, "finance.category.delete", category.space_id, "finance_category", category.id)
+    erased = await erasure.erase(ctx.db, category)
+    await _audit(
+        ctx,
+        "finance.category.delete",
+        category.space_id,
+        "finance_category",
+        category.id,
+        **erased,
+    )
 
 
 async def create_defaults(ctx: Ctx, space_id: uuid.UUID) -> list[FinanceCategory]:
@@ -650,10 +657,14 @@ async def update_transaction(
 async def delete_transaction(ctx: Ctx, transaction_id: uuid.UUID) -> None:
     transaction = await get_transaction(ctx, transaction_id)
     await authorize(ctx, "finance.write", transaction.space_id)
-    await ctx.db.delete(transaction)
-    await ctx.db.flush()
+    erased = await erasure.erase(ctx.db, transaction)
     await _audit(
-        ctx, "finance.transaction.delete", transaction.space_id, "transaction", transaction.id
+        ctx,
+        "finance.transaction.delete",
+        transaction.space_id,
+        "transaction",
+        transaction.id,
+        **erased,
     )
 
 

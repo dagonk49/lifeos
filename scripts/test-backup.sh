@@ -10,7 +10,8 @@
 #   4. coherence: a missing original is reported (never hidden), an incomplete pair refused;
 #   5. blank machine (volumes deleted): restore.sh, then sign-in with the same passkey,
 #      search, finances, and the original downloaded and decrypted;
-#   6. failures: a wrong documents key is refused before anything is replaced; a failed
+#   6. failures: a wrong documents key is refused before anything is replaced; a restore
+#      over a running server replays the erasures made since the backup; a failed
 #      backup writes its metric and pings /fail; notify.sh posts an alert without personal
 #      data;
 #   7. restore-drill.sh on a second blank copy (install.sh replaced by a stand-in, the images
@@ -233,9 +234,15 @@ check "verify-data finds the originals unreadable with it" fails logged verify \
   compose run --rm --no-deps -T api lifeos-admin verify-data
 check "... (status FAILED)" has "originals_unreadable" "$work/verify.log"
 cp "$work/key" "$infra/secrets/lifeos_documents_key"
+client delete-task "$state" > "$work/delete.log" 2>&1 || true
+check "the owner deletes the task after the backup" has "^ok - task deleted" "$work/delete.log"
 check "with a safety dump of the current database first" logged restore-3 \
   "$infra/scripts/restore.sh" "${run#run:}" --yes
 check "... kept apart" test -s "$(find "$work/safety" -name 'pre-restore-*.pgdump' | head -1)"
+check "... with the erasures made since the backup (identifiers only)" has ",task.delete,task," \
+  "$(find "$work/safety" -name 'erasures-since-*.csv' | head -1)"
+check "... replayed: the deleted task does not come back" equals "$(tasks_in_database)" 0
+check "... (said so)" has "Erased: .*task.delete 1" "$work/restore-3.log"
 
 head -c 32 /dev/urandom | base64 > "$work/wrong-password"
 check "a backup with a wrong repository password fails" fails logged backup-3 env \

@@ -20,6 +20,7 @@ from lifeos.modules.goals.schemas import (
 )
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks.models import Task
 
 _CENTS = Decimal("0.01")
@@ -182,8 +183,7 @@ async def update_goal(
 async def delete_goal(ctx: Ctx, goal_id: uuid.UUID) -> None:
     goal = await get_goal(ctx, goal_id)
     await authorize(ctx, "goal.write", goal.space_id)
-    await ctx.db.delete(goal)
-    await _audit(ctx, "goal.delete", goal)
+    await _audit(ctx, "goal.delete", goal, **await erasure.erase(ctx.db, goal))
 
 
 async def list_milestones(ctx: Ctx, goal: Goal) -> list[GoalMilestone]:
@@ -254,8 +254,20 @@ async def update_milestone(
 async def delete_milestone(ctx: Ctx, goal_id: uuid.UUID, milestone_id: uuid.UUID) -> None:
     goal = await get_goal(ctx, goal_id)
     await authorize(ctx, "goal.write", goal.space_id)
-    await ctx.db.delete(await _milestone(ctx, goal, milestone_id))
-    await _audit(ctx, "goal.milestone.delete", goal)
+    milestone = await _milestone(ctx, goal, milestone_id)
+    await ctx.db.delete(milestone)
+    # Its own id (the replay after a restore erases it again), and its goal.
+    await audit.record(
+        ctx.db,
+        action="goal.milestone.delete",
+        actor_type=ctx.principal.kind,
+        actor_id=ctx.principal.actor_id,
+        user_id=ctx.principal.user_id,
+        space_id=goal.space_id,
+        target_type="goal_milestone",
+        target_id=milestone.id,
+        details={"goal": str(goal.id)},
+    )
 
 
 async def add_checkin(ctx: Ctx, goal_id: uuid.UUID, data: CheckinCreate) -> GoalCheckin:

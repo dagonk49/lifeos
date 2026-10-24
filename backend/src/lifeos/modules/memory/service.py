@@ -21,6 +21,7 @@ from lifeos.modules.memory.schemas import (
     MemoryOut,
     MemoryUpdate,
 )
+from lifeos.modules.privacy import erasure
 
 
 async def _audit(
@@ -155,12 +156,18 @@ async def retract_fact(ctx: Ctx, fact_id: uuid.UUID) -> Fact:
     return fact
 
 
-async def delete_fact(ctx: Ctx, fact_id: uuid.UUID) -> None:
-    """Erasure: the row disappears; the audit keeps only its identifier."""
+async def delete_fact(ctx: Ctx, fact_id: uuid.UUID) -> int:
+    """Erasure of the fact and of its whole correction history (every version, earlier or
+    later): no older statement survives it. The audit keeps only identifiers, one event
+    per version (the replay after a restore erases each one). Returns the version count."""
     fact = await get_fact(ctx, fact_id)
     await authorize(ctx, "fact.write", fact.space_id)
-    await ctx.db.delete(fact)
-    await _audit(ctx, "fact.delete", fact.space_id, "fact", fact.id)
+    chain = await erasure.fact_chain(ctx.db, fact)
+    for version in chain:
+        details: dict[str, str | int | bool | None] = {"versions": len(chain)}
+        details.update(await erasure.erase(ctx.db, version))
+        await _audit(ctx, "fact.delete", version.space_id, "fact", version.id, **details)
+    return len(chain)
 
 
 async def fact_history(ctx: Ctx, fact_id: uuid.UUID) -> list[Fact]:
@@ -290,7 +297,13 @@ async def delete_memory(ctx: Ctx, memory_id: uuid.UUID, *, confirm: bool) -> Non
             "This memory is protected",
             "Confirm explicitly to delete a protected memory.",
         )
-    await ctx.db.delete(memory)
+    erased = await erasure.erase(ctx.db, memory)
     await _audit(
-        ctx, "memory.delete", memory.space_id, "memory", memory.id, protected=memory.protected
+        ctx,
+        "memory.delete",
+        memory.space_id,
+        "memory",
+        memory.id,
+        protected=memory.protected,
+        **erased,
     )
