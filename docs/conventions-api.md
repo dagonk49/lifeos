@@ -243,6 +243,41 @@ puis envoie le message avec les seules pièces jointes `sent`.
     `events_used`. Sans durée : l'estimation de la tâche, sinon une heure ; avec une tâche
     datée, avant son échéance. Rien n'est écrit dans l'agenda.
 
+## Tâches : dépendances, état bloqué, étiquettes (tâche 22)
+
+- `POST /v1/tasks/{id}/dependencies` `{"depends_on_id": "<uuid>"}` : la tâche `{id}` attend
+  `depends_on_id`. Réponse `201` avec la tâche à jour. `Idempotency-Key` est accepté.
+  Ajouter un lien qui existe déjà ne change rien (même `version`). Un nouveau lien
+  incrémente la `version` de la tâche (`If-Match`).
+- `DELETE /v1/tasks/{id}/dependencies/{depends_on_id}` : `204`, ou `404
+  dependency_not_found`. Retirer un lien incrémente aussi la `version`.
+- `POST /v1/tasks` accepte `depends_on` (20 identifiants au plus, même espace) et `tags`.
+  `PATCH` accepte `tags`.
+- `TaskOut` ajoute :
+  - `tags` ;
+  - `depends_on` : toutes les tâches attendues, terminées ou non ;
+  - `blocked_by` : `[{id, title, status}]`, celles encore ouvertes ;
+  - `blocked` : vrai si la tâche est ouverte et attend au moins une tâche ouverte.
+  Ces champs figurent aussi dans `GET /v1/dashboard`.
+- Filtres de `GET /v1/tasks` : `blocked=true|false` et `tag=<étiquette>`. L'étiquette est
+  normalisée comme à l'enregistrement ; vide ou invalide : `422 validation_error`.
+- Erreurs :
+  - `422 dependency_cycle` : le lien fermerait une boucle, la dépendance d'une tâche à
+    elle-même comprise. L'extension `path` donne la chaîne des identifiants, de la tâche
+    à elle-même (`[C, A, B, C]`). Rien n'est enregistré ;
+  - `422 dependency_space_mismatch` : les deux tâches ne sont pas du même espace ;
+  - `422 too_many_dependencies` : la tâche attend déjà 20 tâches (extension `max`) ;
+  - `404 task_not_found` : l'une des deux tâches est hors de vos espaces ;
+  - `409 task_blocked` : passage à `in_progress` ou `done` d'une tâche qui attend encore une
+    tâche ouverte. L'extension `blocked_by` (`[{id, title, status}]`) dit pourquoi. Passer
+    à `cancelled` reste possible.
+- Une dépendance passée à `done` ou `cancelled` libère les tâches qui n'attendaient plus
+  qu'elle. Chacune reçoit une notification « Débloquée : <titre> », une seule fois.
+  L'audit enregistre `task.dependency.add` et `task.dependency.remove` (identifiants
+  seulement) et `released` (un nombre) dans `task.update`.
+- Pour un agent, lier deux tâches relève de `task.update` (niveau `rule` : permission
+  `tasks` en écriture dans l'espace).
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -251,7 +286,7 @@ puis envoie le message avec les seules pièces jointes `sent`.
 | `/v1/auth` | 1 | passkeys, sessions, utilisateur courant |
 | `/v1/spaces` | 2 | espaces, consentement cloud |
 | `/v1/chat` | 2 | conversations, messages |
-| `/v1/tasks` | 2 | CRUD, rappels, statuts |
+| `/v1/tasks` | 2 | CRUD, rappels, statuts, dépendances et étiquettes (tâche 22) |
 | `/v1/journal` | 2 | entrées, analyse (propositions à valider) |
 | `/v1/memory` | 2 | faits, souvenirs, correction, protection, export, suppression |
 | `/v1/search` | 2, 3, 4 | recherche hybride (plein texte + sens), filtrée par espace, type (dont `documents`) et période |

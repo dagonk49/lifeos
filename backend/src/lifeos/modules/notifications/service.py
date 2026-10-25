@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,7 @@ from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
 from lifeos.modules.identity.models import User
 from lifeos.modules.notifications.models import Notification
-from lifeos.modules.tasks.models import Task
+from lifeos.modules.tasks.models import Task, TaskDependency
 
 # Read (or dismissed) notifications are purged this long after being read, unread ones
 # this long after being delivered (docs/politique-de-donnees.md §1).
@@ -105,13 +105,18 @@ async def dispatch_reminders(session: AsyncSession) -> int:
         )
     ).all()
     created = 0
+    waiting = await _open_blocker_counts(session, [task.id for task, _ in rows])
     for task, user in rows:
         assert task.remind_at is not None
+        # A blocked task is still reminded; the body counts what it waits for, without
+        # naming it (that title would outlive the blocker's erasure).
+        blockers = waiting.get(task.id, 0)
         if await notify(
             session,
             user,
             category="important",
             title=f"Rappel : {task.title}",
+            body=f"Encore bloquée par {blockers} tâche(s) non terminée(s)." if blockers else None,
             dedup_key=f"task:{task.id}:remind:{task.remind_at.isoformat()}",
             space_id=task.space_id,
             source_type="task",
@@ -133,6 +138,23 @@ async def dispatch_reminders(session: AsyncSession) -> int:
             details={"reminders": len(rows), "created": created},
         )
     return created
+
+
+async def _open_blocker_counts(
+    session: AsyncSession, task_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    if not task_ids:
+        return {}
+    rows = await session.execute(
+        select(TaskDependency.task_id, func.count())
+        .join(Task, Task.id == TaskDependency.depends_on_id)
+        .where(
+            TaskDependency.task_id.in_(task_ids),
+            Task.status.in_(("todo", "in_progress")),
+        )
+        .group_by(TaskDependency.task_id)
+    )
+    return {task_id: int(count) for task_id, count in rows}
 
 
 async def purge_old(session: AsyncSession, *, now: datetime | None = None) -> int:

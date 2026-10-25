@@ -33,7 +33,7 @@ from lifeos.modules.memory.models import (
 from lifeos.modules.notifications.models import Notification
 from lifeos.modules.retrieval.models import Embedding
 from lifeos.modules.reviews.models import Review
-from lifeos.modules.tasks.models import Task
+from lifeos.modules.tasks.models import Task, TaskDependency
 
 __all__ = [
     "AgentPermission",
@@ -67,6 +67,7 @@ __all__ = [
     "Review",
     "Space",
     "Task",
+    "TaskDependency",
     "Transaction",
     "User",
     "UserSession",

@@ -43,7 +43,9 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
   original chiffré (document, dictée), ainsi que les copies qui le citent :
   - la réponse gardée par une clé d'idempotence (remplacée par un refus `410`) ;
   - les propositions et approbations (en attente ou décidées) qui en citent le texte ;
-  - les rappels et notifications qui le nomment ;
+  - les rappels et notifications qui le nomment (une notification « Débloquée : … » ne
+    nomme que la tâche débloquée ; le rappel d'une tâche bloquée compte ce qu'elle attend
+    sans le nommer) ;
   - les bilans qui l'avaient retenu : il est retiré de leurs faits, et leur lecture par
     l'assistant est effacée (« Établir à nouveau » la refait).
   Il ne revient plus ni dans la recherche (plein texte et sémantique), ni dans le contexte
@@ -86,9 +88,9 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
   ancienne, ou les déclarer perdus (`lifeos-admin reconcile-originals --yes`, audité
   `document.original_missing`) : le document et son texte restent, l'original n'est plus
   proposé.
-- Export complet sur demande : JSON (mémoire, journal, tâches, documents : métadonnées et texte
-  extrait, finances), CSV (tâches, finances), ICS (tâches datées). Les originaux chiffrés se
-  téléchargent un par un depuis la page Documents.
+- Export complet sur demande : JSON (mémoire, journal, tâches et leurs dépendances,
+  documents : métadonnées et texte extrait, finances), CSV (tâches, finances), ICS (tâches
+  datées). Les originaux chiffrés se téléchargent un par un depuis la page Documents.
 - Les originaux des documents figurent, **chiffrés**, dans les sauvegardes : illisibles sans
   `lifeos_documents_key`, qui est conservée à part.
 - **Comptes connectés** : l'export JSON liste les comptes (fournisseur, adresse, scopes,

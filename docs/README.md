@@ -34,6 +34,7 @@
 | [0010](adr/0010-reservation-des-quotas-llm.md) | Plafonds IA fiables : réservation atomique des quotas avant l'appel | Acceptée |
 | [0011](adr/0011-antivirus-et-fichiers-hostiles.md) | Fichiers hostiles : confinement et limites, pas d'antivirus pour l'instant | Acceptée |
 | [0012](adr/0012-connecteurs-oauth.md) | Comptes connectés : OAuth 2.0 avec PKCE, jetons chiffrés, consentement par espace | Acceptée |
+| [0013](adr/0013-taches-recurrentes.md) | Tâches récurrentes : utiles, mais après les dépendances et sous une forme étroite | Acceptée (mise en œuvre reportée) |
 
 ## Points encore ouverts
 

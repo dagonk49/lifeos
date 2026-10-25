@@ -2,16 +2,30 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { TaskDependencies } from "@/components/TaskDependencies";
 import { Badge, Button } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { formatDateTime, PRIORITY_LABELS } from "@/lib/format";
 import { useSpace } from "@/lib/space";
+import { blockedHint } from "@/lib/tasks";
 import type { Task } from "@/lib/types";
 
-export function TaskRow({ task, onDelete }: { task: Task; onDelete?: () => void }) {
+export function TaskRow({
+  task,
+  onDelete,
+  candidates,
+}: {
+  task: Task;
+  onDelete?: () => void;
+  /** Open tasks it could wait for: shows the dependency panel (tasks page). */
+  candidates?: Task[];
+}) {
   const queryClient = useQueryClient();
   const { spaceName, selected } = useSpace();
   const done = task.status === "done";
+  // A blocked task cannot be finished: the API would refuse it (409 task_blocked).
+  const blocked = task.blocked && !done;
+  const hintId = `task-${task.id}-blocked`;
   const toggle = useMutation({
     mutationFn: () =>
       api<Task>(`/v1/tasks/${task.id}`, {
@@ -32,14 +46,17 @@ export function TaskRow({ task, onDelete }: { task: Task; onDelete?: () => void 
     <li className="flex items-start gap-3 py-2">
       <input
         type="checkbox"
-        className="mt-1 size-4 accent-teal-700"
+        className="mt-1 size-4 shrink-0 accent-teal-700 disabled:cursor-not-allowed"
         checked={done}
+        disabled={blocked || toggle.isPending}
         onChange={() => toggle.mutate()}
         aria-label={done ? `Rouvrir « ${task.title} »` : `Terminer « ${task.title} »`}
+        aria-describedby={blocked ? hintId : undefined}
       />
       <div className="min-w-0 flex-1">
         <p className={done ? "text-stone-500 line-through" : ""}>{task.title}</p>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+          {blocked && <Badge tone="amber">Bloquée</Badge>}
           {task.due_at && (
             <span className={overdue ? "font-medium text-red-700 dark:text-red-400" : ""}>
               Échéance {formatDateTime(task.due_at)}
@@ -51,10 +68,26 @@ export function TaskRow({ task, onDelete }: { task: Task; onDelete?: () => void 
               {PRIORITY_LABELS[task.priority]}
             </Badge>
           )}
+          {task.tags.map((tag) => (
+            <Badge key={tag} tone="blue">
+              {tag}
+            </Badge>
+          ))}
           {task.source_type === "journal_entry" && <Badge tone="violet">Journal</Badge>}
           {!selected && <Badge>{spaceName(task.space_id)}</Badge>}
         </div>
+        {blocked && (
+          <p id={hintId} className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+            {blockedHint(task.blocked_by)}
+          </p>
+        )}
         {task.notes && <p className="mt-1 whitespace-pre-wrap text-sm text-stone-600">{task.notes}</p>}
+        {toggle.error && (
+          <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">
+            {errorMessage(toggle.error)}
+          </p>
+        )}
+        {candidates && !done && <TaskDependencies task={task} candidates={candidates} />}
       </div>
       {onDelete && (
         <Button variant="ghost" size="sm" onClick={onDelete} aria-label={`Supprimer « ${task.title} »`}>

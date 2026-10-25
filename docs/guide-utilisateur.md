@@ -65,8 +65,34 @@ Briefing du jour :
 
 ### Tâches
 
-Création avec priorité, échéance et rappel. Les rappels respectent vos plages de
+Une tâche se crée avec une priorité, une échéance, un rappel et des **étiquettes**. Les
+étiquettes sont libres et séparées par des virgules, par exemple « maison, urgent ». Elles
+sont enregistrées en minuscules, 10 au plus. Les rappels respectent vos plages de
 tranquillité (**Réglages → Préférences**).
+
+**Dépendances.** Une tâche peut en attendre d'autres du même espace. Pour la lier :
+
+- à la création, choisissez **Dépend de** ;
+- ensuite, ouvrez **Dépendances** sous la tâche, choisissez une tâche dans **Attendre
+  aussi**, puis **Lier**.
+
+**Retirer** supprime un lien.
+
+- Une tâche qui attend une tâche encore ouverte est **bloquée**. Elle affiche « Bloquée
+  par « … » » et ne peut être ni commencée ni terminée. Elle peut toujours être annulée ou
+  supprimée.
+- Quand la dernière tâche attendue est terminée ou annulée, la tâche est libérée. Vous
+  recevez une notification « Débloquée : … », une seule fois.
+- LifeOS refuse tout lien qui créerait une boucle (A attend B qui attend A) et ne change
+  rien.
+- Supprimer une tâche attendue libère celles qui l'attendaient.
+
+Le filtre **Afficher** montre les tâches ouvertes, bloquées ou terminées. Le filtre
+**Étiquette** apparaît dès qu'une tâche en porte une. Les tâches bloquées sont listées en
+dernier. L'assistant de planification voit, pour chaque tâche ouverte, ce qui la bloque.
+
+Il n'y a pas encore de **tâches récurrentes** : recréez la tâche après l'avoir terminée
+(décision : [ADR 0013](adr/0013-taches-recurrentes.md)).
 
 ### Journal (et journal oral)
 

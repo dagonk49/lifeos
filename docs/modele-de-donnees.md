@@ -123,8 +123,26 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
 ### Tâches et rappels
 - **`tasks`** : `id`, `user_id`, `space_id`, `title`, `notes`, `status` (`todo` \|
   `in_progress` \| `done` \| `cancelled`), `priority` (`low` \| `normal` \| `high`), `due_at`,
-  `remind_at`, `reminded_at`, `completed_at`, `source_type`, `source_id`, `version`,
-  `created_at`, `updated_at`, `search_vector`.
+  `remind_at`, `reminded_at`, `completed_at`, `source_type`, `source_id`, `tags text[]`,
+  `version`, `created_at`, `updated_at`, `search_vector`.
+- **`tasks.tags`** (classification F03, tâche 22) : étiquettes libres, 10 au plus, de
+  40 caractères au plus chacune. L'API les normalise : sans `#` initial, espaces réduits,
+  minuscules, sans doublon et sans virgule. Index GIN `ix_tasks_tags` pour le filtre
+  `?tag=` (`@>`).
+- **`task_dependencies`** (tâche 22) : `task_id` (FK `tasks` cascade), `depends_on_id` (FK
+  `tasks` cascade, indexé), `user_id`, `space_id`, `created_at`. Clé primaire
+  `(task_id, depends_on_id)`. Contrainte `ck_task_dependencies_not_self` : une tâche ne
+  dépend pas d'elle-même.
+  - `task_id` attend `depends_on_id`. Les deux tâches sont du même espace.
+  - Le graphe reste **sans cycle**. Le contrôle se fait sous un verrou consultatif par
+    utilisateur (`pg_advisory_xact_lock(TASK_DEPS_LOCK_CLASS, hashtext(user_id))`), par un
+    parcours récursif des liens.
+  - Une tâche ouverte est **bloquée** tant qu'elle attend une tâche ouverte (`todo` ou
+    `in_progress`). Une dépendance terminée **ou annulée** ne bloque plus.
+  - Supprimer l'une des deux tâches supprime le lien.
+  - Il n'y a pas de colonne « bloquée » : l'état se calcule à la lecture (`blocked`,
+    `blocked_by`).
+- Les tâches récurrentes ne sont pas encore stockées (voir [ADR 0013](adr/0013-taches-recurrentes.md)).
 
 ### Journal
 - **`journal_entries`** : `id`, `user_id`, `space_id`, `entry_date date`, `content`,
@@ -164,6 +182,13 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   `important` \| `suggestion`), `title`, `body`, `dedup_key` (unique par utilisateur),
   `deliver_after` (repoussé à la fin des plages de tranquillité sauf `critical`), `status`
   (`pending` \| `read` \| `dismissed`), `source_type`, `source_id`, `read_at`, `created_at`.
+- Tâche débloquée (tâche 22) : quand une tâche passe à `done` ou `cancelled`, chaque tâche
+  ouverte qui n'attendait plus qu'elle reçoit une notification `important`. Son titre est
+  « Débloquée : <titre> » ; elle porte `source_type = 'task'`, `source_id` = la tâche
+  débloquée, et `dedup_key = task:<débloquée>:unblocked:<dépendance>`. Rouvrir puis terminer
+  de nouveau la dépendance ne la répète pas. Le rappel d'une tâche bloquée dit combien de
+  tâches elle attend, sans les nommer. Ainsi, aucune notification ne garde le titre d'une
+  autre tâche, qui survivrait à son effacement.
 
 ### Idempotence
 - **`idempotency_keys`** : `user_id`, `key`, `method`, `path`, `request_hash`,

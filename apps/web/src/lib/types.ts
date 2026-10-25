@@ -56,9 +56,23 @@ export interface Task {
   source_id: Uuid | null;
   /** Goal this task contributes to (F06). */
   goal_id: Uuid | null;
+  /** Free labels (F03 classification), normalised by the API. */
+  tags: string[];
+  /** Every task this one waits for, finished or not. */
+  depends_on: Uuid[];
+  /** Those still open: why the task is blocked. */
+  blocked_by: TaskBlocker[];
+  /** Open and waiting for an open task: it can be neither started nor finished. */
+  blocked: boolean;
   version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaskBlocker {
+  id: Uuid;
+  title: string;
+  status: TaskStatus;
 }
 
 export interface JournalEntry {

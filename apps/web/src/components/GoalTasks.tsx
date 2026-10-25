@@ -7,6 +7,7 @@ import { Alert, Badge, Button, Empty, Input, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDateTime, STATUS_LABELS } from "@/lib/format";
 import { goalKeys, isOpenGoal, sortGoalTasks } from "@/lib/goals";
+import { blockedHint } from "@/lib/tasks";
 import type { GoalDetail, Page, Task } from "@/lib/types";
 
 /** Tasks linked to a goal (`GET /v1/tasks?goal_id=`), with a quick way to add one. */
@@ -63,15 +64,19 @@ export function GoalTasks({ goal }: { goal: GoalDetail }) {
             const done = t.status === "done";
             const cancelled = t.status === "cancelled";
             const overdue = !done && !cancelled && t.due_at !== null && new Date(t.due_at) < new Date();
+            // Waiting for an open task: the API refuses to finish it (409 task_blocked).
+            const blocked = t.blocked && !done;
+            const hintId = `goal-task-${t.id}-blocked`;
             return (
               <li key={t.id} className="flex items-start gap-3 py-2 text-sm">
                 <input
                   type="checkbox"
                   className="mt-1 size-4 shrink-0 accent-teal-700"
                   checked={done}
-                  disabled={cancelled || (toggle.isPending && toggle.variables?.id === t.id)}
+                  disabled={cancelled || blocked || (toggle.isPending && toggle.variables?.id === t.id)}
                   onChange={() => toggle.mutate(t)}
                   aria-label={done ? `Rouvrir « ${t.title} »` : `Terminer « ${t.title} »`}
+                  aria-describedby={blocked ? hintId : undefined}
                 />
                 <div className="min-w-0 flex-1">
                   <p className={done || cancelled ? "text-stone-500 line-through" : undefined}>{t.title}</p>
@@ -83,6 +88,11 @@ export function GoalTasks({ goal }: { goal: GoalDetail }) {
                       </span>
                     )}
                   </div>
+                  {blocked && (
+                    <p id={hintId} className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+                      {blockedHint(t.blocked_by)}
+                    </p>
+                  )}
                 </div>
               </li>
             );

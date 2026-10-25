@@ -19,6 +19,7 @@ from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.journal.schemas import JournalEntryOut
 from lifeos.modules.memory.models import Fact, Memory
 from lifeos.modules.notifications.models import Notification
+from lifeos.modules.tasks import service as task_service
 from lifeos.modules.tasks.models import Task
 from lifeos.modules.tasks.schemas import TaskOut
 
@@ -78,7 +79,8 @@ async def dashboard(ctx: CtxDep, space_id: uuid.UUID | None = None) -> Dashboard
 
     async def tasks(stmt: object) -> list[TaskOut]:
         rows = await ctx.db.scalars(stmt)  # type: ignore[call-overload]
-        return [TaskOut.model_validate(t) for t in rows]
+        # With what each one waits for (one query per bucket).
+        return await task_service.task_outs(ctx, list(rows))
 
     overdue = await tasks(base.where(Task.due_at < start).order_by(Task.due_at).limit(50))
     due_today = await tasks(

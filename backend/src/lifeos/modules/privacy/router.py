@@ -24,7 +24,7 @@ from lifeos.modules.guardian.models import AgentPermission
 from lifeos.modules.identity.models import Space
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.memory.models import Fact, Memory, MemoryRevision
-from lifeos.modules.tasks.models import Task
+from lifeos.modules.tasks.models import Task, TaskDependency
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
@@ -100,6 +100,7 @@ async def export(ctx: CtxDep) -> JSONResponse:
         },
         "spaces": [_row(s) for s in space_rows],
         "tasks": await rows(Task),
+        "task_dependencies": await rows(TaskDependency),
         "journal_entries": await rows(JournalEntry),
         "facts": await rows(Fact),
         "memories": memories,

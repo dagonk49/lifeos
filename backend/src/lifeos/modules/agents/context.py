@@ -27,6 +27,7 @@ from lifeos.modules.planning import slots as planning
 from lifeos.modules.retrieval.context import relevant_context
 from lifeos.modules.reviews.models import Review
 from lifeos.modules.tasks.models import Task
+from lifeos.modules.tasks.service import links_for
 
 _PRIORITY = {"high": "priorité haute", "low": "priorité basse"}
 _ORIGIN = {
@@ -65,6 +66,7 @@ async def _tasks(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
     if not rows:
         return ["TÂCHES OUVERTES : aucune."]
     now = utcnow()
+    links = await links_for(ctx, [t.id for t in rows])
     lines = []
     load: Counter[date] = Counter()
     for task in rows:
@@ -78,6 +80,12 @@ async def _tasks(ctx: Ctx, space_id: uuid.UUID, tz: ZoneInfo) -> list[str]:
                 load[local.date()] += 1
         if task.status == "in_progress":
             details.append("en cours")
+        link = links.get(task.id)
+        if link is not None and link.blocked_by:
+            # Same space: a blocker is a task this context may read.
+            names = ", ".join(f"« {one_line(b.title)} »" for b in link.blocked_by[:3])
+            more = len(link.blocked_by) - 3
+            details.append(f"bloquée par {names}" + (f" et {more} autre(s)" if more > 0 else ""))
         suffix = f" ({', '.join(details)})" if details else ""
         lines.append(f"- {one_line(task.title)}{suffix}")
     charge = (

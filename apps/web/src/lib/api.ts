@@ -106,9 +106,17 @@ const MESSAGES: Record<string, string> = {
   nothing_to_consolidate: "Aucun nouveau message à consolider dans cette conversation.",
   review_in_future: "Cette période n'a pas encore commencé.",
   goal_target_required: "Un objectif mesurable demande une valeur cible.",
+  task_not_found: "Cette tâche est introuvable ou a été supprimée.",
   goal_not_found: "Cet objectif est introuvable ou a été supprimé.",
   milestone_not_found: "Ce jalon n'existe plus.",
   goal_space_mismatch: "La tâche et l'objectif doivent appartenir au même espace.",
+  task_blocked:
+    "Cette tâche attend d'autres tâches encore ouvertes : terminez-les ou annulez-les d'abord.",
+  dependency_cycle:
+    "Ce lien créerait une boucle : une tâche finirait par s'attendre elle-même. Rien n'a été modifié.",
+  dependency_space_mismatch: "Une tâche ne peut attendre qu'une tâche du même espace.",
+  dependency_not_found: "Ce lien entre tâches n'existe plus : rechargez la page.",
+  too_many_dependencies: "Une tâche peut attendre au plus 20 autres tâches.",
   goal_start_required: "Un objectif mesurable demande une valeur de départ.",
   goal_dates_invalid: "L'échéance doit être postérieure à la date de début.",
   fact_not_active: "Ce fait n'est plus actif.",
