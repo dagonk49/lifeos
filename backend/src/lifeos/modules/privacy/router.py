@@ -15,6 +15,7 @@ from lifeos import __version__
 from lifeos.api.deps import CtxDep
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
+from lifeos.modules.calendar.models import CalendarEvent
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.connectors.models import ConnectorAccount, ConnectorGrant, ConnectorSource
 from lifeos.modules.documents.models import Document
@@ -112,6 +113,7 @@ async def export(ctx: CtxDep) -> JSONResponse:
         "connector_accounts": accounts,
         "connector_grants": [_row(g) for g in connector_grants],
         "connector_sources": await rows(ConnectorSource),
+        "calendar_events": await rows(CalendarEvent),
     }
     await audit.record(
         ctx.db,

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
+import { AgendaDays } from "@/components/AgendaWeek";
 import { TaskRow } from "@/components/TaskRow";
 import { UsageMeter } from "@/components/UsageMeter";
 import { Alert, Badge, Card, Empty, PageHeader, Spinner } from "@/components/ui";
@@ -132,6 +133,15 @@ export default function DashboardPage() {
               Toutes les tâches
             </Link>{" "}
             · {d.tasks_without_due} sans échéance
+          </p>
+        </Card>
+
+        <Card title="Agenda du jour" footer="Agendas suivis · heures dans votre fuseau">
+          <AgendaDays days={[d.today]} spaceId={selected} emptyText="Aucun événement aujourd'hui." />
+          <p className="mt-2 text-sm">
+            <Link className="text-teal-700 underline dark:text-teal-400" href="/agenda">
+              Voir la semaine
+            </Link>
           </p>
         </Card>
 

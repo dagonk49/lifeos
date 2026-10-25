@@ -667,3 +667,18 @@ async def test_google_calendar_requests_and_error_mapping(settings: Settings) ->
         with pytest.raises(error) as caught:
             await connector.list_events("token-1", "primary", **window)
         assert getattr(caught.value, "reason", None) == reason
+
+
+async def test_the_export_lists_synced_occurrences(
+    client: AsyncClient,
+    database: Database,
+    connector_settings: Settings,
+    fake_connector: FakeConnector,
+    mapped: dict[str, str],
+) -> None:
+    fake_connector.add_event(
+        "primary", timed("e1", "Réunion", datetime(2026, 10, 21, 9, tzinfo=PARIS))
+    )
+    await run_sync(database, connector_settings, fake_connector, mapped["source"])
+    exported = (await client.get("/v1/privacy/export")).json()
+    assert [e["summary"] for e in exported["calendar_events"]] == ["Réunion"]

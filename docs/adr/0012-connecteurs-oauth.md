@@ -103,8 +103,8 @@ Contraintes propres à LifeOS :
      servent dans quel espace.
    - Accorder est renforcé (passkey récente), retirer est immédiat, comme pour les
      permissions d'agent.
-   - Les agendas et libellés de chaque compte (`connector_sources`) seront rattachés à un
-     espace par le propriétaire (tâches 14 et 17).
+   - Les agendas et libellés de chaque compte (`connector_sources`) sont rattachés à un
+     espace par le propriétaire, parmi les espaces où l'usage est autorisé (tâches 14 et 17).
    - Chaque synchronisation et chaque action passent d'abord par `require_capability`. Il
      faut un compte actif, le consentement de **cet** espace pour **cet** usage, et le scope
      accordé par le fournisseur. Un agent a besoin en plus de sa propre permission sur
@@ -130,6 +130,22 @@ Contraintes propres à LifeOS :
 9. **Synchronisation par interrogation périodique** (tâches 14 et 17). Les notifications
    poussées (Calendar `watch`, Gmail Pub/Sub) exigent une URL publique, qu'une installation
    en VPN n'a pas.
+10. **Agenda : relecture complète d'une fenêtre glissante** (tâche 14, `calendar/sync.py`).
+    - Chaque agenda suivi est relu toutes les 15 minutes sur `[J-30, J+365]`, séries
+      développées par Google (`singleEvents=true`) dans leur propre fuseau : chaque
+      occurrence a un identifiant stable, et son heure locale reste juste au changement
+      d'heure. LifeOS stocke des instants UTC (ou des dates pour la journée entière) et ne
+      développe aucune règle de récurrence lui-même.
+    - Une occurrence est unique par source et identifiant : une relecture la met à jour,
+      jamais en double. Chaque page est validée avec le jeton de la page suivante : un
+      passage interrompu reprend là où il s'est arrêté. Seul un passage complet supprime ce
+      que Google ne renvoie plus (annulé, supprimé, sorti de la fenêtre) ; un passage en
+      échec ne supprime rien.
+    - Les jetons de synchronisation incrémentale de Google (`syncToken`) ne se combinent pas
+      avec une fenêtre (`timeMin`/`timeMax`) ; sans fenêtre, une série infinie serait
+      développée sans fin. La relecture d'une fenêtre coûte quelques requêtes par agenda et
+      par passage (250 occurrences par page) : négligeable pour un usage personnel. Le
+      `syncToken` reste possible plus tard si un agenda très chargé le demande.
 
 ## Conséquences
 

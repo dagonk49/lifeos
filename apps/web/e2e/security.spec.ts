@@ -16,7 +16,7 @@ const LOGIN = { path: "/login", status: 200 };
 const PAGES: { path: string; status: number }[] = [
   LOGIN,
   { path: "/enroll", status: 200 },
-  ...["/", "/chat", "/tasks", "/journal", "/goals", "/documents", "/finances", "/reviews"]
+  ...["/", "/chat", "/tasks", "/agenda", "/journal", "/goals", "/documents", "/finances", "/reviews"]
     .concat(["/memory", "/search", "/approvals", "/settings", "/connexions/retour"])
     .map((path) => ({ path, status: 200 })),
   { path: "/page-inexistante", status: 404 },

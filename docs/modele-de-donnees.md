@@ -307,9 +307,24 @@ colonnes ne sort par l'API ni par l'export.
   - `id`, `user_id`, `space_id`, `account_id` (cascade), `kind` (`calendar` \|
     `mail_label`), `provider_ref` (unique par compte et type), `name`, `enabled`,
     `last_synced_at`, `last_error`, horodatages.
-  - Les colonnes de synchronisation (curseur…) viendront avec l'agenda et la messagerie. Les
-    lignes synchronisées référenceront leur source avec `ON DELETE CASCADE` : supprimer le
-    compte supprime ses données.
+  - Synchronisation (migration 0011) : `sync_generation` (numéro du dernier passage),
+    `page_token` (page à reprendre d'un passage interrompu), `lease_until` (un seul passage
+    à la fois). Les lignes synchronisées référencent leur source avec `ON DELETE CASCADE` :
+    retirer la source ou supprimer le compte supprime ses données.
+- **`calendar_events`** (migration 0011, tâche 14) : une occurrence d'un agenda suivi, dans
+  l'espace de sa source.
+  - `id`, `user_id`, `space_id`, `source_id` (cascade), `provider_event_id` (unique par
+    source : une resynchronisation met à jour la ligne, sans doublon), `series_id`
+    (événement récurrent).
+  - `status` (`confirmed` \| `tentative`), `summary`, `description` (coupée à 2 000
+    caractères), `location` : texte de tiers, donnée et jamais instruction.
+  - Occurrence avec horaire : `starts_at`, `ends_at` (instants UTC, le fournisseur ayant
+    résolu le fuseau et le changement d'heure de la série) ; journée entière : `start_date`,
+    `end_date` (fin exclue). Une contrainte impose l'un ou l'autre.
+  - `timezone` (affichage), `busy` (occupé ou disponible), `organizer_self`, `response`
+    (réponse du propriétaire à une invitation), `attendees` (nombre seulement), `etag`,
+    `provider_updated_at`, `seen_generation` (passage qui l'a vue : après un passage complet,
+    les plus anciennes ont disparu chez le fournisseur).
 - **`oauth_states`** : un consentement en cours, à usage unique.
   - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
     jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).
@@ -324,7 +339,7 @@ colonnes ne sort par l'API ni par l'export.
 
 | Table | Étape | Notes |
 |---|---|---|
-| événements d'agenda, e-mails synchronisés | 5 | rattachés à une `connector_sources` (cascade), tâches 14 et 17 |
+| e-mails synchronisés | 5 | rattachés à une `connector_sources` (cascade), tâche 17 |
 | `push_devices` | 5 | jetons de notification mobile |
 | import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |
 

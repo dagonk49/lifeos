@@ -166,6 +166,12 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
   - **Déconnecter** révoque l'accès chez Google et efface les jetons. LifeOS demande chaque
     fois s'il faut garder (par défaut) ou supprimer les données déjà synchronisées. Un
     compte déconnecté reste listé, sans aucun accès, jusqu'à ce que vous le supprimiez.
+  - **Choisir les agendas à suivre** : pour chaque agenda du compte, l'espace qu'il
+    alimente (seuls les espaces où la lecture de l'agenda est autorisée sont proposés).
+    LifeOS le lit environ toutes les 15 minutes, sur 30 jours passés et un an à venir ;
+    **Synchroniser** le relit tout de suite. **Ne plus suivre** supprime de LifeOS les
+    événements copiés (pas chez Google). Si l'autorisation de l'espace est retirée, la
+    synchronisation s'arrête et le dit.
   - Les jetons d'accès restent chiffrés sur votre serveur : ils ne sont jamais affichés,
     exportés ni journalisés.
 - **Préférences** : nom, fuseau horaire, plages de tranquillité.

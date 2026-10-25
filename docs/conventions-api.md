@@ -217,6 +217,21 @@ puis envoie le message avec les seules pièces jointes `sent`.
   connector_capability_missing` sans consentement de l'espace pour cet usage ; `403
   agent_permission_required` pour un agent sans permission `calendar` ou `email`.
 - `503 connectors_unavailable` : connecteurs désactivés ou clé des jetons absente.
+- Agendas (tâche 14) :
+  - `GET /v1/connectors/accounts/{id}/calendars` → les agendas du compte, lus en direct
+    (`provider_ref`, `name`, `primary`, `read_only`, `source_id`/`space_id` s'il est déjà
+    suivi). `503 connector_unavailable` si le fournisseur ne répond pas.
+  - `POST /v1/connectors/sources` `{account_id, provider_ref, space_id}` → `201` la source ;
+    exige le consentement `calendar.read` de cet espace (`403
+    connector_capability_missing`, audité) ; `409 calendar_already_mapped` si l'agenda
+    alimente déjà un autre espace. La première lecture est mise en file.
+  - `DELETE /v1/connectors/sources/{id}` : ne plus suivre ; les occurrences copiées sont
+    supprimées. `POST /v1/connectors/sources/{id}/sync` → `202` : lecture demandée.
+  - `GET /v1/calendar/events?start&end&space_id?` → `{items, timezone}` : occurrences qui
+    chevauchent `[start, end)` (62 jours au plus, sinon `422 invalid_window`), dans les
+    espaces du principal. Une date sans décalage est lue dans le fuseau du propriétaire ;
+    les instants rendus portent le décalage de ce fuseau, les journées entières sont des
+    dates (fin exclue). Chaque occurrence indique sa source et sa date de lecture.
 
 ## Familles de routes
 
@@ -239,4 +254,5 @@ puis envoie le message avec les seules pièces jointes `sent`.
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
-| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, déconnexion |
+| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas suivis, déconnexion |
+| `/v1/calendar` | 5 | occurrences des agendas suivis (lecture) |

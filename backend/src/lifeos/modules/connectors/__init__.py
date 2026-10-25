@@ -42,6 +42,12 @@ def build_connectors(settings: Settings) -> Connectors:
         from lifeos.modules.connectors.google import GoogleConnector
 
         return {"google": GoogleConnector(settings)}
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
     from lifeos.modules.connectors.fake import FakeConnector
 
-    return {"fake": FakeConnector()}
+    # End-to-end runs: every process (API, worker) holds the same demo calendars.
+    fake = FakeConnector()
+    fake.add_demo_week(datetime.now(ZoneInfo(settings.timezone)).date(), settings.timezone)
+    return {"fake": fake}

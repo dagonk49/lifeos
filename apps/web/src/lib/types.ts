@@ -816,3 +816,46 @@ export interface DerivedItem {
   /** Statement or title. */
   text: string;
 }
+
+// --- Calendar (task 14) ------------------------------------------------------------------
+
+/** A calendar of a connected account, read live at the provider. */
+export interface RemoteCalendar {
+  provider_ref: string;
+  name: string;
+  primary: boolean;
+  read_only: boolean;
+  /** Already followed: the source and the space it feeds. */
+  source_id: Uuid | null;
+  space_id: Uuid | null;
+}
+
+/** An occurrence synced from a followed calendar. Its texts come from third parties. */
+export interface CalendarEvent {
+  id: Uuid;
+  space_id: Uuid;
+  source_id: Uuid;
+  source_name: string;
+  synced_at: string | null;
+  summary: string;
+  description: string | null;
+  location: string | null;
+  all_day: boolean;
+  /** Timed: ISO 8601 with the offset of the owner's time zone. */
+  starts_at: string | null;
+  ends_at: string | null;
+  /** All-day: dates, `end_date` exclusive. */
+  start_date: string | null;
+  end_date: string | null;
+  timezone: string | null;
+  status: "confirmed" | "tentative";
+  busy: boolean;
+  recurring: boolean;
+  response: string | null;
+}
+
+export interface CalendarEvents {
+  items: CalendarEvent[];
+  /** The owner's time zone, in which the times above are written. */
+  timezone: string;
+}

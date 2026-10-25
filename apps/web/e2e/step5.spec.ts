@@ -79,6 +79,26 @@ test("Step 5 journey: connect an account, authorise it per space, disconnect it"
   await personal.getByRole("checkbox", { name: "Lire les e-mails" }).click();
   await expect(personal.getByRole("checkbox", { name: "Lire les e-mails" })).not.toBeChecked();
 
+  // Task 14: a calendar of the account feeds the personal space, synced by the worker.
+  await account.getByRole("button", { name: "Choisir les agendas à suivre" }).click();
+  const calendars = account.getByRole("list", { name: "Agendas du compte" });
+  const demo = calendars.getByRole("listitem").filter({ hasText: "Agenda de démonstration" });
+  await demo.getByLabel("Espace pour l'agenda Agenda de démonstration").selectOption({ label: "Personnel" });
+  await demo.getByRole("button", { name: "Suivre dans cet espace" }).click();
+  await expect(account.getByText(/« Agenda de démonstration » → Personnel/)).toBeVisible();
+  await nav(page, "Agenda");
+  await expect(page.getByRole("heading", { name: "Agenda" })).toBeVisible();
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByText("Point d'équipe")).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.getByText("09:30 – 10:00")).toBeVisible();
+  await expect(page.getByText(/Source : Agenda de démonstration · lu le/).first()).toBeVisible();
+  await nav(page, "Accueil");
+  await expect(page.getByRole("heading", { name: "Agenda du jour" })).toBeVisible();
+  await expect(page.getByText("Point d'équipe")).toBeVisible();
+  await nav(page, "Réglages");
+
   // Disconnect: asked each time, the synced data is kept by default.
   await account.getByRole("button", { name: "Déconnecter…" }).click();
   const confirm = account.getByRole("group", { name: `Déconnecter ${ACCOUNT} ?` });
