@@ -3,13 +3,14 @@
 import { useState } from "react";
 
 import { AgendaDays } from "@/components/AgendaWeek";
+import { ConflictsList, SlotFinder } from "@/components/Planning";
 import { Button, Card, PageHeader } from "@/components/ui";
 import { addDays, mondayOf, weekDays, weekLabel } from "@/lib/calendar";
 import { todayLocal } from "@/lib/format";
 import { useSpace } from "@/lib/space";
 
 export default function AgendaPage() {
-  const { selected } = useSpace();
+  const { selected, writeSpaceId, spaceName } = useSpace();
   const [monday, setMonday] = useState(() => mondayOf(todayLocal()));
   const days = weekDays(monday);
   return (
@@ -33,6 +34,17 @@ export default function AgendaPage() {
       >
         <AgendaDays days={days} spaceId={selected} emptyText="Aucun événement cette semaine." />
       </Card>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <Card
+          title={`Conflits · ${spaceName(writeSpaceId)}`}
+          footer="Calculés sur votre serveur, sans IA. Les événements des autres espaces restent anonymes."
+        >
+          <ConflictsList spaceId={writeSpaceId} />
+        </Card>
+        <Card title="Trouver un créneau" footer="Rien n'est ajouté à l'agenda : à vous de bloquer le créneau choisi.">
+          <SlotFinder spaceId={writeSpaceId} />
+        </Card>
+      </div>
     </>
   );
 }

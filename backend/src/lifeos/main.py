@@ -31,6 +31,7 @@ from lifeos.modules.journal.router import router as journal_router
 from lifeos.modules.llm import build_provider
 from lifeos.modules.memory.router import router as memory_router
 from lifeos.modules.notifications.router import router as notifications_router
+from lifeos.modules.planning.router import router as planning_router
 from lifeos.modules.privacy.router import router as privacy_router
 from lifeos.modules.retrieval.embedders import build_embedder
 from lifeos.modules.reviews.router import router as reviews_router
@@ -64,6 +65,7 @@ def build_v1_router() -> APIRouter:
         privacy_router,
         connectors_router,
         calendar_router,
+        planning_router,
     ):
         v1.include_router(router)
     return v1

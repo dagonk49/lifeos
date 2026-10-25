@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
 import { AgendaDays } from "@/components/AgendaWeek";
+import { ConflictsList } from "@/components/Planning";
 import { TaskRow } from "@/components/TaskRow";
 import { UsageMeter } from "@/components/UsageMeter";
 import { Alert, Badge, Card, Empty, PageHeader, Spinner } from "@/components/ui";
@@ -89,7 +90,7 @@ function AssistantSummary({ assistant }: { assistant: Dashboard["assistant"] }) 
 }
 
 export default function DashboardPage() {
-  const { selected } = useSpace();
+  const { selected, writeSpaceId } = useSpace();
   const dashboard = useQuery({
     queryKey: ["dashboard", selected],
     queryFn: () => api<Dashboard>(`/v1/dashboard${spaceParam(selected)}`),
@@ -138,9 +139,11 @@ export default function DashboardPage() {
 
         <Card title="Agenda du jour" footer="Agendas suivis · heures dans votre fuseau">
           <AgendaDays days={[d.today]} spaceId={selected} emptyText="Aucun événement aujourd'hui." />
+          <h3 className="mt-3 text-sm font-medium">Conflits d&apos;agenda (14 jours)</h3>
+          <ConflictsList spaceId={selected ?? writeSpaceId} />
           <p className="mt-2 text-sm">
             <Link className="text-teal-700 underline dark:text-teal-400" href="/agenda">
-              Voir la semaine
+              Voir la semaine et trouver un créneau
             </Link>
           </p>
         </Card>

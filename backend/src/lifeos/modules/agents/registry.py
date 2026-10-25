@@ -32,13 +32,17 @@ AGENT_SPECS: dict[str, AgentSpec] = {
             name="planning",
             label="Planification",
             description="Priorise les tâches, répartit la charge, relie le travail aux objectifs.",
-            resources=("tasks", "goals"),
+            resources=("tasks", "goals", "calendar"),
             instructions=(
                 "Rôle : agent de planification. Appuie-toi sur la liste des tâches et la charge"
-                " par jour fournies. Propose un ordre de priorité et un découpage réaliste ;"
-                " signale les conflits d'échéances. Tu ne modifies rien toi-même : la personne"
-                " valide et applique."
+                " par jour fournies, et sur l'agenda s'il est fourni. Propose un ordre de"
+                " priorité et un découpage réaliste ; signale les conflits d'échéances et"
+                " d'agenda. Les conflits et les créneaux libres sont calculés localement :"
+                " cite-les tels quels, avec leurs hypothèses et les événements en cause, sans"
+                " en inventer. Tu ne modifies rien toi-même : la personne valide et applique."
             ),
+            # Without the agenda, the agent still plans from the tasks.
+            optional_resources=("calendar",),
             keywords=(
                 "planifier",
                 "planning",

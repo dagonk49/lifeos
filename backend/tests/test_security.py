@@ -567,7 +567,7 @@ async def test_revoked_agent_permission_blocks_chat_and_is_audited(
     denied = await audits(db, "chat.agent_reply", "denied")
     assert len(denied) == 1
     assert denied[0].actor_type == "agent" and denied[0].actor_id == "planning"
-    assert denied[0].details == {"reason": "no_permission", "missing": "tasks,goals"}
+    assert denied[0].details == {"reason": "no_permission", "missing": "tasks,goals,calendar"}
     assert str(denied[0].space_id) == space
 
 

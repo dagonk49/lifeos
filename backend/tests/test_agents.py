@@ -55,7 +55,7 @@ async def test_agent_needs_explicit_access_then_sees_only_its_resources(
         )
     ).json()
     assert refused["error"]["code"] == "agent_permission_required"
-    assert refused["error"]["missing"] == ["tasks", "goals"]
+    assert refused["error"]["missing"] == ["tasks", "goals", "calendar"]
     assert fake_llm.requests == []
 
     granted = await client.put(

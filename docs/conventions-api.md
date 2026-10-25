@@ -232,6 +232,16 @@ puis envoie le message avec les seules pièces jointes `sent`.
     espaces du principal. Une date sans décalage est lue dans le fuseau du propriétaire ;
     les instants rendus portent le décalage de ce fuseau, les journées entières sont des
     dates (fin exclue). Chaque occurrence indique sa source et sa date de lecture.
+- Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
+  - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
+    `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous
+    les espaces du principal bloquent du temps, mais seules celles de `space_id` ont un
+    titre et un identifiant : ailleurs, `label = "Occupé (autre espace)"`, `event_id = null`.
+  - `POST /v1/planning/slots` `{space_id, duration_minutes? | task_id?, not_before?,
+    not_after?}` → au plus trois créneaux (un par jour), chacun avec ses `assumptions`
+    (durée et son origine, disponibilités, marge, provisoires, fraîcheur de l'agenda) et ses
+    `events_used`. Sans durée : l'estimation de la tâche, sinon une heure ; avec une tâche
+    datée, avant son échéance. Rien n'est écrit dans l'agenda.
 
 ## Familles de routes
 
@@ -256,3 +266,4 @@ puis envoie le message avec les seules pièces jointes `sent`.
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
 | `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas suivis, déconnexion |
 | `/v1/calendar` | 5 | occurrences des agendas suivis (lecture) |
+| `/v1/planning` | 5 | conflits d'agenda et créneaux libres, calculés localement (lecture seule) |

@@ -859,3 +859,42 @@ export interface CalendarEvents {
   /** The owner's time zone, in which the times above are written. */
   timezone: string;
 }
+
+// --- Planning (task 15) ------------------------------------------------------------------
+
+/** An occurrence used by planning; another space's shows no title and no id. */
+export interface PlanningBusy {
+  event_id: Uuid | null;
+  label: string;
+  start: string;
+  end: string;
+  tentative: boolean;
+}
+
+export interface PlanningConflict {
+  first: PlanningBusy;
+  second: PlanningBusy;
+  start: string;
+  end: string;
+}
+
+export interface PlanningConflicts {
+  items: PlanningConflict[];
+  synced_at: string | null;
+  calendars: number;
+}
+
+export interface PlanningSlot {
+  start: string;
+  end: string;
+  /** What the proposal rests on (duration, availability, margin, freshness). */
+  assumptions: string[];
+  events_used: PlanningBusy[];
+}
+
+export interface PlanningSlots {
+  items: PlanningSlot[];
+  task_title: string | null;
+  synced_at: string | null;
+  calendars: number;
+}

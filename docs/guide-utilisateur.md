@@ -172,6 +172,16 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
     **Synchroniser** le relit tout de suite. **Ne plus suivre** supprime de LifeOS les
     événements copiés (pas chez Google). Si l'autorisation de l'espace est retirée, la
     synchronisation s'arrête et le dit.
+  - Page **Agenda** : la semaine de vos agendas suivis, avec la source et l'heure de
+    lecture de chaque événement. En dessous, les **conflits** (événements qui se
+    chevauchent) et **Trouver un créneau** : jusqu'à trois créneaux libres pour une durée,
+    chacun avec ses hypothèses (durée, disponibilités du lundi au vendredi de 9 h à 18 h,
+    marge de 10 min, événements provisoires comptés comme occupés, date de lecture de
+    l'agenda) et les événements autour. Rien n'est ajouté à votre agenda. Les événements
+    d'un autre espace comptent comme « Occupé (autre espace) », sans titre.
+  - L'**agent de planification**, s'il a la permission « agenda » dans l'espace, voit les 7
+    prochains jours de l'agenda de cet espace, les conflits et deux créneaux calculés par
+    LifeOS ; sans cette permission, il planifie à partir des tâches seules.
   - Les jetons d'accès restent chiffrés sur votre serveur : ils ne sont jamais affichés,
     exportés ni journalisés.
 - **Préférences** : nom, fuseau horaire, plages de tranquillité.

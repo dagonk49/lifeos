@@ -213,6 +213,11 @@ pour lesquelles le propriétaire leur a donné un accès explicite (90 jours, r�
 L'agent Finances voit les opérations et budgets de l'espace ; avec l'accès « documents », il
 voit aussi ce qui a été lu sur les tickets (marchand, date, total), jamais le texte extrait
 ni un document sensible ou gardé en local.
+L'agent Planification ne voit l'agenda qu'avec l'accès « agenda » de l'espace : les 7
+prochains jours de cet espace seulement (titre, horaire, statut ; jamais la description, le
+lieu ni les participants), plus les conflits et créneaux calculés localement. Les
+événements des autres espaces ne lui parviennent pas ; pour les créneaux du propriétaire,
+ils comptent comme « Occupé (autre espace) », sans aucun détail.
 
 ## 4. Séparation des espaces
 
