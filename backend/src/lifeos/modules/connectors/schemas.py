@@ -94,3 +94,21 @@ class DisconnectOut(BaseModel):
     # security settings ("manual_required": tokens already wiped, nothing to revoke with).
     remote_revocation: str
     purged: bool
+
+
+class CalendarOut(BaseModel):
+    """A calendar of the account, read live at the provider (task 14)."""
+
+    provider_ref: str
+    name: str
+    primary: bool
+    read_only: bool
+    # Already mapped: the space it feeds.
+    source_id: uuid.UUID | None = None
+    space_id: uuid.UUID | None = None
+
+
+class SourceIn(BaseModel):
+    account_id: uuid.UUID
+    provider_ref: str = Field(min_length=1, max_length=1024)
+    space_id: uuid.UUID

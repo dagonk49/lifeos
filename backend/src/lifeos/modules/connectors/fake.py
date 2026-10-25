@@ -4,6 +4,9 @@ Its consent page is skipped: the authorization URL is the redirect URI itself, c
 code, as if the owner had agreed at once (minus the capabilities listed in `decline`).
 It checks PKCE like a real provider, keeps earlier grants (incremental consent), and can
 be scripted to fail (`fail_next`).
+
+Its calendars (`calendars`, `events`) are in memory: tests and the end-to-end journey add,
+move and cancel occurrences, then resync. Pages are `page_size` events long.
 """
 
 import asyncio
@@ -12,8 +15,9 @@ import hashlib
 import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from lifeos.core.security import utcnow
 from lifeos.modules.connectors.base import (
@@ -22,6 +26,10 @@ from lifeos.modules.connectors.base import (
     AuthorizationRequest,
     Capability,
     ConnectorAuthError,
+    ConnectorGoneError,
+    EventPage,
+    RemoteCollection,
+    RemoteEvent,
     TokenSet,
 )
 
@@ -68,6 +76,15 @@ class FakeConnector:
         # Scopes granted so far (include_granted_scopes): kept until revoked.
         self._granted: set[str] = set()
         self._errors: dict[str, list[Exception]] = {}
+        self.calendars: list[RemoteCollection] = [
+            RemoteCollection("primary", "Agenda de démonstration", primary=True),
+            RemoteCollection("family", "Famille", read_only=True),
+        ]
+        # Occurrences by calendar ref, by id.
+        self.events: dict[str, dict[str, RemoteEvent]] = {"primary": {}, "family": {}}
+        self.page_size = 50
+        self.event_calls = 0
+        self.access_tokens_seen: list[str] = []
 
     def fail_next(self, method: str, error: Exception) -> None:
         """The next call of `method` (exchange_code, refresh, revoke) raises `error`."""
@@ -146,3 +163,92 @@ class FakeConnector:
         # Like Google: revoking one token ends the whole grant.
         self._refresh_tokens.clear()
         self._granted.clear()
+
+    # --- Calendar ---------------------------------------------------------------------------
+
+    def add_event(self, calendar_ref: str, event: RemoteEvent) -> None:
+        self.events.setdefault(calendar_ref, {})[event.provider_id] = event
+
+    def remove_event(self, calendar_ref: str, provider_id: str) -> None:
+        self.events.get(calendar_ref, {}).pop(provider_id, None)
+
+    def add_demo_week(self, today: date, zone: str = "Europe/Paris") -> None:
+        """A few occurrences around `today` (end-to-end journey)."""
+        tz = ZoneInfo(zone)
+
+        def at(day: date, hour: int, minutes: int = 0) -> datetime:
+            return datetime.combine(day, time(hour, minutes), tzinfo=tz)
+
+        self.add_event(
+            "primary",
+            RemoteEvent(
+                provider_id="demo-standup",
+                status="confirmed",
+                summary="Point d'équipe",
+                starts_at=at(today, 9, 30),
+                ends_at=at(today, 10),
+                timezone=zone,
+            ),
+        )
+        self.add_event(
+            "primary",
+            RemoteEvent(
+                provider_id="demo-dentist",
+                status="confirmed",
+                summary="Dentiste",
+                starts_at=at(today + timedelta(days=1), 14),
+                ends_at=at(today + timedelta(days=1), 14, 45),
+                location="Cabinet du centre",
+                timezone=zone,
+            ),
+        )
+        self.add_event(
+            "family",
+            RemoteEvent(
+                provider_id="demo-holiday",
+                status="confirmed",
+                summary="Anniversaire de Léa",
+                starts_at=None,
+                ends_at=None,
+                start_date=today + timedelta(days=2),
+                end_date=today + timedelta(days=3),
+                busy=False,
+            ),
+        )
+
+    async def list_calendars(self, access_token: str) -> list[RemoteCollection]:
+        self._maybe_fail("list_calendars")
+        self.access_tokens_seen.append(access_token)
+        return list(self.calendars)
+
+    async def list_events(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        *,
+        time_min: datetime,
+        time_max: datetime,
+        page: str | None = None,
+    ) -> EventPage:
+        self.event_calls += 1
+        self._maybe_fail("list_events")
+        self.access_tokens_seen.append(access_token)
+        if calendar_ref not in self.events:
+            raise ConnectorGoneError("http_404")
+
+        def overlaps(event: RemoteEvent) -> bool:
+            if event.starts_at is not None and event.ends_at is not None:
+                return event.starts_at < time_max and event.ends_at > time_min
+            assert event.start_date is not None and event.end_date is not None
+            return event.start_date < time_max.date() + timedelta(
+                days=1
+            ) and event.end_date > time_min.date() - timedelta(days=1)
+
+        matching = sorted(
+            (e for e in self.events[calendar_ref].values() if overlaps(e)),
+            key=lambda e: e.provider_id,
+        )
+        offset = int(page or 0)
+        chunk = matching[offset : offset + self.page_size]
+        more = offset + self.page_size < len(matching)
+        return EventPage(events=chunk, next_page=str(offset + self.page_size) if more else None)

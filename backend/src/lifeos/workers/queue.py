@@ -15,7 +15,7 @@ from lifeos.workers.broker import broker
 log = get_logger(__name__)
 
 # Every queue an actor uses (workers/actors.py); measured by api/gauges.py.
-QUEUES = ("documents", "maintenance", "realtime", "stt")
+QUEUES = ("connectors", "documents", "maintenance", "realtime", "stt")
 
 
 def enqueue(actor_name: str, *args: Any, queue: str = "documents") -> bool:

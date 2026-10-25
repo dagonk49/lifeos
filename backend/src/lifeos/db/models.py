@@ -2,6 +2,7 @@
 
 from lifeos.core.idempotency import IdempotencyKey
 from lifeos.modules.audit.models import AuditEvent
+from lifeos.modules.calendar.models import CalendarEvent
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.connectors.models import (
     ConnectorAccount,
@@ -39,6 +40,7 @@ __all__ = [
     "Approval",
     "AuditEvent",
     "AuthChallenge",
+    "CalendarEvent",
     "CategoryRule",
     "ConnectorAccount",
     "ConnectorGrant",

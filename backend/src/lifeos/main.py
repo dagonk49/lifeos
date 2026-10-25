@@ -16,6 +16,7 @@ from lifeos.core.errors import install_error_handlers
 from lifeos.db.session import Database
 from lifeos.logging import configure_logging
 from lifeos.modules.agents.router import router as agents_router
+from lifeos.modules.calendar.router import router as calendar_router
 from lifeos.modules.chat.router import router as chat_router
 from lifeos.modules.connectors import build_connectors
 from lifeos.modules.connectors.router import router as connectors_router
@@ -62,6 +63,7 @@ def build_v1_router() -> APIRouter:
         notifications_router,
         privacy_router,
         connectors_router,
+        calendar_router,
     ):
         v1.include_router(router)
     return v1

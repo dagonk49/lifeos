@@ -172,3 +172,13 @@ async def access_token(
         # Committed with the transaction: the account stays marked after the error.
         await require_reauth(session, account, reason=failure.reason)
     raise failure
+
+
+async def forget_access_token(database: Database, account_id: uuid.UUID) -> None:
+    """The provider refused the cached access token before its expiry: the next call
+    refreshes it."""
+    async with database.sessionmaker() as session, session.begin():
+        account = await session.get(ConnectorAccount, account_id)
+        if account is not None:
+            account.access_token_enc = None
+            account.access_expires_at = None

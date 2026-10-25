@@ -90,8 +90,8 @@ class ConnectorGrant(UUIDPrimaryKey, Base):
 class ConnectorSource(UUIDPrimaryKey, Owned, Timestamps, Base):
     """A calendar or a mail label of an account, mapped by the owner to one space.
 
-    Skeleton: the sync state (cursor...) comes with the calendar and mail tasks. Synced
-    rows reference their source with ON DELETE CASCADE: purging an account removes them.
+    Synced rows reference their source with ON DELETE CASCADE: purging an account removes
+    them.
     """
 
     __tablename__ = "connector_sources"
@@ -109,6 +109,12 @@ class ConnectorSource(UUIDPrimaryKey, Owned, Timestamps, Base):
     enabled: Mapped[bool] = mapped_column(default=True, server_default="true")
     last_synced_at: Mapped[datetime | None]
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Sync state (task 14). One sync at a time per source: whoever holds an unexpired
+    # lease. A pass is numbered (`sync_generation`); the provider's page token of the pass
+    # in progress is kept after each page, so an interrupted pass resumes there.
+    sync_generation: Mapped[int] = mapped_column(default=0, server_default="0")
+    page_token: Mapped[str | None] = mapped_column(Text)
+    lease_until: Mapped[datetime | None]
 
 
 class OAuthState(UUIDPrimaryKey, Base):

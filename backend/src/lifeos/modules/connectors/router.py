@@ -1,13 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 
 from lifeos.api.deps import CtxDep
-from lifeos.modules.connectors import Connectors, oauth, service
+from lifeos.modules.connectors import Connectors, oauth, service, sources
 from lifeos.modules.connectors.base import CAPABILITIES
 from lifeos.modules.connectors.schemas import (
     AccountOut,
+    CalendarOut,
     DisconnectOut,
     GrantOut,
     GrantsIn,
@@ -16,6 +17,7 @@ from lifeos.modules.connectors.schemas import (
     OAuthStartIn,
     OAuthStartOut,
     ProviderOut,
+    SourceIn,
     SourceOut,
 )
 
@@ -120,3 +122,63 @@ async def disconnect(
         remote_revocation=result.remote_revocation,
         purged=result.purged,
     )
+
+
+# --- Sources (task 14) ------------------------------------------------------------------------
+
+
+@router.get("/accounts/{account_id}/calendars")
+async def list_calendars(
+    account_id: uuid.UUID, ctx: CtxDep, connectors: ConnectorsDep
+) -> list[CalendarOut]:
+    """The account's calendars (live), with the space each one already feeds."""
+    remote = await sources.remote_calendars(ctx, connectors, account_id)
+    mapped = {
+        s.provider_ref: s
+        for s in (
+            await service.account_view(ctx, connectors, await service.own_account(ctx, account_id))
+        ).sources
+        if s.kind == "calendar"
+    }
+    return [
+        CalendarOut(
+            provider_ref=c.provider_ref,
+            name=c.name,
+            primary=c.primary,
+            read_only=c.read_only,
+            source_id=mapped[c.provider_ref].id if c.provider_ref in mapped else None,
+            space_id=mapped[c.provider_ref].space_id if c.provider_ref in mapped else None,
+        )
+        for c in remote
+    ]
+
+
+@router.post("/sources", status_code=201)
+async def map_calendar(
+    body: SourceIn, ctx: CtxDep, connectors: ConnectorsDep, background: BackgroundTasks
+) -> SourceOut:
+    """Feeds a space with a calendar (calendar.read consent in that space required)."""
+    source = await sources.map_calendar(
+        ctx,
+        connectors,
+        account_id=body.account_id,
+        provider_ref=body.provider_ref,
+        space_id=body.space_id,
+    )
+    # After the response, hence after the commit: the worker sees the source.
+    background.add_task(sources.queue_sync, source.id)
+    return SourceOut.model_validate(source)
+
+
+@router.delete("/sources/{source_id}", status_code=204)
+async def remove_source(source_id: uuid.UUID, ctx: CtxDep) -> None:
+    """Stops the sync and deletes what was synced from this calendar."""
+    await sources.remove_source(ctx, source_id)
+
+
+@router.post("/sources/{source_id}/sync", status_code=202)
+async def sync_source(source_id: uuid.UUID, ctx: CtxDep, background: BackgroundTasks) -> SourceOut:
+    """Asks for a sync now (done by the worker; the periodic sync catches up otherwise)."""
+    source = await sources.own_source(ctx, source_id)
+    background.add_task(sources.queue_sync, source.id)
+    return SourceOut.model_validate(source)

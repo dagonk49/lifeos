@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.config import get_settings
 from lifeos.db.session import Database
 from lifeos.logging import get_logger
+from lifeos.modules.connectors import Connectors, build_connectors
 from lifeos.modules.documents.extraction import Extractor, build_extractor
 from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.llm import build_provider
@@ -26,6 +27,7 @@ _extractor: Extractor | None = None
 _extractor_built = False
 _transcriber: Transcriber | None = None
 _transcriber_built = False
+_connectors: Connectors | None = None
 
 
 def llm() -> LLMProvider:
@@ -57,6 +59,15 @@ def transcriber() -> Transcriber | None:
         _transcriber = build_transcriber(get_settings())
         _transcriber_built = True
     return _transcriber
+
+
+def connectors() -> Connectors:
+    """The connected-account providers (none when disabled). A provider chosen without its
+    key or client raises here: the sync job fails loudly, the API refused to start anyway."""
+    global _connectors
+    if _connectors is None:
+        _connectors = build_connectors(get_settings())
+    return _connectors
 
 
 def document_store() -> DocumentStore:

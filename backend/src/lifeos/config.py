@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr | None = None
     # A consent started in LifeOS must come back within this delay (single-use state).
     oauth_state_minutes: int = Field(default=10, ge=1, le=60)
+    # Calendar sync (task 14): every mapped calendar is read again this often, over a
+    # window from `calendar_past_days` before today to `calendar_future_days` after.
+    calendar_sync_minutes: int = Field(default=15, ge=5, le=24 * 60)
+    calendar_past_days: int = Field(default=30, ge=1, le=365)
+    calendar_future_days: int = Field(default=365, ge=7, le=3 * 365)
     connectors_timeout_seconds: float = Field(default=15.0, gt=0)
 
     @model_validator(mode="after")

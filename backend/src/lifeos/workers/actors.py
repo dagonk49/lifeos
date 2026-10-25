@@ -10,6 +10,7 @@ from lifeos.config import get_settings
 from lifeos.core.idempotency import purge_expired_keys
 from lifeos.logging import configure_logging, get_logger
 from lifeos.modules.audit.service import purge_older_than
+from lifeos.modules.calendar import sync as calendar_sync
 from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
@@ -24,6 +25,7 @@ from lifeos.modules.voice import processing as voice
 from lifeos.modules.voice.service import purge_dictations
 from lifeos.workers.broker import broker  # noqa: F401  (must be set before actors)
 from lifeos.workers.jobs import (
+    connectors,
     database,
     document_store,
     embedder,
@@ -215,3 +217,33 @@ async def purge_old_dictations() -> None:
         return await purge_dictations(session, store)
 
     await run_job("purge_dictations", purge)
+
+
+# --- Connected accounts (task 14) ----------------------------------------------------------
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=0, time_limit=30 * 60_000)
+async def sync_calendars() -> None:
+    """Every mapped calendar not read for `calendar_sync_minutes` (scheduler)."""
+    if not connectors():
+        return
+    await run_task(
+        "sync_calendars",
+        lambda: calendar_sync.sync_due(database(), get_settings(), connectors()),
+    )
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=1, time_limit=15 * 60_000)
+async def sync_calendar_source(source_id: str) -> None:
+    """One calendar now (sent by the API after mapping it, or on « Synchroniser »)."""
+    try:
+        target = uuid.UUID(source_id)
+    except ValueError:
+        log.warning("invalid_source_id")
+        return
+    if not connectors():
+        return
+    await run_task(
+        "sync_calendar_source",
+        lambda: calendar_sync.sync_source(database(), get_settings(), connectors(), target),
+    )

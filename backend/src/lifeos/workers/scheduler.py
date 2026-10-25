@@ -24,6 +24,14 @@ def build_scheduler() -> BlockingScheduler:
         timezone=tz,
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 6 * 3600},
     )
+    if settings.connectors_provider != "disabled":
+        scheduler.add_job(
+            actors.sync_calendars.send,
+            IntervalTrigger(minutes=5, timezone=tz),
+            id="sync_calendars",
+            # A sync running late is not replayed: the next one reads everything again.
+            misfire_grace_time=60,
+        )
     scheduler.add_job(
         actors.purge_auth_artifacts.send,
         CronTrigger(hour=3, minute=10, timezone=tz),

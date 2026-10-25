@@ -11,7 +11,7 @@ sync jobs and actions handle every provider alike.
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Protocol
 
 # What the owner consents to, per account and per space. Keep in sync with the CHECK of
@@ -104,6 +104,49 @@ class OAuthProvider(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class RemoteEvent:
+    """One occurrence of a calendar event, as the provider expanded it.
+
+    Recurring events come as their instances (each with its own id, stable across syncs,
+    and the id of the series): the provider applies the series' time zone, so changes of
+    daylight saving time are resolved there, not here. A timed occurrence has aware
+    `starts_at`/`ends_at`; an all-day one has dates only (`end_date` exclusive).
+    Text fields come from third parties: data, never instructions.
+    """
+
+    provider_id: str
+    status: Literal["confirmed", "tentative"]
+    summary: str
+    starts_at: datetime | None
+    ends_at: datetime | None
+    start_date: date | None = None
+    end_date: date | None = None
+    timezone: str | None = None
+    description: str | None = None
+    location: str | None = None
+    series_id: str | None = None
+    # Free time (transparent) does not block a slot.
+    busy: bool = True
+    organizer_self: bool = False
+    # The owner's answer when invited: accepted, tentative, declined, needsAction.
+    response: str | None = None
+    attendees: int = 0
+    etag: str | None = None
+    updated_at: datetime | None = None
+
+    @property
+    def all_day(self) -> bool:
+        return self.start_date is not None
+
+
+@dataclass(frozen=True)
+class EventPage:
+    events: list[RemoteEvent]
+    # None on the last page.
+    next_page: str | None = None
+
+
 class CalendarAdapter(Protocol):
     """Calendar access (tasks 14 to 16): reads, then writes behind approvals.
 
@@ -111,6 +154,21 @@ class CalendarAdapter(Protocol):
     """
 
     async def list_calendars(self, access_token: str) -> list[RemoteCollection]: ...
+
+    async def list_events(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        *,
+        time_min: datetime,
+        time_max: datetime,
+        page: str | None = None,
+    ) -> EventPage:
+        """Occurrences overlapping [time_min, time_max), recurring series expanded,
+        cancelled occurrences left out; one page, `next_page` to continue (the token
+        stays valid across processes, so an interrupted sync resumes where it stopped).
+        Raises ConnectorGoneError when the calendar no longer exists."""
+        ...
 
 
 class MailAdapter(Protocol):
