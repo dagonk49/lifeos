@@ -87,7 +87,9 @@ test("Step 5 journey: connect an account, authorise it per space, disconnect it"
   await demo.getByRole("button", { name: "Suivre dans cet espace" }).click();
   await expect(account.getByText(/« Agenda de démonstration » → Personnel/)).toBeVisible();
   await nav(page, "Agenda");
-  await expect(page.getByRole("heading", { name: "Agenda" })).toBeVisible();
+  // Reload only once the client navigation is done (else the settings page is reloaded).
+  await expect(page).toHaveURL(/\/agenda$/);
+  await expect(page.getByRole("heading", { name: "Agenda", exact: true })).toBeVisible();
   await expect(async () => {
     await page.reload();
     await expect(page.getByText("Point d'équipe")).toBeVisible({ timeout: 2_000 });
