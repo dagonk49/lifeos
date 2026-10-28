@@ -35,6 +35,7 @@
 | [0011](adr/0011-antivirus-et-fichiers-hostiles.md) | Fichiers hostiles : confinement et limites, pas d'antivirus pour l'instant | Acceptée |
 | [0012](adr/0012-connecteurs-oauth.md) | Comptes connectés : OAuth 2.0 avec PKCE, jetons chiffrés, consentement par espace | Acceptée |
 | [0013](adr/0013-taches-recurrentes.md) | Tâches récurrentes : utiles, mais après les dépendances et sous une forme étroite | Acceptée (mise en œuvre reportée) |
+| [0014](adr/0014-finances-import-et-projections.md) | Finances : import CSV en aperçu côté serveur, clé d'import, projections locales explicables | Acceptée |
 | [0015](adr/0015-notifications-adaptatives.md) | Notifications adaptatives : politique de livraison pure, suggestions regroupées, permission explicite pour les alertes critiques | Acceptée |
 | [0016](adr/0016-ecritures-externes-sous-approbation.md) | Écritures chez un fournisseur : approbation liée aux paramètres, réservation unique, rapprochement | Acceptée |
 | [0017](adr/0017-lecture-des-e-mails.md) | Lecture des e-mails : libellés choisis, texte brut, jamais une instruction | Acceptée |

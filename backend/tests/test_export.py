@@ -32,7 +32,13 @@ from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.connectors.models import ConnectorAccount, ConnectorGrant, ConnectorSource
 from lifeos.modules.documents.models import Document
 from lifeos.modules.documents.storage import DocumentStore
-from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
+from lifeos.modules.finance.models import (
+    CategoryRule,
+    FinanceCategory,
+    FinanceImport,
+    FinanceRecurring,
+    Transaction,
+)
 from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
 from lifeos.modules.guardian.models import AgentPermission, Approval, LLMCall
 from lifeos.modules.identity.models import PasskeyCredential, Space, User, UserSession
@@ -218,6 +224,29 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
         )
     )
     add(Transaction(**owned, tx_date=date(2026, 10, 1), amount=Decimal("1500"), direction="income"))
+    add(
+        FinanceImport(
+            **owned,
+            status="committed",
+            filename=f"{mark} releve.csv",
+            file_sha256="0" * 64,
+            encoding="utf-8",
+            delimiter=";",
+            header=["Date", "Libellé", "Montant"],
+            row_count=1,
+            imported_count=1,
+            expires_at=NOW,
+            committed_at=NOW,
+        )
+    )
+    add(
+        FinanceRecurring(
+            **owned,
+            label=f"{mark} loyer",
+            amount=Decimal("750.00"),
+            start_date=date(2026, 1, 5),
+        )
+    )
     add(GoalMilestone(goal_id=goal.id, title=f"{mark} 5 km", due_date=date(2026, 11, 15)))
     add(GoalCheckin(goal_id=goal.id, value=Decimal("2.50"), note=f"{mark} bien", created_at=NOW))
     add(

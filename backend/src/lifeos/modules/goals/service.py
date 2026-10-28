@@ -24,7 +24,7 @@ from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks.models import Task
 
 _CENTS = Decimal("0.01")
-_DECIMAL_FIELDS = ("start_value", "target_value", "current_value")
+_DECIMAL_FIELDS = ("start_value", "target_value", "current_value", "monthly_contribution")
 
 
 def _q(value: Decimal | None) -> Decimal | None:
@@ -140,7 +140,7 @@ async def create_goal(ctx: Ctx, data: GoalCreate) -> Goal:
     ctx.principal.require_space(data.space_id)
     await authorize(ctx, "goal.write", data.space_id)
     values = data.model_dump()
-    for key in ("start_value", "target_value"):
+    for key in ("start_value", "target_value", "monthly_contribution"):
         values[key] = _q(values[key])
     goal = Goal(user_id=ctx.principal.user_id, **values, current_value=values["start_value"])
     ctx.db.add(goal)
@@ -175,6 +175,14 @@ async def update_goal(
         raise ProblemError(422, "goal_start_required", "A measurable goal needs a start value")
     if goal.start_date and goal.due_date and goal.due_date < goal.start_date:
         raise ProblemError(422, "goal_dates_invalid", "The due date is before the start date")
+    if goal.currency is not None and goal.kind != "measurable":
+        raise ProblemError(
+            422, "goal_savings_not_measurable", "A savings goal (with a currency) is measurable"
+        )
+    if goal.monthly_contribution is not None and goal.currency is None:
+        raise ProblemError(
+            422, "goal_contribution_without_currency", "A monthly contribution needs a currency"
+        )
     await ctx.db.flush()
     await _audit(ctx, "goal.update", goal, fields=",".join(sorted(changes)))
     return goal

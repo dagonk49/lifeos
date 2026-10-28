@@ -88,6 +88,17 @@ _SPECS = [
         Level.APPROVAL,
         "finances",
     ),
+    # Bank statement imports (task 25): only the owner, after checking the preview.
+    ActionSpec(
+        "finance.import", "Importer des opérations bancaires", Level.AUTOMATIC, None, "finances"
+    ),
+    ActionSpec(
+        "finance.import.undo",
+        "Annuler un import d'opérations bancaires",
+        Level.AUTOMATIC,
+        None,
+        "finances",
+    ),
     # Data access is checked section by section with the principal's own read rights.
     ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),

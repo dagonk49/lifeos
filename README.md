@@ -92,6 +92,10 @@ ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à 
   - opérations en montants exacts ;
   - classement appris de vos corrections ;
   - budget du mois calculé localement ;
+  - import de relevés CSV de la banque : aperçu, choix des colonnes, doublons signalés,
+    rien d'enregistré avant validation, annulation possible ;
+  - échéances récurrentes, objectifs d'épargne et projection des prochains mois, chaque
+    montant marqué connu, prévu ou estimé, avec ses hypothèses ;
   - agent Finances à la demande.
   - Aucune connexion bancaire, aucun paiement.
 - **Voix** : dictée dans le journal (UC01) et dans le chat.

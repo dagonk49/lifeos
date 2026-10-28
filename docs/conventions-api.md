@@ -453,6 +453,76 @@ leurs métadonnées (T26) ne sont pas incluses.
 - Pour un envoi push (tâche 19) : `notifications.service.due(now)` donne les conditions
   d'une notification à envoyer (livrée, hors synthèse, pas une suggestion en attente).
 
+## Finances : import de relevés CSV (tâche 25)
+
+Rien n'est écrit dans le budget avant `commit` : le fichier est lu en mémoire (jamais
+conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu** de 24 h.
+
+- `POST /v1/finance/imports` (multipart : `file`, `space_id`, `account_label?`,
+  `encoding` = `auto` \| `utf-8` \| `cp1252`) : `201` avec l'import (`status: "preview"`,
+  `header`, `sample` (5 premières lignes), `suggested_mapping`, `mapping`, `counts` par état,
+  `to_import`, `totals` exacts, `already_imported_file`). Limites d'envoi habituelles
+  (`413 document_too_large` au-delà de `LIFEOS_FINANCE_IMPORT_MAX_BYTES`, 2 Mio par
+  défaut). Un `Idempotency-Key` est lié aux champs et au SHA-256 du fichier. La
+  correspondance des colonnes suggérée (noms français : date d'opération, libellé, montant ou
+  débit/crédit, référence, devise ; et le `transactions.csv` de l'archive LifeOS) est
+  appliquée d'emblée, en lecture seule.
+- `PUT /v1/finance/imports/{id}/mapping` (`date_column`, `date_format`, `label_column`,
+  `amount_mode` = `signed` \| `debit_credit`, `amount_column` ou `debit_column` +
+  `credit_column`, `decimal_separator`, `reference_column?`, `currency_column?`, `currency`) :
+  relit chaque ligne ; aucune opération créée, aucune règle comptée.
+- `GET /v1/finance/imports/{id}/rows?status=&cursor=&limit=` : `Page` dans l'ordre du
+  fichier (curseur = dernier numéro de ligne). États : `valid` (nouvelle), `invalid` (avec
+  `reason` : `date_invalid`, `date_in_future`, `amount_invalid`, `amount_precision` — plus de
+  deux décimales, jamais arrondi —, `amount_too_large`, `amount_zero`, `amount_missing`,
+  `amount_ambiguous`, `currency_invalid`, `column_count`), `in_file_duplicate`,
+  `already_imported` (clé déjà présente dans l'espace) et `possible_duplicate` (opération
+  saisie ou ticket de même montant à ±3 jours : `match_id`, `match_date`).
+- `POST /v1/finance/imports/{id}/commit` `{"exclude_lines": [], "include_lines": []}` :
+  la validation. Par défaut les lignes `valid` sont importées et les `possible_duplicate`
+  écartées. `200` avec `imported_count` et `skipped_count`. Rejouable avec la même
+  `Idempotency-Key` ; sinon `409 import_not_in_preview`. Les opérations créées ont
+  `source_type: "import"`, `import_id`, et la catégorie d'une règle apprise
+  (`category_confirmed: false`).
+- `POST /v1/finance/imports/{id}/undo` `{"confirm": true}` : supprime les opérations encore
+  présentes de cet import (`edited_count` dit combien avaient été corrigées) ;
+  `409 import_not_committed` sinon. Un nouvel import du même fichier les ajoute de nouveau.
+- `DELETE /v1/finance/imports/{id}` : abandonne un aperçu (`204`) ; `GET
+  /v1/finance/imports?space_id=` liste les 50 derniers imports.
+- Autres erreurs : `404 import_not_found`, `415 import_unreadable` (binaire, page web,
+  encodage illisible), `422 unsupported_encoding`, `422 import_empty`, `422 too_many_rows`
+  (extension `max_rows`), `422 mapping_invalid`, `409 import_expired`, `409
+  import_not_mapped`.
+- Actions `finance.import` et `finance.import.undo` : automatiques pour le propriétaire,
+  **interdites aux agents** (`403 action_denied`, `reason: forbidden_for_agents`). L'audit
+  ne garde que des nombres (lignes, importées, écartées), jamais de montant ni de libellé.
+
+## Finances : échéances, objectifs d'épargne, projection (tâche 26)
+
+- `GET|POST /v1/finance/recurring`, `PATCH|DELETE /v1/finance/recurring/{id}` : échéances
+  (`label`, `amount`, `amount_is_estimate`, `amount_low?`, `amount_high?`, `direction`,
+  `currency`, `category_id?`, `cadence` = `once` \| `weekly` \| `monthly` \| `quarterly` \|
+  `yearly`, `start_date`, `end_date?`, `active`). `RecurringOut.next_date` : prochaine
+  échéance. `POST` idempotent, `PATCH` avec `If-Match` (`409 version_conflict`). Erreurs :
+  `422 category_kind_mismatch`, `422 recurring_range_invalid`, `422
+  recurring_dates_invalid`, `404 recurring_not_found`.
+- `POST|PATCH /v1/finance/transactions` acceptent `recurring_id` (même espace et même sens :
+  `422 recurring_space_mismatch` / `recurring_direction_mismatch`).
+- `POST|PATCH /v1/goals` acceptent `currency` (objectif d'épargne : mesurable, montant visé
+  supérieur au montant de départ) et `monthly_contribution` (exige `currency` :
+  `422 goal_contribution_without_currency`).
+- `GET /v1/finance/projection?space_id=&months=6&baseline_months=3&currency=EUR` (1–24 mois,
+  moyenne sur 1–12 mois complets) : mois en cours puis mois à venir, **recalculés à chaque
+  lecture** (rien n'est stocké, aucun appel au LLM). Chaque montant porte sa base :
+  `known_*` (opérations enregistrées), `scheduled_*` (échéance à montant fixe),
+  `estimated_*` avec `_low` / `_high` (échéance variable, ou moyenne des derniers mois
+  complets hors opérations rattachées à une échéance, fourchette du mois le plus bas au plus
+  haut). `items[]` détaille chaque ligne avec `basis` = `known` \| `scheduled` \| `estimated`.
+  `savings_goals` (`null` sans droit de lecture sur les objectifs) : `saved` (connu),
+  `contribution_source` (`declared` \| `estimated` \| `none`), `eta_month` et sa fourchette,
+  `on_track`. `assumptions[]` et `warnings[]` (`code`, `label`, `value`) : historique court,
+  autres devises non converties, versement non déclaré…
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -473,7 +543,7 @@ leurs métadonnées (T26) ne sont pas incluses.
 | `/v1/goals` | 3 | objectifs, jalons, bilans |
 | `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
-| `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
+| `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois, import de relevés CSV, échéances récurrentes, projection |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
 | `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas et libellés e-mail suivis, déconnexion |
 | `/v1/mail` | 5 | e-mails copiés des libellés suivis (lecture, texte brut), import d'une pièce jointe dans Documents |

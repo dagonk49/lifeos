@@ -17,7 +17,11 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Paires « garder les deux » (qualité mémoire) | durée des faits concernés | supprimées avec les faits |
 | Documents : fichier original | **90 jours** par défaut, ou sans limite si le propriétaire choisit « conserver » ; une image illisible n'est pas conservée (elle n'a pas pu être nettoyée de ses métadonnées) | chiffré AES-256-GCM ; `original_until` ; purge quotidienne et suppression des fichiers orphelins ([ADR 0008](adr/0008-documents-ocr-local.md)) |
 | Documents : texte extrait, sensibilité, lecture d'un ticket | tant que le propriétaire ne supprime pas le document | supprimer le document efface aussi le fichier et les vecteurs |
-| Opérations financières, catégories, règles apprises | tant que le propriétaire ne les supprime pas | montants en décimal exact ; aucune connexion bancaire |
+| Opérations financières, catégories, règles apprises, échéances récurrentes | tant que le propriétaire ne les supprime pas | montants en décimal exact ; aucune connexion bancaire ; une opération importée d'un relevé suit la même règle |
+| Relevé CSV importé : le fichier | **jamais conservé** | lu en mémoire ; seule son empreinte SHA-256 est gardée (pour signaler un fichier déjà importé) |
+| Relevé CSV : aperçu (lignes lues, libellés bancaires) | jusqu'à la validation, l'abandon, ou **24 h** au plus | `finance_import_rows`, effacées à la validation ; purge horaire des aperçus expirés (`purge_finance_imports`) ; le préambule du fichier (numéro de compte, solde) n'est jamais enregistré |
+| Historique des imports (nom du fichier, empreinte, colonnes, nombres de lignes) | tant que le propriétaire ne supprime pas l'espace | aucune ligne ni aucun montant ; « annuler l'import » supprime ses opérations et garde la trace (`undone`) |
+| Projections financières | **jamais stockées** | recalculées localement à chaque lecture, jamais par le LLM |
 | Comptes connectés (adresse, scopes accordés, statut) et consentements par espace | tant que le propriétaire ne supprime pas le compte ; consentements retirés gardés en historique | déconnecter efface les jetons tout de suite et garde le compte (`revoked`) ; « supprimer » l'efface avec ses données synchronisées ([ADR 0012](adr/0012-connecteurs-oauth.md)) |
 | Jetons OAuth (accès, renouvellement) | tant que le compte est actif | scellés AES-256-GCM (`lifeos_connectors_key`) ; effacés à la déconnexion, quand le fournisseur refuse le renouvellement ou quand la clé ne les déchiffre plus |
 | Données synchronisées (agenda, e-mails : tâches 14 à 18) | tant que la source existe | gardées à la déconnexion, sauf si le propriétaire choisit de les supprimer ; supprimées avec le compte (cascade) |
@@ -247,7 +251,11 @@ Consolidation d'une conversation : uniquement à la demande, seuls les messages 
 propriétaire** sont transmis (jamais les réponses de l'assistant), et les faits proposés ne
 sont enregistrés qu'après approbation. Agents spécialisés : ils ne lisent que les ressources
 pour lesquelles le propriétaire leur a donné un accès explicite (90 jours, révocable).
-L'agent Finances voit les opérations et budgets de l'espace ; avec l'accès « documents », il
+L'agent Finances voit les opérations et budgets de l'espace, et la projection des trois
+prochains mois calculée localement avec ses hypothèses (les objectifs d'épargne seulement
+avec l'accès « objectifs ») ; les libellés d'opérations importées d'un relevé peuvent
+contenir des noms de personnes : ils passent par le masquage habituel avant tout envoi.
+Avec l'accès « documents », il
 voit aussi ce qui a été lu sur les tickets (marchand, date, total), jamais le texte extrait
 ni un document sensible ou gardé en local.
 L'agent Planification ne voit l'agenda qu'avec l'accès « agenda » de l'espace : les 7

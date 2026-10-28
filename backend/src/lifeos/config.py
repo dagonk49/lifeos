@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     documents_max_bytes: int = 20 * 1024 * 1024
     documents_original_retention_days: int = 90
     documents_max_pages: int = 30
+    # Bank statement imports (F04, task 25): CSV only, read in memory, never stored; the
+    # preview (parsed rows) is erased at validation, cancellation or after this delay.
+    finance_import_max_bytes: int = Field(default=2 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
+    finance_import_max_rows: int = Field(default=5000, ge=10, le=50_000)
+    finance_import_preview_hours: int = Field(default=24, ge=1, le=7 * 24)
     # AES-256-GCM key (base64, 32 bytes), Docker secret `lifeos_documents_key`.
     documents_key: SecretStr | None = None
     # Local text extraction and OCR: "remote" = the internal ml service.

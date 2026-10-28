@@ -80,6 +80,12 @@ def build_scheduler() -> BlockingScheduler:
         CronTrigger(hour=3, minute=30, timezone=tz),
         id="purge_idempotency_keys",
     )
+    # CSV import previews expire after `finance_import_preview_hours`: swept every hour.
+    scheduler.add_job(
+        actors.purge_finance_imports.send,
+        IntervalTrigger(hours=1, timezone=tz),
+        id="purge_finance_imports",
+    )
     scheduler.add_job(
         actors.expire_approvals.send, CronTrigger(minute=5, timezone=tz), id="expire_approvals"
     )

@@ -236,6 +236,10 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   `current_value` (`numeric(14,2)`, jamais de flottant), `start_date`, `due_date`, `status`
   (`active` \| `paused` \| `achieved` \| `abandoned` \| `archived`), `review_cadence`,
   `achieved_at`, `version`, `created_at`, `updated_at`, `search_vector`.
+  Objectif d'épargne (migration 0014, tâche 26) : `currency` (ISO 4217, `null` sinon ;
+  `kind = 'measurable'` obligatoire) et `monthly_contribution numeric(14,2) ≥ 0` (versement
+  mensuel prévu, facultatif, exige `currency`). Le montant épargné **connu** est
+  `current_value` (dernier relevé, `goal_checkins`).
 - **`goal_milestones`** : `goal_id` (cascade), `title`, `due_date`, `done_at`, `position`.
 - **`goal_checkins`** : `goal_id` (cascade), `value numeric(14,2) null`, `note`, `created_at`.
 - **`tasks.goal_id`** : tâche rattachée à un objectif (progression : tâches ouvertes/faites).
@@ -333,7 +337,37 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     apprise) ;
   - `source_type` (`manual` \| `receipt` \| `import`) et `document_id` (FK `SET NULL`, le
     ticket) ;
+  - `import_id` (FK `finance_imports`, `SET NULL`) et `import_key` (empreinte SHA-256 de
+    l'opération bancaire : compte, date, sens, montant, devise, libellé normalisé, puis la
+    référence de la banque ou le rang de l'opération identique dans la journée), avec
+    l'index unique partiel **`uq_transactions_import_key`** `(space_id, import_key) WHERE
+    import_key IS NOT NULL` : la même opération ne peut pas être importée deux fois dans un
+    espace, même par deux validations simultanées (migration 0013, tâche 25) ;
+  - `recurring_id` (FK `finance_recurring`, `SET NULL`) : l'échéance que l'opération règle
+    (exclue de la moyenne des projections, migration 0014) ;
   - `version`, `search_vector`, horodatages.
+- **`finance_imports`** (migration 0013) : un relevé CSV importé. `status` (`preview` \|
+  `committed` \| `undone`), `filename` (tronqué), `file_sha256` (le fichier lui-même n'est
+  **jamais** conservé), `account_label`, `encoding` (`utf-8` \| `cp1252`), `delimiter`,
+  `header jsonb` (noms de colonnes seulement, jamais le préambule : numéro de compte, solde),
+  `mapping jsonb` (colonnes choisies), `row_count`, `imported_count`, `skipped_count`,
+  `edited_count` (opérations corrigées perdues à l'annulation), `expires_at` (aperçu : 24 h),
+  `committed_at`, `undone_at`, `version`. Un aperçu abandonné est supprimé (pas de statut).
+- **`finance_import_rows`** (migration 0013) : les lignes d'un **aperçu** seulement,
+  clé `(import_id, line_no)`, cascade : `cells jsonb`, `status` (`pending` \| `valid` \|
+  `invalid` \| `in_file_duplicate` \| `already_imported` \| `possible_duplicate`), `reason`,
+  `parsed jsonb` (date ISO, montant décimal exact, sens, devise, libellé, marchand, catégorie
+  proposée), `import_key`, `match_id` (opération saisie ou ticket qui ressemble, sans clé
+  étrangère). **Effacées** à la validation, à l'abandon ou à l'expiration
+  (`purge_finance_imports`, toutes les heures).
+- **`finance_recurring`** (migration 0014) : échéance récurrente ou ponctuelle déclarée par
+  le propriétaire. `label`, `merchant`, `amount numeric(14,2) > 0`, `amount_is_estimate`
+  (montant variable : « estimé »), `amount_low` / `amount_high` (fourchette facultative,
+  `low ≤ amount ≤ high`), `direction`, `currency`, `category_id` (FK `SET NULL`), `cadence`
+  (`once` \| `weekly` \| `monthly` \| `quarterly` \| `yearly` ; un jour 31 tombe le dernier
+  jour des mois plus courts), `start_date`, `end_date` (≥ début), `active`, `version`.
+- Les **projections** (`GET /v1/finance/projection`) ne sont **pas stockées** : recalculées
+  à chaque lecture à partir de ces tables.
 - **`finance_category_rules`** : `merchant_key` (nom de marchand normalisé, unique par
   espace) → `category_id` (cascade), `hits`. Apprises des corrections du propriétaire
   (« classer une dépense » : automatique et corrigeable).
@@ -422,7 +456,7 @@ colonnes ne sort par l'API ni par l'export.
 | Table | Étape | Notes |
 |---|---|---|
 | `push_devices` | 5 | jetons de notification mobile |
-| import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |
+| connexion bancaire (agrégateur agréé) | — | projet séparé : aujourd'hui, import de fichiers CSV seulement (tâche 25) |
 
 ## 7. Migrations
 

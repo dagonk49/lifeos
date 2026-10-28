@@ -40,11 +40,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from lifeos.core.idempotency import IdempotencyKey
+from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.documents.models import Document
 from lifeos.modules.documents.storage import DocumentStore
-from lifeos.modules.finance.models import FinanceCategory, Transaction
+from lifeos.modules.finance.models import (
+    FinanceCategory,
+    FinanceImport,
+    FinanceRecurring,
+    Transaction,
+)
 from lifeos.modules.goals.models import Goal, GoalMilestone
 from lifeos.modules.guardian.models import Approval
 from lifeos.modules.journal.models import JournalEntry
@@ -65,6 +71,7 @@ Erasable = (
     | Review
     | Transaction
     | FinanceCategory
+    | FinanceRecurring
 )
 
 # What a retried idempotent creation gets once its object was erased.
@@ -263,6 +270,24 @@ async def erase(session: AsyncSession, obj: Erasable) -> dict[str, int]:
     return {key: value for key, value in counts.items() if value}
 
 
+async def undo_import(session: AsyncSession, finance_import: FinanceImport) -> tuple[int, int]:
+    """Deletes the operations a committed CSV import added (those still present) and marks
+    it undone. Returns (deleted, edited since the import: their corrections are lost)."""
+    of_import = (
+        Transaction.import_id == finance_import.id,
+        Transaction.user_id == finance_import.user_id,
+    )
+    edited = await session.scalar(select(func.count()).where(*of_import, Transaction.version > 1))
+    result = await session.execute(
+        delete(Transaction).where(*of_import).execution_options(synchronize_session=False)
+    )
+    finance_import.status = "undone"
+    finance_import.undone_at = utcnow()
+    finance_import.edited_count = int(edited or 0)
+    await session.flush()
+    return int(result.rowcount or 0), int(edited or 0)  # type: ignore[attr-defined]
+
+
 # --- Facts and derived objects ------------------------------------------------------------
 
 
@@ -358,6 +383,9 @@ REPLAYED: dict[str, tuple[str, Any]] = {
     "review.delete": ("review", Review),
     "finance.transaction.delete": ("transaction", Transaction),
     "finance.category.delete": ("finance_category", FinanceCategory),
+    # Undoing a CSV import deletes its operations (one audit event for the whole batch).
+    "finance.import.undo": ("finance_import", FinanceImport),
+    "finance.recurring.delete": ("finance_recurring", FinanceRecurring),
 }
 REPLAY_ACTOR = "replay_erasures"
 # Columns of the list exported by restore.sh from the replaced database's audit trail.
@@ -435,12 +463,16 @@ async def replay(
             continue
         if item.action == "fact.retract" and obj.status != "active":
             continue
+        if isinstance(obj, FinanceImport) and obj.status != "committed":
+            continue
         result.erased[item.action] += 1
         if not apply:
             continue
         space_id = getattr(obj, "space_id", None)
         if item.action == "fact.retract":
             obj.status = "retracted"
+        elif isinstance(obj, FinanceImport):
+            await undo_import(session, obj)
         elif isinstance(obj, GoalMilestone):
             await session.delete(obj)
         else:

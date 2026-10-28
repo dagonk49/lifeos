@@ -108,6 +108,12 @@ Il n'y a pas encore de **tâches récurrentes** : recréez la tâche après l'av
 Objectifs mesurables (valeur de départ et cible) ou qualitatifs, avec jalons, points d'étape
 et tâches rattachées. La progression est calculée localement.
 
+- **Objectif d'épargne** : un objectif mesurable avec la case « Objectif d'épargne » cochée.
+  Les montants sont en euros, exacts au centime ; indiquez ce qui est déjà épargné, le
+  montant visé et, si vous voulez, le versement mensuel prévu. Chaque point d'étape (« j'ai
+  maintenant 1 500 € ») est le montant **connu** ; la date à laquelle l'objectif sera atteint
+  est **estimée** dans la projection de la page Finances.
+
 ### Documents
 
 - **Envoyer un document** : PDF, photo (JPEG, PNG, WebP, HEIC) ou texte. Choisissez
@@ -144,6 +150,39 @@ et tâches rattachées. La progression est calculée localement.
   total en indiquant la ligne d'où vient chaque valeur. Vérifiez et corrigez, puis
   **Ajouter l'opération**. Rien n'est enregistré sans votre clic, et LifeOS prévient si le
   ticket a déjà été enregistré.
+- **Importer un relevé (CSV)** : exportez vos opérations au format CSV depuis l'espace en
+  ligne de votre banque (séparateur `;` ou `,`, montants `1 234,56`, dates `31/12/2026`,
+  encodage UTF-8 ou Windows-1252), puis choisissez le fichier. LifeOS montre les premières
+  lignes telles qu'il les a lues et propose les colonnes (date d'opération, libellé, montant
+  ou débit et crédit) : corrigez-les si besoin, puis **Relire avec ces colonnes**.
+  - Chaque ligne est marquée **Nouvelle**, **Déjà importée**, **Doublon possible** (une
+    opération de même montant déjà saisie ou scannée à quelques jours près : décochée par
+    défaut, cochez-la pour l'importer quand même) ou **Illisible**, avec la raison (par
+    exemple « plus de deux décimales » : un montant n'est jamais arrondi).
+  - Les totaux sont exacts. **Rien n'est enregistré avant « Importer N opérations »**, et
+    « Abandonner cet import » efface l'aperçu. Un aperçu non validé s'efface seul après 24 h.
+  - Réimporter le même fichier (ou un relevé qui chevauche le précédent) n'ajoute que les
+    opérations nouvelles : « 0 nouvelle opération » si tout était connu.
+  - Les opérations importées sont classées par vos règles apprises (« classée
+    automatiquement ») et restent corrigeables.
+  - **Annuler cet import** (carte « Imports de relevés », bouton « Voir ») supprime les
+    opérations qu'il a ajoutées, après une confirmation qui nomme le fichier ; celles que
+    vous aviez corrigées depuis sont supprimées aussi (leur nombre est indiqué).
+  - Le fichier n'est pas conservé. Les identifiants bancaires ne sont jamais demandés.
+- **Échéances récurrentes** : déclarez loyer, salaire, abonnements, factures ou un achat
+  prévu (« Une seule fois »), leur fréquence et leur montant. Un montant fixe est **prévu** ;
+  cochez « Montant variable » pour une facture qui change (électricité) : il est alors
+  **estimé**, avec une fourchette facultative. « Enregistrer cette échéance » pré-remplit
+  l'opération et la rattache à l'échéance, pour qu'elle ne soit pas comptée deux fois.
+- **Projection des prochains mois** : calculée sur votre serveur, jamais par l'IA. Pour
+  chaque mois, les revenus et dépenses **connus** (déjà enregistrés), **prévus** (échéances
+  fixes) et **estimés** (moyenne des derniers mois complets, avec une fourchette du mois le
+  plus bas au plus haut), puis le solde estimé et sa fourchette. Les **hypothèses** sont
+  listées (période de la moyenne, aucune inflation, pas de solde bancaire de départ, euros
+  seulement) et les limites signalées (historique court, autres devises non comptées). Vous
+  choisissez l'horizon et la période de la moyenne. Corriger une opération, une catégorie,
+  une échéance ou un objectif met la projection à jour aussitôt. C'est une estimation, pas
+  un conseil.
 - Aucune connexion bancaire, aucun paiement.
 
 ### Bilans

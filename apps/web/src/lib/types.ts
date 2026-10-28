@@ -473,6 +473,9 @@ export interface Goal {
   start_value: string | null;
   target_value: string | null;
   current_value: string | null;
+  /** Savings goal (task 26): the values are amounts in this currency. */
+  currency?: string | null;
+  monthly_contribution?: Decimal | null;
   start_date: string | null;
   due_date: string | null;
   status: GoalStatus;
@@ -702,6 +705,10 @@ export interface Transaction {
   category_confirmed: boolean;
   source_type: "manual" | "receipt" | "import";
   document_id: Uuid | null;
+  /** The CSV import it came from (task 25). */
+  import_id?: Uuid | null;
+  /** The recurring item it pays (task 26). */
+  recurring_id?: Uuid | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -1017,4 +1024,171 @@ export interface MailDetail extends MailSummary {
   body_truncated: boolean;
   attachment_list: MailAttachment[];
   synced_at: string | null;
+}
+
+// --- Bank statement imports (task 25) ------------------------------------------------------
+
+export type ImportStatus = "preview" | "committed" | "undone";
+export type ImportRowStatus =
+  | "pending"
+  | "valid"
+  | "invalid"
+  | "in_file_duplicate"
+  | "already_imported"
+  | "possible_duplicate";
+export type DateFormat = "DD/MM/YYYY" | "DD/MM/YY" | "YYYY-MM-DD" | "DD.MM.YYYY" | "DD-MM-YYYY";
+
+export interface ImportMapping {
+  date_column: number;
+  date_format: DateFormat;
+  label_column: number;
+  amount_mode: "signed" | "debit_credit";
+  amount_column: number | null;
+  debit_column: number | null;
+  credit_column: number | null;
+  decimal_separator: "," | ".";
+  reference_column: number | null;
+  currency_column: number | null;
+  currency: string;
+}
+
+export interface FinanceImport {
+  id: Uuid;
+  space_id: Uuid;
+  status: ImportStatus;
+  filename: string | null;
+  account_label: string | null;
+  encoding: "utf-8" | "cp1252";
+  delimiter: string;
+  header: string[];
+  sample: string[][];
+  suggested_mapping: ImportMapping | null;
+  mapping: ImportMapping | null;
+  row_count: number;
+  counts: Partial<Record<ImportRowStatus, number>>;
+  to_import: number;
+  totals: { expenses: Decimal; income: Decimal; other_currency: number } | null;
+  imported_count: number;
+  skipped_count: number;
+  edited_count: number;
+  already_imported_file: boolean;
+  expires_at: string;
+  committed_at: string | null;
+  undone_at: string | null;
+  version: number;
+  created_at: string;
+}
+
+export interface ImportRow {
+  line_no: number;
+  status: ImportRowStatus;
+  reason: string | null;
+  cells: string[];
+  tx_date: string | null;
+  amount: Decimal | null;
+  direction: "expense" | "income" | null;
+  currency: string | null;
+  label: string | null;
+  merchant: string | null;
+  category_id: Uuid | null;
+  match_id: Uuid | null;
+  match_date: string | null;
+}
+
+// --- Recurring items and projections (task 26) ---------------------------------------------
+
+export type Cadence = "once" | "weekly" | "monthly" | "quarterly" | "yearly";
+export type Basis = "known" | "scheduled" | "estimated";
+
+export interface RecurringItem {
+  id: Uuid;
+  space_id: Uuid;
+  label: string;
+  merchant: string | null;
+  amount: Decimal;
+  amount_is_estimate: boolean;
+  amount_low: Decimal | null;
+  amount_high: Decimal | null;
+  direction: "expense" | "income";
+  currency: string;
+  category_id: Uuid | null;
+  cadence: Cadence;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+  next_date: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectionItem {
+  label: string;
+  direction: "expense" | "income";
+  basis: Basis;
+  source: "transactions" | "recurring" | "baseline";
+  amount: Decimal;
+  low: Decimal;
+  high: Decimal;
+  occurrences: number;
+  recurring_id: Uuid | null;
+  category_id: Uuid | null;
+}
+
+export interface ProjectionMonth {
+  month: string;
+  state: "current" | "future";
+  known_income: Decimal;
+  known_expenses: Decimal;
+  scheduled_income: Decimal;
+  scheduled_expenses: Decimal;
+  estimated_income: Decimal;
+  estimated_income_low: Decimal;
+  estimated_income_high: Decimal;
+  estimated_expenses: Decimal;
+  estimated_expenses_low: Decimal;
+  estimated_expenses_high: Decimal;
+  balance: Decimal;
+  balance_low: Decimal;
+  balance_high: Decimal;
+  cumulative: Decimal;
+  cumulative_low: Decimal;
+  cumulative_high: Decimal;
+  items: ProjectionItem[];
+}
+
+export interface SavingsGoalProjection {
+  goal_id: Uuid;
+  title: string;
+  currency: string;
+  target: Decimal;
+  saved: Decimal;
+  saved_at: string | null;
+  remaining: Decimal;
+  reached: boolean;
+  contribution: Decimal | null;
+  contribution_source: "declared" | "estimated" | "none";
+  eta_month: string | null;
+  eta_early: string | null;
+  eta_late: string | null;
+  due_date: string | null;
+  on_track: boolean | null;
+}
+
+export interface ProjectionNote {
+  code: string;
+  label: string;
+  value: string | null;
+}
+
+export interface FinanceProjection {
+  space_id: Uuid;
+  currency: string;
+  today: string;
+  horizon: number;
+  baseline: { months: number; start: string | null; end: string | null };
+  months: ProjectionMonth[];
+  savings_goals: SavingsGoalProjection[] | null;
+  assumptions: ProjectionNote[];
+  warnings: ProjectionNote[];
 }

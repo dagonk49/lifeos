@@ -6,7 +6,8 @@ import { useState } from "react";
 import { Alert, Button, Empty, Field, Input, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { buildCheckin, formatDecimal, goalKeys, type CheckinBody } from "@/lib/goals";
+import { financeKeys } from "@/lib/finance";
+import { buildCheckin, formatGoalValue, goalKeys, type CheckinBody } from "@/lib/goals";
 import type { Checkin, GoalDetail } from "@/lib/types";
 
 export function GoalCheckins({ goal }: { goal: GoalDetail }) {
@@ -23,6 +24,8 @@ export function GoalCheckins({ goal }: { goal: GoalDetail }) {
       setValue("");
       setNote("");
       void queryClient.invalidateQueries({ queryKey: goalKeys.all });
+      // A savings goal's saved amount feeds the finance projection.
+      void queryClient.invalidateQueries({ queryKey: financeKeys.projections });
     },
   });
 
@@ -46,7 +49,7 @@ export function GoalCheckins({ goal }: { goal: GoalDetail }) {
         {measurable && (
           <Field
             label={goal.metric_unit ? `Valeur actuelle (${goal.metric_unit})` : "Valeur actuelle"}
-            hint={goal.current_value ? `Dernière valeur : ${formatDecimal(goal.current_value, goal.metric_unit)}` : undefined}
+            hint={goal.current_value ? `Dernière valeur : ${formatGoalValue(goal, goal.current_value)}` : undefined}
           >
             <Input
               inputMode="decimal"
@@ -89,7 +92,7 @@ export function GoalCheckins({ goal }: { goal: GoalDetail }) {
                 <time dateTime={c.created_at}>{formatDateTime(c.created_at)}</time>
               </p>
               {c.value !== null && (
-                <p className="font-medium tabular-nums">{formatDecimal(c.value, goal.metric_unit)}</p>
+                <p className="font-medium tabular-nums">{formatGoalValue(goal, c.value)}</p>
               )}
               {c.note && <p className="whitespace-pre-wrap text-stone-700 dark:text-stone-300">{c.note}</p>}
             </li>

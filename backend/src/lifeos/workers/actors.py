@@ -15,6 +15,7 @@ from lifeos.modules.calendar import sync as calendar_sync
 from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
+from lifeos.modules.finance.imports import purge_expired_imports
 from lifeos.modules.guardian import operations
 from lifeos.modules.guardian.actions import expire_stale, purge_decided
 from lifeos.modules.guardian.gateway import release_stale_reservations
@@ -83,6 +84,12 @@ async def purge_messages() -> None:
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def purge_idempotency_keys() -> None:
     await run_job("purge_idempotency_keys", purge_expired_keys)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_finance_imports() -> None:
+    """CSV import previews never validated (their rows hold bank labels), task 25."""
+    await run_job("purge_finance_imports", purge_expired_imports)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)

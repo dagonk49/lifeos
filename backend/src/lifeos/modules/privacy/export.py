@@ -48,6 +48,8 @@ EXPORTED: tuple[str, ...] = (
     "finance_categories",
     "finance_category_rules",
     "transactions",
+    "finance_imports",
+    "finance_recurring",
     "goals",
     "goal_milestones",
     "goal_checkins",
@@ -74,6 +76,10 @@ EXPORT_EXCLUDED: dict[str, str] = {
     "auth_challenges": "transitoires (minutes) : défis WebAuthn à usage unique",
     "enrollment_tokens": "secrets : empreintes des jetons d'enrôlement à usage unique",
     "oauth_states": "transitoires (minutes) : consentements en cours, vérificateur PKCE scellé",
+    "finance_import_rows": (
+        "transitoires (24 h) : lignes d'aperçu d'un import de relevé ; les opérations "
+        "importées sont exportées"
+    ),
     "external_operations": (
         "internes : réservations des écritures chez un fournisseur (identifiants seulement), "
         "purgées avec leur approbation"

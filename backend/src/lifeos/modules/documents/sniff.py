@@ -44,6 +44,12 @@ _MARKUP = re.compile(
 _LEADING = re.compile(r"(?:[\ufeff \t\n\r\f\v]+|<!--.*?(?:-->|\Z))*", re.DOTALL)
 
 
+def opens_as_markup(text: str) -> bool:
+    """True when the text opens (after a BOM, spaces and comments) as HTML, SVG or XML."""
+    leading = _LEADING.match(text)
+    return bool(_MARKUP.match(text, leading.end() if leading else 0))
+
+
 def _looks_like_text(data: bytes) -> bool:
     sample = data[:65536]
     if b"\x00" in sample:
@@ -59,8 +65,7 @@ def _looks_like_text(data: bytes) -> bool:
     text = text.removeprefix("\ufeff")
     # A web page, a script or XML is refused as "text". (Further in, markup stays text:
     # browsers only sniff the start, and originals are served as `text/plain` downloads.)
-    leading = _LEADING.match(text)
-    if _MARKUP.match(text, leading.end() if leading else 0):
+    if opens_as_markup(text):
         return False
     # Spaces of French typography (non-breaking U+00A0, narrow U+202F...) are text too.
     printable = sum(
