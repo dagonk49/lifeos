@@ -88,6 +88,14 @@ def build_scheduler() -> BlockingScheduler:
         id="send_reminders",
         misfire_grace_time=60,
     )
+    # Suggestions become due at the owner's digest times (18:00 local by default): grouped
+    # within the minute.
+    scheduler.add_job(
+        actors.build_suggestion_digests.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="build_suggestion_digests",
+        misfire_grace_time=60,
+    )
     scheduler.add_job(
         actors.index_embeddings.send,
         IntervalTrigger(minutes=2, timezone=tz),

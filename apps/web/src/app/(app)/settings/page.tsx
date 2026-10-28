@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AgentAccessPanel } from "@/components/AgentAccessPanel";
 import { ConnectorsPanel } from "@/components/ConnectorsPanel";
 import { DataExport } from "@/components/DataExport";
+import { NotificationPreferences } from "@/components/NotificationPreferences";
 import { SessionList } from "@/components/SessionList";
 import { UsagePanel } from "@/components/UsagePanel";
 import {
@@ -128,18 +129,9 @@ function SpacesSection() {
 }
 
 function PreferencesSection() {
-  const invalidate = useInvalidate("settings", "dashboard", "llm-usage");
-  const settings = useQuery({
-    queryKey: ["settings"],
-    queryFn: () => api<Settings>("/v1/settings"),
-  });
-  const [form, setForm] = useState({
-    display_name: "",
-    timezone: "",
-    start: "",
-    end: "",
-    budget: "",
-  });
+  const invalidate = useInvalidate("settings", "dashboard", "llm-usage", "notifications");
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api<Settings>("/v1/settings") });
+  const [form, setForm] = useState({ display_name: "", timezone: "", start: "", end: "", budget: "" });
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     if (settings.data) {
@@ -189,10 +181,7 @@ function PreferencesSection() {
         <Field label="Fuseau horaire" hint="Nom IANA, ex. Europe/Paris">
           <Input value={form.timezone} onChange={set("timezone")} />
         </Field>
-        <Field
-          label="Tranquillité : début"
-          hint="Les notifications non critiques attendent la fin."
-        >
+        <Field label="Tranquillité : début" hint="Les notifications attendent la fin (alertes critiques : seulement si vous l'autorisez).">
           <Input type="time" value={form.start} onChange={set("start")} />
         </Field>
         <Field label="Tranquillité : fin">
@@ -499,6 +488,7 @@ export default function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SpacesSection />
         <PreferencesSection />
+        <NotificationPreferences className="lg:col-span-2" />
         {/* Anchor of the dashboard's "Réglages de l'assistant" link. */}
         <div id="assistant-ia" className="scroll-mt-4 lg:col-span-2">
           <UsagePanel />

@@ -99,6 +99,14 @@ _SPECS = [
     ActionSpec("payment.execute", "Effectuer un paiement", Level.REINFORCED, None),
     ActionSpec("permission.grant", "Accorder une permission à un agent", Level.REINFORCED, None),
     ActionSpec("space.cloud_consent", "Modifier le consentement cloud", Level.REINFORCED, None),
+    # F09: critical alerts may go through quiet hours only with this explicit consent;
+    # withdrawing it is immediate (settings/router.py).
+    ActionSpec(
+        "notification.critical_bypass",
+        "Autoriser les alertes critiques pendant la tranquillité",
+        Level.REINFORCED,
+        None,
+    ),
     ActionSpec("data.bulk_delete", "Destruction importante de données", Level.REINFORCED, None),
     # Reversibility (task 33): only the owner exports, after a recent passkey sign-in (the
     # whole of their data leaves the server: a stolen session alone is not enough).

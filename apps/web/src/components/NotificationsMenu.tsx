@@ -3,23 +3,46 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Badge, Button, Empty } from "@/components/ui";
+import { Badge, Button, Empty, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { digestSummary, isDigest } from "@/lib/notifications";
 import type { NotificationItem } from "@/lib/types";
+
+function DigestItems({ id }: { id: string }) {
+  const items = useQuery({
+    queryKey: ["notifications", id, "items"],
+    queryFn: () => api<NotificationItem[]>(`/v1/notifications/${id}/items`),
+  });
+  if (items.isPending) return <Spinner />;
+  return (
+    <ul className="mt-1 flex flex-col gap-1 border-l-2 border-stone-200 pl-2 dark:border-stone-700">
+      {items.data?.map((item) => (
+        <li key={item.id} className="text-xs">
+          <span className="font-medium">{item.title}</span>
+          {item.body && <span className="block text-stone-600">{item.body}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export function NotificationsMenu() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const notifications = useQuery({
     queryKey: ["notifications"],
     queryFn: () => api<NotificationItem[]>("/v1/notifications"),
     refetchInterval: 60_000,
   });
   const mark = useMutation({
-    mutationFn: (id: string) =>
-      api(`/v1/notifications/${id}`, { method: "PATCH", body: { status: "read" } }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+    mutationFn: ({ id, status }: { id: string; status: "read" | "dismissed" }) =>
+      api(`/v1/notifications/${id}`, { method: "PATCH", body: { status } }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
   const count = notifications.data?.length ?? 0;
 
@@ -40,18 +63,47 @@ export function NotificationsMenu() {
             <Empty>Aucune notification.</Empty>
           ) : (
             <ul className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-              {notifications.data?.map((n) => (
-                <li key={n.id} className="flex items-start justify-between gap-2 rounded p-2 hover:bg-stone-50 dark:hover:bg-stone-800">
-                  <div>
-                    <p className="text-sm font-medium">{n.title}</p>
-                    {n.body && <p className="text-xs text-stone-600">{n.body}</p>}
-                    <p className="text-xs text-stone-500">{formatDateTime(n.deliver_after)}</p>
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={() => mark.mutate(n.id)}>
-                    Lu
-                  </Button>
-                </li>
-              ))}
+              {notifications.data?.map((n) => {
+                const digest = isDigest(n);
+                const shown = expanded === n.id;
+                return (
+                  <li key={n.id} className="rounded p-2 hover:bg-stone-50 dark:hover:bg-stone-800">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {n.title} {n.category === "critical" && <Badge tone="red">Critique</Badge>}
+                        </p>
+                        <p className="text-xs text-stone-600">{digest ? digestSummary(n) : n.body}</p>
+                        <p className="text-xs text-stone-500">{formatDateTime(n.deliver_after)}</p>
+                        {digest && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-expanded={shown}
+                            onClick={() => setExpanded(shown ? null : n.id)}
+                          >
+                            {shown ? "Masquer le détail" : "Voir le détail"}
+                          </Button>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1">
+                        <Button size="sm" variant="ghost" onClick={() => mark.mutate({ id: n.id, status: "read" })}>
+                          Lu
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Ignorer « ${n.title} »`}
+                          onClick={() => mark.mutate({ id: n.id, status: "dismissed" })}
+                        >
+                          Ignorer
+                        </Button>
+                      </div>
+                    </div>
+                    {digest && shown && <DigestItems id={n.id} />}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

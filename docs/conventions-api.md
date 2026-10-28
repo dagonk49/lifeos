@@ -336,6 +336,42 @@ sans recompression ; titre réduit aux lettres, chiffres, `-` et `_`. Un origina
 illisible est nommé dans le README, jamais omis en silence ; les images jamais nettoyées de
 leurs métadonnées (T26) ne sont pas incluses.
 
+## Notifications adaptatives (F09, tâches 20 et 21, ADR 0015)
+
+- `GET /v1/notifications` liste les notifications **dues** : `deliver_after` passé, hors
+  suggestions groupées. Une suggestion n'y figure jamais seule : elle arrive dans une
+  **synthèse** (`source_type = "digest"`, `category = "suggestion"`) dont `items_count` donne
+  le nombre de suggestions. La synthèse ne cite aucun titre (un objet effacé ne doit pas y
+  survivre).
+- `GET /v1/notifications/{id}/items` : les suggestions d'une synthèse, les plus anciennes
+  d'abord (`404 notification_not_found` pour une notification qui n'est pas une synthèse).
+- `PATCH /v1/notifications/{id}` `{"status": "read" | "dismissed"}` : sur une synthèse,
+  s'applique aussi à ses suggestions. `POST /v1/notifications/read-all` ne marque jamais une
+  suggestion qui attend encore sa synthèse.
+- `GET /v1/notifications/preferences` :
+  `{"categories": [{category, enabled, max_per_day, windows, digest_times}],
+  "critical_bypass_quiet_hours": bool}` pour `important` et `suggestion` (valeurs par défaut
+  sans ligne enregistrée : `important` actif, sans maximum ni créneau ; `suggestion` active,
+  3 par jour, synthèse à `18:00`).
+- `PUT /v1/notifications/preferences` `{"categories": [...]}` : règle les catégories
+  données ; un champ omis garde sa valeur. `windows` (`important` seulement, 4 au plus) :
+  `[{start, end}]` en `HH:MM` locales, `start < end`, sans chevauchement ; vide : immédiat
+  hors tranquillité. `digest_times` (`suggestion` seulement) : 1 à 4 heures `HH:MM`.
+  `max_per_day` : 1 à 100, ou `null` (sans limite). Les notifications pas encore livrées sont
+  reprogrammées ; celles d'une catégorie désactivée passent à `dismissed`. Audit
+  `notification.preferences.update` (noms des champs modifiés, nombres reprogrammés et
+  écartés).
+- Erreur `422 notification_preferences_invalid`, extension `field` (par ex.
+  `important.windows`), sans la saisie.
+- Alertes critiques : `PATCH /v1/settings {"critical_bypass_quiet_hours": true}` est une
+  opération **renforcée** (`notification.critical_bypass` : `403 reauthentication_required`
+  sans passkey récente, refus audité) ; le retrait (`false`) est immédiat. Les deux sont
+  audités (`notification.critical_bypass`, `{enabled}`). Sans cette permission, une alerte
+  critique attend la fin des plages de tranquillité. Changer le fuseau, les plages ou cette
+  permission reprogramme aussi les notifications en attente.
+- Pour un envoi push (tâche 19) : `notifications.service.due(now)` donne les conditions
+  d'une notification à envoyer (livrée, hors synthèse, pas une suggestion en attente).
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -351,7 +387,7 @@ leurs métadonnées (T26) ne sont pas incluses.
 | `/v1/search` | 2, 3, 4 | recherche hybride (plein texte + sens), filtrée par espace, type (dont `documents`) et période |
 | `/v1/approvals` | 2 | prévisualisation, accepter / refuser |
 | `/v1/guardian` | 2 | permissions d'agents, journal d'audit, appels LLM |
-| `/v1/notifications` | 2 | liste, lecture, préférences (plages de tranquillité) |
+| `/v1/notifications` | 2, V1 | liste, lecture, synthèses de suggestions, préférences par catégorie (activation, maximum par jour, créneaux, heures de regroupement) |
 | `/v1/dashboard` | 2 | briefing du jour |
 | `/v1/goals` | 3 | objectifs, jalons, bilans |
 | `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |

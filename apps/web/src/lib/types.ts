@@ -257,6 +257,33 @@ export interface NotificationItem {
   source_id: Uuid | null;
   deliver_after: string;
   created_at: string;
+  read_at: string | null;
+  /** A digest (source_type "digest"): how many suggestions it groups. */
+  items_count: number;
+}
+
+export type NotificationCategory = "important" | "suggestion";
+
+/** A local delivery window, "HH:MM" to "HH:MM" on the same day. */
+export interface NotificationWindow {
+  start: string;
+  end: string;
+}
+
+export interface NotificationCategoryPreference {
+  category: NotificationCategory;
+  enabled: boolean;
+  max_per_day: number | null;
+  /** important only; empty: any time outside quiet hours. */
+  windows: NotificationWindow[];
+  /** suggestion only: local times of the digests ("HH:MM"). */
+  digest_times: string[];
+}
+
+export interface NotificationPreferences {
+  categories: NotificationCategoryPreference[];
+  /** Read only here: changed through PATCH /v1/settings (passkey confirmation). */
+  critical_bypass_quiet_hours: boolean;
 }
 
 export type SearchType =
@@ -335,6 +362,8 @@ export interface Settings {
   llm_monthly_token_budget: number;
   /** Emergency stop of every cloud call. */
   llm_paused: boolean;
+  /** Critical alerts may go through quiet hours (granted with a passkey confirmation). */
+  critical_bypass_quiet_hours: boolean;
 }
 
 export interface SessionInfo {

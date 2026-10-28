@@ -17,7 +17,7 @@ from lifeos.modules.documents import processing as documents
 from lifeos.modules.guardian.actions import expire_stale, purge_decided
 from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
-from lifeos.modules.notifications.service import dispatch_reminders
+from lifeos.modules.notifications.service import build_digests, dispatch_reminders
 from lifeos.modules.notifications.service import purge_old as purge_old_notifications
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
@@ -108,6 +108,13 @@ async def release_llm_reservations() -> None:
 @dramatiq.actor(queue_name="realtime", max_retries=5, time_limit=60_000)
 async def send_reminders() -> None:
     await run_job("send_reminders", dispatch_reminders)
+
+
+@dramatiq.actor(queue_name="realtime", max_retries=5, time_limit=60_000)
+async def build_suggestion_digests() -> None:
+    """Due suggestions grouped into one digest per owner (F09); a push sender only sees
+    the digest."""
+    await run_job("build_suggestion_digests", build_digests)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=2, time_limit=15 * 60_000)

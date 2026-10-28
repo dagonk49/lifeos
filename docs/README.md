@@ -35,6 +35,7 @@
 | [0011](adr/0011-antivirus-et-fichiers-hostiles.md) | Fichiers hostiles : confinement et limites, pas d'antivirus pour l'instant | Acceptée |
 | [0012](adr/0012-connecteurs-oauth.md) | Comptes connectés : OAuth 2.0 avec PKCE, jetons chiffrés, consentement par espace | Acceptée |
 | [0013](adr/0013-taches-recurrentes.md) | Tâches récurrentes : utiles, mais après les dépendances et sous une forme étroite | Acceptée (mise en œuvre reportée) |
+| [0015](adr/0015-notifications-adaptatives.md) | Notifications adaptatives : politique de livraison pure, suggestions regroupées, permission explicite pour les alertes critiques | Acceptée |
 
 ## Points encore ouverts
 

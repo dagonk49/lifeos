@@ -19,6 +19,7 @@ from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.journal.schemas import JournalEntryOut
 from lifeos.modules.memory.models import Fact, Memory
 from lifeos.modules.notifications.models import Notification
+from lifeos.modules.notifications.service import due
 from lifeos.modules.tasks import service as task_service
 from lifeos.modules.tasks.models import Task
 from lifeos.modules.tasks.schemas import TaskOut
@@ -108,7 +109,7 @@ async def dashboard(ctx: CtxDep, space_id: uuid.UUID | None = None) -> Dashboard
         select(func.count()).where(
             Notification.user_id == uid,
             Notification.status == "pending",
-            Notification.deliver_after <= now,
+            *due(now),
         )
     )
     facts = await ctx.db.scalar(

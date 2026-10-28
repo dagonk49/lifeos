@@ -235,6 +235,10 @@ const MESSAGES: Record<string, string> = {
   attachment_not_allowed:
     "Cet agent n'a pas accès aux documents de cet espace : retirez la pièce jointe ou accordez-lui l'accès.",
   space_not_found: "Cet espace est introuvable.",
+  // Notifications (F09)
+  notification_preferences_invalid:
+    "Ces réglages de notifications sont invalides : vérifiez les créneaux, les heures de regroupement et le maximum par jour.",
+  notification_not_found: "Cette notification n'existe plus.",
 };
 
 export function problemMessage(code: string, fallback: string): string {

@@ -41,6 +41,10 @@ Défense en profondeur prévue : politiques Row-Level Security PostgreSQL par `u
 Ajouts MVP : `quiet_hours_start time null`, `quiet_hours_end time null`,
 `llm_monthly_token_budget integer` (seuil d'arrêt).
 
+Ajout V1 (tâche 21) : `critical_bypass_quiet_hours boolean` (défaut `false`) : permission
+explicite et révocable pour les alertes critiques de passer pendant les plages de
+tranquillité. L'accorder est une opération renforcée (passkey récente), auditée.
+
 ### `spaces`
 | Colonne | Type | Notes |
 |---|---|---|
@@ -180,8 +184,23 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
 ### Notifications
 - **`notifications`** : `id`, `user_id`, `space_id null`, `category` (`critical` \|
   `important` \| `suggestion`), `title`, `body`, `dedup_key` (unique par utilisateur),
-  `deliver_after` (repoussé à la fin des plages de tranquillité sauf `critical`), `status`
-  (`pending` \| `read` \| `dismissed`), `source_type`, `source_id`, `read_at`, `created_at`.
+  `deliver_after`, `status` (`pending` \| `read` \| `dismissed`), `source_type`, `source_id`,
+  `digest_id null` (FK `notifications`, `SET NULL`, indexée : la synthèse qui regroupe cette
+  suggestion), `read_at`, `created_at`.
+- `deliver_after` (`notifications/policy.py`) : jamais pendant les plages de tranquillité,
+  y compris pour `critical` sauf si `users.critical_bypass_quiet_hours` ; `important` dans un
+  créneau de livraison s'il y en a ; `suggestion` à la prochaine heure de regroupement hors
+  tranquillité. Le maximum par jour (jour local) repousse le surplus au jour suivant qui a de
+  la place. Recalculé pour les notifications en attente quand les réglages changent.
+- Synthèse (`source_type = 'digest'`, `category = 'suggestion'`, `dedup_key =
+  digest:suggestion:<première suggestion>`) : créée par la tâche `build_suggestion_digests`
+  (chaque minute) avec les suggestions dues ; son corps ne donne qu'un nombre. Effacer la
+  dernière suggestion d'une synthèse efface la synthèse.
+- **`notification_preferences`** : clé primaire (`user_id`, `category`), `category`
+  (`important` \| `suggestion`), `enabled boolean` (défaut vrai), `max_per_day integer null`
+  (1 à 100), `windows jsonb` (`[{start, end}]` en `HH:MM`, `important`), `digest_times jsonb`
+  (`["HH:MM"]`, `suggestion`), `updated_at`. Sans ligne : valeurs par défaut (`important`
+  immédiat sans maximum ; `suggestion` regroupées à 18:00, 3 par jour).
 - Tâche débloquée (tâche 22) : quand une tâche passe à `done` ou `cancelled`, chaque tâche
   ouverte qui n'attendait plus qu'elle reçoit une notification `important`. Son titre est
   « Débloquée : <titre> » ; elle porte `source_type = 'task'`, `source_id` = la tâche

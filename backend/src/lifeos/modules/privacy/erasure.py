@@ -37,6 +37,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from lifeos.core.idempotency import IdempotencyKey
 from lifeos.modules.audit import service as audit
@@ -146,13 +147,28 @@ async def forget_notifications(
     if not values:
         return 0
     result = await session.execute(
-        delete(Notification).where(
+        delete(Notification)
+        .where(
             Notification.user_id == user_id,
             Notification.source_type == source_type,
             Notification.source_id.in_(values),
         )
+        .returning(Notification.digest_id)
     )
-    return int(result.rowcount or 0)  # type: ignore[attr-defined]
+    deleted = list(result.scalars())  # their digest ids
+    digests = {digest_id for digest_id in deleted if digest_id is not None}
+    count = len(deleted)
+    if digests:
+        # A digest left without any item goes too (it quotes no title, only a count).
+        item = aliased(Notification)
+        emptied = await session.execute(
+            delete(Notification).where(
+                Notification.id.in_(digests),
+                ~select(item.id).where(item.digest_id == Notification.id).exists(),
+            )
+        )
+        count += int(emptied.rowcount or 0)  # type: ignore[attr-defined]
+    return count
 
 
 def _mentions(value: Any, texts: set[str]) -> bool:

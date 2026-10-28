@@ -68,7 +68,8 @@ Briefing du jour :
 Une tâche se crée avec une priorité, une échéance, un rappel et des **étiquettes**. Les
 étiquettes sont libres et séparées par des virgules, par exemple « maison, urgent ». Elles
 sont enregistrées en minuscules, 10 au plus. Les rappels respectent vos plages de
-tranquillité (**Réglages → Préférences**).
+tranquillité (**Réglages → Préférences**) et vos réglages de notifications (**Réglages →
+Notifications**).
 
 **Dépendances.** Une tâche peut en attendre d'autres du même espace. Pour la lier :
 
@@ -210,7 +211,25 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
     LifeOS ; sans cette permission, il planifie à partir des tâches seules.
   - Les jetons d'accès restent chiffrés sur votre serveur : ils ne sont jamais affichés,
     exportés ni journalisés.
-- **Préférences** : nom, fuseau horaire, plages de tranquillité.
+- **Préférences** : nom, fuseau horaire, plages de tranquillité. Pendant ces plages,
+  aucune notification n'arrive : elles attendent la fin, alertes critiques comprises, sauf
+  si vous les autorisez (ci-dessous).
+- **Notifications** :
+  - **Alertes critiques pendant la tranquillité** : désactivé par défaut. L'activer demande
+    une confirmation par passkey ; le désactiver est immédiat. Les deux sont inscrits au
+    journal d'audit. Le mode « Ne pas déranger » de votre téléphone reste prioritaire.
+  - **Importantes** (rappels de tâches, tâches débloquées, comptes à reconnecter) :
+    immédiates hors tranquillité. Vous pouvez fixer jusqu'à 4 **créneaux de livraison**
+    (elles arrivent alors au prochain créneau) et un **maximum par jour** (au-delà, la suite
+    attend le lendemain). Les désactiver supprime aussi les rappels de tâches : réactivées,
+    elles ne rejouent pas les anciens rappels.
+  - **Suggestions** (bilans prêts…) : **regroupées** en une seule notification, à 18:00 par
+    défaut, 3 au plus par jour (le surplus attend le regroupement suivant). Vous pouvez
+    choisir jusqu'à 4 heures de regroupement, ou les désactiver.
+  - Une même notification n'est jamais envoyée deux fois. Changer ces réglages, le fuseau
+    ou les plages de tranquillité reprogramme les notifications pas encore arrivées.
+  - Dans le menu **Notifications**, **Voir le détail** déplie un regroupement ; **Lu** et
+    **Ignorer** s'appliquent à toutes ses suggestions.
 - **Mes données** : **Télécharger l'archive (ZIP)** rassemble toutes vos données dans un
   dossier `lifeos-export-AAAAMMJJ` :
   - `lifeos-export.json` : tout, dans un format complet et documenté (montants en

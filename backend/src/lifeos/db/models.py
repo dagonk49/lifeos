@@ -30,7 +30,7 @@ from lifeos.modules.memory.models import (
     MemoryRevision,
     memory_facts,
 )
-from lifeos.modules.notifications.models import Notification
+from lifeos.modules.notifications.models import Notification, NotificationPreference
 from lifeos.modules.retrieval.models import Embedding
 from lifeos.modules.reviews.models import Review
 from lifeos.modules.tasks.models import Task, TaskDependency
@@ -62,6 +62,7 @@ __all__ = [
     "MemoryRevision",
     "Message",
     "Notification",
+    "NotificationPreference",
     "OAuthState",
     "PasskeyCredential",
     "Review",

@@ -45,7 +45,7 @@ from lifeos.modules.memory.models import (
     MemoryRevision,
     memory_facts,
 )
-from lifeos.modules.notifications.models import Notification
+from lifeos.modules.notifications.models import Notification, NotificationPreference
 from lifeos.modules.privacy import ics
 from lifeos.modules.privacy.archive import neutral, safe_name
 from lifeos.modules.privacy.export import (
@@ -238,6 +238,15 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
             dedup_key=f"{mark}-rappel",
             deliver_after=NOW,
             created_at=NOW,
+        )
+    )
+    add(
+        NotificationPreference(
+            user_id=user_id,
+            category="suggestion",
+            max_per_day=2,
+            digest_times=["18:00"],
+            updated_at=NOW,
         )
     )
     add(
