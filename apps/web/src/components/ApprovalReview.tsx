@@ -3,10 +3,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { CALENDAR_ACTIONS, CalendarApprovalPreview } from "@/components/CalendarApprovalPreview";
 import { Alert, Badge, Button } from "@/components/ui";
-import { api, errorMessage } from "@/lib/api";
+import { api, errorMessage, problemMessage, withReauth } from "@/lib/api";
 import { formatDate, formatDateTime, KIND_LABELS } from "@/lib/format";
-import type { Approval } from "@/lib/types";
+import { loginWithPasskey } from "@/lib/passkeys";
+import type { Approval, CalendarPreview } from "@/lib/types";
 
 interface ProposalParams {
   entry_id: string;
@@ -21,6 +23,7 @@ const STATUS: Record<Approval["status"], string> = {
   expired: "Expirée",
   executed: "Exécutée",
   failed: "Échec",
+  invalidated: "Plus valable",
 };
 
 /**
@@ -34,6 +37,9 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
   // Tasks and facts proposed by the assistant (journal analysis, conversation
   // consolidation): the owner keeps only what is right.
   const isProposals = PROPOSAL_ACTIONS.has(approval.action);
+  const isCalendar = CALENDAR_ACTIONS.has(approval.action);
+  // Reinforced (a shared event...): a recent passkey login is asked for, then it retries once.
+  const reinforced = approval.level === "reinforced";
   const params = approval.params as unknown as ProposalParams;
   const [keepTasks, setKeepTasks] = useState<boolean[]>(() => (isProposals ? params.tasks.map(() => true) : []));
   const [keepFacts, setKeepFacts] = useState<boolean[]>(() => (isProposals ? params.facts.map(() => true) : []));
@@ -44,22 +50,26 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
     void queryClient.invalidateQueries({ queryKey: ["tasks"] });
     void queryClient.invalidateQueries({ queryKey: ["facts"] });
     void queryClient.invalidateQueries({ queryKey: ["journal"] });
+    void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
     onDone?.();
   };
   const approve = useMutation({
-    mutationFn: () =>
-      api<Approval>(`/v1/approvals/${approval.id}/approve`, {
-        method: "POST",
-        body: isProposals
-          ? {
-              params: {
-                ...params,
-                tasks: params.tasks.filter((_, i) => keepTasks[i]),
-                facts: params.facts.filter((_, i) => keepFacts[i]),
-              },
-            }
-          : {},
-      }),
+    mutationFn: () => {
+      const send = () =>
+        api<Approval>(`/v1/approvals/${approval.id}/approve`, {
+          method: "POST",
+          body: isProposals
+            ? {
+                params: {
+                  ...params,
+                  tasks: params.tasks.filter((_, i) => keepTasks[i]),
+                  facts: params.facts.filter((_, i) => keepFacts[i]),
+                },
+              }
+            : {},
+        });
+      return reinforced ? withReauth(send, loginWithPasskey) : send();
+    },
     onSuccess: refresh,
   });
   const reject = useMutation({
@@ -67,6 +77,8 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
     onSuccess: refresh,
   });
   const pending = approval.status === "pending";
+  // One decision at a time: no double click, no approve-and-reject.
+  const busy = approve.isPending || reject.isPending;
 
   return (
     <article className="flex flex-col gap-3 rounded-md border border-stone-200 p-3 dark:border-stone-800">
@@ -132,22 +144,31 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
             <p className="text-stone-500">L&apos;assistant n&apos;a rien trouvé à proposer.</p>
           )}
         </div>
+      ) : isCalendar ? (
+        <CalendarApprovalPreview preview={approval.preview as unknown as CalendarPreview} />
       ) : (
         <pre className="overflow-x-auto rounded bg-stone-100 p-2 text-xs dark:bg-stone-800">
           {JSON.stringify(approval.preview, null, 2)}
         </pre>
       )}
 
-      {approval.error && <Alert tone="error">Échec de l&apos;exécution : {approval.error}</Alert>}
+      {approval.error && (
+        <Alert
+          tone={approval.status === "invalidated" || approval.error === "outcome_unknown" ? "warning" : "error"}
+        >
+          {approval.status === "invalidated" ? "Plus valable : " : "Échec de l’exécution : "}
+          {problemMessage(approval.error, approval.error)}
+        </Alert>
+      )}
       {(approve.error || reject.error) && (
         <Alert tone="error">{errorMessage(approve.error ?? reject.error)}</Alert>
       )}
       {pending && (
         <div className="flex gap-2">
-          <Button onClick={() => approve.mutate()} disabled={approve.isPending}>
-            Approuver
+          <Button onClick={() => approve.mutate()} disabled={busy}>
+            {reinforced ? "Approuver avec ma passkey" : "Approuver"}
           </Button>
-          <Button variant="secondary" onClick={() => reject.mutate()} disabled={reject.isPending}>
+          <Button variant="secondary" onClick={() => reject.mutate()} disabled={busy}>
             Refuser
           </Button>
         </div>

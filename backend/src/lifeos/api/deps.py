@@ -160,6 +160,7 @@ async def get_ctx(request: Request, db: DbSession, settings: SettingsDep, auth: 
         user=auth.user,
         llm=request.app.state.llm,
         embedder=getattr(request.app.state, "embedder", None),
+        connectors=getattr(request.app.state, "connectors", {}),
     )
 
 

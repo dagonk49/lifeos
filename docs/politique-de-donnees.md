@@ -25,7 +25,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Sessions | expiration + 30 jours | purge quotidienne |
 | Défis WebAuthn, jetons d'enrôlement | expiration + 1 jour | purge quotidienne |
 | Clés d'idempotence | 24 heures | purge quotidienne ; la réponse gardée d'un objet supprimé est remplacée par un refus (`410`), jamais par son contenu |
-| Approbations décidées ou expirées | **90 jours** après la décision ou l'expiration | purge quotidienne avec audit (nombre) ; leurs paramètres citent les textes proposés |
+| Approbations décidées, expirées ou invalidées | **90 jours** après la décision ou l'expiration | purge quotidienne avec audit (nombre) ; leurs paramètres citent les textes proposés (et, pour l'agenda, les adresses des participants) ; leurs opérations externes (`external_operations`, identifiants seulement) partent avec elles |
 | Notifications | **90 jours** après lecture (ou après livraison si jamais lues) | purge quotidienne avec audit (nombre) ; un rappel cite le titre de la tâche ; un regroupement de suggestions ne cite aucun titre (seulement un nombre) et disparaît avec sa dernière suggestion |
 | Préférences de notification | tant que le compte existe | catégories, maximum par jour, créneaux et heures ; aucun contenu |
 | Journal d'audit | 1 an (**à valider**) | purge dédiée, seule exception au mode append-only |

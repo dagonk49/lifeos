@@ -32,6 +32,13 @@ def build_scheduler() -> BlockingScheduler:
             # A sync running late is not replayed: the next one reads everything again.
             misfire_grace_time=60,
         )
+        # Approved calendar writes whose outcome is unknown (ADR 0016).
+        scheduler.add_job(
+            actors.reconcile_external_operations.send,
+            IntervalTrigger(minutes=5, timezone=tz),
+            id="reconcile_external_operations",
+            misfire_grace_time=300,
+        )
     scheduler.add_job(
         actors.purge_auth_artifacts.send,
         CronTrigger(hour=3, minute=10, timezone=tz),

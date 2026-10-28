@@ -10,10 +10,12 @@ from lifeos.config import get_settings
 from lifeos.core.idempotency import purge_expired_keys
 from lifeos.logging import configure_logging, get_logger
 from lifeos.modules.audit.service import purge_older_than
+from lifeos.modules.calendar import actions as calendar_actions  # noqa: F401  (registers the actions)
 from lifeos.modules.calendar import sync as calendar_sync
 from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
+from lifeos.modules.guardian import operations
 from lifeos.modules.guardian.actions import expire_stale, purge_decided
 from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
@@ -237,6 +239,19 @@ async def sync_calendars() -> None:
     await run_task(
         "sync_calendars",
         lambda: calendar_sync.sync_due(database(), get_settings(), connectors()),
+    )
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=0, time_limit=10 * 60_000)
+async def reconcile_external_operations() -> None:
+    """Approved writes whose outcome is unknown (timeout after sending), or whose request
+    died after claiming them: checked with the provider, never resent (ADR 0016). Also
+    sent by the API right after an unknown outcome."""
+    if not connectors():
+        return
+    await run_task(
+        "reconcile_external_operations",
+        lambda: operations.reconcile_due(database(), get_settings(), connectors()),
     )
 
 

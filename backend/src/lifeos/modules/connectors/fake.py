@@ -14,7 +14,7 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -26,10 +26,15 @@ from lifeos.modules.connectors.base import (
     AuthorizationRequest,
     Capability,
     ConnectorAuthError,
+    ConnectorConflictError,
+    ConnectorError,
     ConnectorGoneError,
+    EventDraft,
     EventPage,
+    EventTimes,
     RemoteCollection,
     RemoteEvent,
+    SendUpdates,
     TokenSet,
 )
 
@@ -78,17 +83,37 @@ class FakeConnector:
         self._errors: dict[str, list[Exception]] = {}
         self.calendars: list[RemoteCollection] = [
             RemoteCollection("primary", "Agenda de démonstration", primary=True),
-            RemoteCollection("family", "Famille", read_only=True),
+            RemoteCollection("family", "Famille", read_only=True, owned=False),
         ]
         # Occurrences by calendar ref, by id.
         self.events: dict[str, dict[str, RemoteEvent]] = {"primary": {}, "family": {}}
         self.page_size = 50
         self.event_calls = 0
         self.access_tokens_seen: list[str] = []
+        # Writes actually applied: (method, calendar ref, event id, send_updates).
+        self.writes: list[tuple[str, str, str, str]] = []
+        self.write_calls = 0
+        self._after: dict[str, list[BaseException]] = {}
+        self._etag_counter = 0
 
     def fail_next(self, method: str, error: Exception) -> None:
         """The next call of `method` (exchange_code, refresh, revoke) raises `error`."""
         self._errors.setdefault(method, []).append(error)
+
+    def fail_after_next(self, method: str, error: BaseException) -> None:
+        """The next write `method` is applied, THEN raises `error`: a timeout after
+        sending, or a crash of the process before it recorded the outcome."""
+        self._after.setdefault(method, []).append(error)
+
+    def _applied(self, method: str, calendar_ref: str, event_id: str, send: str) -> None:
+        self.writes.append((method, calendar_ref, event_id, send))
+        pending = self._after.get(method)
+        if pending:
+            raise pending.pop(0)
+
+    def _etag(self) -> str:
+        self._etag_counter += 1
+        return f'"fake-{self._etag_counter}"'
 
     def _maybe_fail(self, method: str) -> None:
         pending = self._errors.get(method)
@@ -188,6 +213,11 @@ class FakeConnector:
                 starts_at=at(today, 9, 30),
                 ends_at=at(today, 10),
                 timezone=zone,
+                # Shared: moving it needs a passkey confirmation.
+                organizer_self=True,
+                attendees=3,
+                guests=("alex.demo@example.org", "sam.demo@example.org"),
+                etag='"demo-standup-1"',
             ),
         )
         self.add_event(
@@ -200,6 +230,8 @@ class FakeConnector:
                 ends_at=at(today + timedelta(days=1), 14, 45),
                 location="Cabinet du centre",
                 timezone=zone,
+                organizer_self=True,
+                etag='"demo-dentist-1"',
             ),
         )
         self.add_event(
@@ -252,3 +284,109 @@ class FakeConnector:
         chunk = matching[offset : offset + self.page_size]
         more = offset + self.page_size < len(matching)
         return EventPage(events=chunk, next_page=str(offset + self.page_size) if more else None)
+
+    # --- Calendar writes (task 16): same contract as Google (idempotent, If-Match) --------
+
+    def _writable(self, calendar_ref: str) -> dict[str, RemoteEvent]:
+        calendar = next((c for c in self.calendars if c.provider_ref == calendar_ref), None)
+        if calendar is None or calendar_ref not in self.events:
+            raise ConnectorGoneError("http_404")
+        if calendar.read_only:
+            raise ConnectorError("forbidden")
+        return self.events[calendar_ref]
+
+    async def get_event(
+        self, access_token: str, calendar_ref: str, event_id: str
+    ) -> RemoteEvent | None:
+        self._maybe_fail("get_event")
+        self.access_tokens_seen.append(access_token)
+        return self.events.get(calendar_ref, {}).get(event_id)
+
+    async def create_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        draft: EventDraft,
+        *,
+        event_id: str,
+        send_updates: SendUpdates,
+    ) -> RemoteEvent:
+        self.write_calls += 1
+        self._maybe_fail("create_event")
+        events = self._writable(calendar_ref)
+        if event_id in events:
+            return events[event_id]  # Google: 409 duplicate, then the event is read
+        event = RemoteEvent(
+            provider_id=event_id,
+            status="confirmed",
+            summary=draft.summary,
+            starts_at=draft.times.starts_at,
+            ends_at=draft.times.ends_at,
+            start_date=draft.times.start_date,
+            end_date=draft.times.end_date,
+            timezone=draft.times.timezone,
+            description=draft.description,
+            location=draft.location,
+            organizer_self=True,
+            attendees=len(draft.guests) + 1 if draft.guests else 0,
+            guests=draft.guests,
+            etag=self._etag(),
+            updated_at=utcnow(),
+        )
+        events[event_id] = event
+        self._applied("create_event", calendar_ref, event_id, send_updates)
+        return event
+
+    async def move_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        event_id: str,
+        times: EventTimes,
+        *,
+        etag: str | None,
+        send_updates: SendUpdates,
+    ) -> RemoteEvent:
+        self.write_calls += 1
+        self._maybe_fail("move_event")
+        events = self._writable(calendar_ref)
+        event = events.get(event_id)
+        if event is None:
+            raise ConnectorGoneError("http_404")
+        if etag is not None and event.etag != etag:
+            if event.times.same_as(times):
+                return event  # a replay: already done
+            raise ConnectorConflictError("event_changed")
+        moved = replace(
+            event,
+            starts_at=times.starts_at,
+            ends_at=times.ends_at,
+            start_date=times.start_date,
+            end_date=times.end_date,
+            timezone=times.timezone or event.timezone,
+            etag=self._etag(),
+            updated_at=utcnow(),
+        )
+        events[event_id] = moved
+        self._applied("move_event", calendar_ref, event_id, send_updates)
+        return moved
+
+    async def cancel_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        event_id: str,
+        *,
+        etag: str | None,
+        send_updates: SendUpdates,
+    ) -> None:
+        self.write_calls += 1
+        self._maybe_fail("cancel_event")
+        events = self._writable(calendar_ref)
+        event = events.get(event_id)
+        if event is None:
+            return  # Google: 410 Gone, already deleted
+        if etag is not None and event.etag != etag:
+            raise ConnectorConflictError("event_changed")
+        del events[event_id]
+        self._applied("cancel_event", calendar_ref, event_id, send_updates)

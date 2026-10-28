@@ -7,7 +7,7 @@ authorisation: only the owner's explicit decisions are.
 import uuid
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from lifeos.modules.guardian.principal import Principal
 
@@ -31,6 +31,9 @@ class ActionSpec:
     agent_level: Level | None
     resource: str | None = None
     access: str = "write"
+    # For APPROVAL actions: "reinforced" also requires a recent passkey login to approve
+    # (exact preview + one-off consent + adapted authentication).
+    approval_level: Literal["approval", "reinforced"] = "approval"
 
 
 _SPECS = [
@@ -89,11 +92,37 @@ _SPECS = [
     ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),
     ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL),
+    # Calendar writes (task 16): every write is approved by the owner, even an event of
+    # their own (owner's decision); a shared event (other attendees, someone else's event
+    # or calendar) also requires a recent passkey login. Agents only propose.
+    ActionSpec(
+        "calendar.create_event",
+        "Ajouter un événement à l'agenda",
+        Level.APPROVAL,
+        Level.APPROVAL,
+        "calendar",
+    ),
+    ActionSpec(
+        "calendar.move_event",
+        "Déplacer un événement de l'agenda",
+        Level.APPROVAL,
+        Level.APPROVAL,
+        "calendar",
+    ),
+    ActionSpec(
+        "calendar.cancel_event",
+        "Annuler un événement de l'agenda",
+        Level.APPROVAL,
+        Level.APPROVAL,
+        "calendar",
+    ),
     ActionSpec(
         "calendar.update_shared_event",
         "Modifier un événement partagé",
         Level.APPROVAL,
         Level.APPROVAL,
+        "calendar",
+        approval_level="reinforced",
     ),
     ActionSpec("document.share", "Partager un document", Level.APPROVAL, Level.APPROVAL),
     ActionSpec("payment.execute", "Effectuer un paiement", Level.REINFORCED, None),
@@ -162,6 +191,14 @@ def evaluate(
             and approval.user_id == principal.user_id
             and approval.space_id == space_id
         ):
+            if spec.approval_level == "reinforced" and not (
+                approval.level == "reinforced"
+                and principal.kind == "user"
+                and principal.recent_auth
+            ):
+                # Shared event: the approval itself must be the reinforced kind, decided
+                # by the owner after a recent passkey login.
+                return Decision(False, "reauthentication_required", level)
             return Decision(True, "approved", level)
         return Decision(False, "approval_required", level)
     # REINFORCED: only the owner, with a recent passkey authentication.

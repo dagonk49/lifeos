@@ -165,10 +165,21 @@ async def _consent(
 
 
 def _row(claim: _Claim, event: RemoteEvent, generation: int) -> dict[str, object]:
+    return event_values(claim.user_id, claim.space_id, claim.source_id, event, generation)
+
+
+def event_values(
+    user_id: uuid.UUID,
+    space_id: uuid.UUID,
+    source_id: uuid.UUID,
+    event: RemoteEvent,
+    generation: int,
+) -> dict[str, object]:
+    """The calendar_events row of an occurrence (never the attendees' addresses)."""
     return {
-        "user_id": claim.user_id,
-        "space_id": claim.space_id,
-        "source_id": claim.source_id,
+        "user_id": user_id,
+        "space_id": space_id,
+        "source_id": source_id,
         "provider_event_id": event.provider_id,
         "series_id": event.series_id,
         "status": event.status,
@@ -190,6 +201,49 @@ def _row(claim: _Claim, event: RemoteEvent, generation: int) -> dict[str, object
     }
 
 
+def _upsert(rows: list[dict[str, object]]) -> Any:
+    stmt = insert(CalendarEvent).values(rows)
+    updated: dict[str, Any] = {
+        column: stmt.excluded[column]
+        for column in rows[0]
+        if column not in ("user_id", "source_id", "provider_event_id")
+    }
+    updated["updated_at"] = func.now()
+    return stmt.on_conflict_do_update(constraint="uq_calendar_events_provider", set_=updated)
+
+
+async def store_event(
+    session: AsyncSession, source: ConnectorSource, event: RemoteEvent
+) -> uuid.UUID:
+    """Upserts one occurrence just written at the provider (task 16): the agenda shows it
+    at once, and the next sync pass finds it unchanged (same etag)."""
+    row = event_values(source.user_id, source.space_id, source.id, event, source.sync_generation)
+    event_id: uuid.UUID | None = await session.scalar(_upsert([row]).returning(CalendarEvent.id))
+    assert event_id is not None
+    return event_id
+
+
+def event_target(event_id: uuid.UUID) -> str:
+    """How approvals name an occurrence (guardian `approvals.target`)."""
+    return f"calendar_event:{event_id}"
+
+
+async def _invalidate(
+    database: Database, user_id: uuid.UUID, event_ids: list[uuid.UUID], reason: str
+) -> int:
+    """Pending proposals about occurrences that changed (or vanished) at the provider:
+    their preview no longer describes reality. Its own transaction, after the page's:
+    never a lock on calendar_events held while waiting for an approval."""
+    if not event_ids:
+        return 0
+    from lifeos.modules.guardian.actions import invalidate_targets
+
+    async with database.sessionmaker() as session, session.begin():
+        return await invalidate_targets(
+            session, user_id, [event_target(i) for i in event_ids], reason=reason
+        )
+
+
 async def _store_page(
     database: Database,
     claim: _Claim,
@@ -200,18 +254,18 @@ async def _store_page(
 ) -> int:
     """One page in one transaction, with where to resume."""
     rows = [_row(claim, e, generation) for e in events]
+    changed: list[uuid.UUID] = []
     async with database.sessionmaker() as session, session.begin():
         if rows:
-            stmt = insert(CalendarEvent).values(rows)
-            updated: dict[str, Any] = {
-                column: stmt.excluded[column]
-                for column in rows[0]
-                if column not in ("user_id", "source_id", "provider_event_id")
-            }
-            updated["updated_at"] = func.now()
-            await session.execute(
-                stmt.on_conflict_do_update(constraint="uq_calendar_events_provider", set_=updated)
+            etags = {e.provider_id: e.etag for e in events}
+            known = await session.execute(
+                select(CalendarEvent.id, CalendarEvent.provider_event_id, CalendarEvent.etag).where(
+                    CalendarEvent.source_id == claim.source_id,
+                    CalendarEvent.provider_event_id.in_(list(etags)),
+                )
             )
+            changed = [i for i, ref, etag in known.all() if etags.get(ref) != etag]
+            await session.execute(_upsert(rows))
         await session.execute(
             update(ConnectorSource)
             .where(ConnectorSource.id == claim.source_id)
@@ -221,16 +275,22 @@ async def _store_page(
                 lease_until=now + LEASE,
             )
         )
+    # A new etag: the occurrence changed at the provider since the proposals about it.
+    await _invalidate(database, claim.user_id, changed, "event_changed")
     return len(rows)
 
 
 async def _sweep(database: Database, claim: _Claim, generation: int, now: datetime) -> int:
     """After a complete pass: what the provider no longer returned is gone."""
     async with database.sessionmaker() as session, session.begin():
-        result = await session.execute(
-            delete(CalendarEvent).where(
-                CalendarEvent.source_id == claim.source_id,
-                CalendarEvent.seen_generation < generation,
+        removed = list(
+            await session.scalars(
+                delete(CalendarEvent)
+                .where(
+                    CalendarEvent.source_id == claim.source_id,
+                    CalendarEvent.seen_generation < generation,
+                )
+                .returning(CalendarEvent.id)
             )
         )
         await session.execute(
@@ -238,7 +298,8 @@ async def _sweep(database: Database, claim: _Claim, generation: int, now: dateti
             .where(ConnectorSource.id == claim.source_id)
             .values(page_token=None, last_synced_at=now, last_error=None, lease_until=None)
         )
-        return int(result.rowcount or 0)  # type: ignore[attr-defined]
+    await _invalidate(database, claim.user_id, removed, "event_gone")
+    return len(removed)
 
 
 async def _audit(database: Database, claim: _Claim, result: SyncResult) -> None:

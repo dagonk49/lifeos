@@ -73,6 +73,10 @@ EXPORT_EXCLUDED: dict[str, str] = {
     "auth_challenges": "transitoires (minutes) : défis WebAuthn à usage unique",
     "enrollment_tokens": "secrets : empreintes des jetons d'enrôlement à usage unique",
     "oauth_states": "transitoires (minutes) : consentements en cours, vérificateur PKCE scellé",
+    "external_operations": (
+        "internes : réservations des écritures chez un fournisseur (identifiants seulement), "
+        "purgées avec leur approbation"
+    ),
 }
 
 # Columns never exported (`*`: in every table), with the reason.

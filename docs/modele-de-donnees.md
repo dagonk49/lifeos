@@ -172,10 +172,24 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   `revoked_at`, `created_at`. Permissions par source (espace + ressource), finalité, durée et
   agent ; révocables immédiatement.
 - **`approvals`** : `id`, `user_id`, `space_id`, `action`, `params jsonb` (paramètres
-  **exacts** qui seront exécutés), `preview jsonb`, `level` (`approval` \| `reinforced`),
-  `status` (`pending` \| `approved` \| `rejected` \| `expired` \| `executed` \| `failed`),
-  `requested_by`, `expires_at`, `decided_at`, `executed_at`, `result jsonb`, `error`,
-  `created_at`.
+  **exacts** qui seront exécutés), `params_sha256` (empreinte du JSON canonique de
+  `params`, migration 0017 : d'autres paramètres ne s'exécutent pas ; nullable pour que la
+  version précédente puisse encore écrire, une empreinte absente est refusée), `preview
+  jsonb`, `target null` (objet visé, ex. `calendar_event:<id>` : une proposition par objet,
+  invalidée quand il change ; index partiel sur les approbations en attente), `level`
+  (`approval` \| `reinforced`), `status` (`pending` \| `approved` \| `rejected` \|
+  `expired` \| `executed` \| `failed` \| `invalidated`), `requested_by`, `expires_at`,
+  `decided_at`, `executed_at`, `result jsonb`, `error` (code : raison de l'échec ou de
+  l'invalidation), `created_at`.
+- **`external_operations`** (migration 0017, ADR 0016) : une écriture chez un fournisseur
+  pour une approbation, réservée **avant** l'appel.
+  - `id`, `user_id`, `space_id`, `approval_id` (unique, sans clé étrangère : insérée
+    pendant que la décision verrouille l'approbation ; purgée avec elle), `action`,
+    `account_id null` (compte connecté, `SET NULL`).
+  - `idempotency_key` (unique, dérivée de l'approbation : identifiant de l'événement créé).
+  - `state` (`claimed` \| `succeeded` \| `unknown` \| `failed`), `provider_ref`
+    (identifiant chez le fournisseur), `result jsonb` (identifiants seulement), `error_code`,
+    `attempts` (3 au plus), `claimed_at`, `finished_at`. **Aucun contenu.**
 - **`llm_calls`** : `id`, `user_id`, `space_id`, `purpose`, `provider`, `model`,
   `input_tokens`, `output_tokens`, `redactions` (nombre de masquages), `outcome` (`ok` \|
   `denied` \| `budget_exceeded` \| `error`), `error_code`, `duration_ms`, `created_at`.
@@ -369,6 +383,9 @@ colonnes ne sort par l'API ni par l'export.
     (réponse du propriétaire à une invitation), `attendees` (nombre seulement), `etag`,
     `provider_updated_at`, `seen_generation` (passage qui l'a vue : après un passage complet,
     les plus anciennes ont disparu chez le fournisseur).
+  - Une écriture approuvée (tâche 16) met la ligne à jour aussitôt (nouvel etag) ; un etag
+    changé ou une occurrence disparue à la synchronisation invalide les propositions en
+    attente qui la visent. Jamais l'adresse d'un participant.
 - **`oauth_states`** : un consentement en cours, à usage unique.
   - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
     jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).

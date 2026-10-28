@@ -32,13 +32,18 @@ from lifeos.modules.connectors.base import (
     AuthorizationRequest,
     Capability,
     ConnectorAuthError,
+    ConnectorConflictError,
     ConnectorError,
     ConnectorGoneError,
     ConnectorQuotaError,
     ConnectorUnavailableError,
+    EventDraft,
     EventPage,
+    EventTimes,
+    OutcomeUnknownError,
     RemoteCollection,
     RemoteEvent,
+    SendUpdates,
     TokenSet,
 )
 
@@ -54,6 +59,12 @@ _EVENT_FIELDS = (
     "recurringEventId,transparency,updated,organizer(self),attendees(self,responseStatus))"
 )
 _CALENDAR_FIELDS = "nextPageToken,items(id,summary,summaryOverride,primary,accessRole)"
+# One event, for the exact preview of a change: the other attendees' addresses too.
+_ONE_EVENT_FIELDS = (
+    "id,etag,status,summary,description,location,start,end,recurringEventId,transparency,"
+    "updated,organizer(self),attendees(email,self,responseStatus)"
+)
+_MAX_GUESTS = 100
 # Third-party text is cut: an event is a line in an agenda, not a document.
 _MAX_SUMMARY = 300
 _MAX_DESCRIPTION = 2000
@@ -219,6 +230,13 @@ def parse_event(item: dict[str, Any]) -> RemoteEvent | None:
     me = next((a for a in attendees if a.get("self") is True), None)
     response = me.get("responseStatus") if me else None
     organizer = item.get("organizer")
+    guests = tuple(
+        a["email"].strip().lower()
+        for a in attendees
+        if a.get("self") is not True
+        and isinstance(a.get("email"), str)
+        and 3 <= len(a["email"].strip()) <= 254
+    )[:_MAX_GUESTS]
     return RemoteEvent(
         provider_id=provider_id,
         status="tentative" if status == "tentative" else "confirmed",
@@ -239,7 +257,28 @@ def parse_event(item: dict[str, Any]) -> RemoteEvent | None:
         attendees=len(attendees),
         etag=_token(item.get("etag")),
         updated_at=_instant(item.get("updated")),
+        guests=guests,
     )
+
+
+def _when(times: EventTimes, *, clear: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+    """`start` and `end` of the Calendar API. `clear` (PATCH): the other form is nulled,
+    so that a timed event may become an all-day one and back."""
+    if times.starts_at is not None and times.ends_at is not None:
+        start: dict[str, Any] = {"dateTime": _rfc3339(times.starts_at)}
+        end: dict[str, Any] = {"dateTime": _rfc3339(times.ends_at)}
+        if times.timezone:
+            start["timeZone"] = end["timeZone"] = times.timezone
+        if clear:
+            start["date"] = end["date"] = None
+        return start, end
+    if times.start_date is None or times.end_date is None:
+        raise ValueError("times without instants nor dates")
+    start, end = {"date": times.start_date.isoformat()}, {"date": times.end_date.isoformat()}
+    if clear:
+        start["dateTime"] = end["dateTime"] = None
+        start["timeZone"] = end["timeZone"] = None
+    return start, end
 
 
 class GoogleConnector:
@@ -343,6 +382,7 @@ class GoogleConnector:
                         name=_text(name, _MAX_SUMMARY) or ref,
                         primary=item.get("primary") is True,
                         read_only=item.get("accessRole") not in ("owner", "writer"),
+                        owned=item.get("accessRole") == "owner",
                     )
                 )
             page = _token(body.get("nextPageToken"))
@@ -376,7 +416,169 @@ class GoogleConnector:
         events = [e for e in (parse_event(item) for item in _items(body)) if e is not None]
         return EventPage(events=events, next_page=_token(body.get("nextPageToken")))
 
+    # --- Calendar (writes, task 16) ------------------------------------------------------------
+    # Each write is idempotent (ADR 0016): the client chooses the id of a new event (a
+    # replay answers 409 and the event is read back), changes carry If-Match with the
+    # etag of the preview (412 when the event changed: read back and compared), and
+    # deleting an event already gone (404, 410) is done. `sendUpdates` is always explicit.
+
+    def _event_url(self, calendar_ref: str, event_id: str | None = None) -> str:
+        url = f"{CALENDAR_API}/calendars/{quote(calendar_ref, safe='')}/events"
+        return f"{url}/{quote(event_id, safe='')}" if event_id is not None else url
+
+    async def get_event(
+        self, access_token: str, calendar_ref: str, event_id: str
+    ) -> RemoteEvent | None:
+        try:
+            body = await self._api_get(
+                self._event_url(calendar_ref, event_id),
+                access_token,
+                {"fields": _ONE_EVENT_FIELDS},
+            )
+        except ConnectorGoneError:
+            return None
+        return parse_event(body)
+
+    async def create_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        draft: EventDraft,
+        *,
+        event_id: str,
+        send_updates: SendUpdates,
+    ) -> RemoteEvent:
+        start, end = _when(draft.times)
+        body: dict[str, Any] = {
+            "id": event_id,
+            "summary": draft.summary,
+            "start": start,
+            "end": end,
+        }
+        if draft.description:
+            body["description"] = draft.description
+        if draft.location:
+            body["location"] = draft.location
+        if draft.guests:
+            body["attendees"] = [{"email": guest} for guest in draft.guests]
+        response = await self._api_send(
+            "POST",
+            self._event_url(calendar_ref),
+            access_token,
+            params={"sendUpdates": send_updates, "fields": _ONE_EVENT_FIELDS},
+            body=body,
+        )
+        if response.status_code == 409:
+            # This id exists: the creation was already done (a replay).
+            existing = await self.get_event(access_token, calendar_ref, event_id)
+            if existing is None:
+                raise ConnectorConflictError("event_id_taken")
+            return existing
+        return self._written(response)
+
+    async def move_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        event_id: str,
+        times: EventTimes,
+        *,
+        etag: str | None,
+        send_updates: SendUpdates,
+    ) -> RemoteEvent:
+        start, end = _when(times, clear=True)
+        response = await self._api_send(
+            "PATCH",
+            self._event_url(calendar_ref, event_id),
+            access_token,
+            params={"sendUpdates": send_updates, "fields": _ONE_EVENT_FIELDS},
+            body={"start": start, "end": end},
+            if_match=etag,
+        )
+        if response.status_code == 412:
+            current = await self.get_event(access_token, calendar_ref, event_id)
+            if current is None:
+                raise ConnectorGoneError("http_404")
+            if current.times.same_as(times):
+                return current  # moved by an earlier attempt
+            raise ConnectorConflictError("event_changed")
+        return self._written(response)
+
+    async def cancel_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        event_id: str,
+        *,
+        etag: str | None,
+        send_updates: SendUpdates,
+    ) -> None:
+        response = await self._api_send(
+            "DELETE",
+            self._event_url(calendar_ref, event_id),
+            access_token,
+            params={"sendUpdates": send_updates},
+            if_match=etag,
+        )
+        if response.status_code in (200, 204, 404, 410):
+            return
+        if response.status_code == 412:
+            if await self.get_event(access_token, calendar_ref, event_id) is None:
+                return
+            raise ConnectorConflictError("event_changed")
+        raise self._write_failure(response)
+
+    @staticmethod
+    def _write_failure(response: httpx.Response) -> ConnectorError:
+        if response.status_code >= 500:
+            # The provider may have applied it before failing: reconcile, never resend.
+            return OutcomeUnknownError(f"http_{response.status_code}")
+        return _api_failure(response)
+
+    def _written(self, response: httpx.Response) -> RemoteEvent:
+        if response.status_code != 200:
+            raise self._write_failure(response)
+        try:
+            body = response.json()
+        except ValueError:
+            raise OutcomeUnknownError("invalid_response") from None
+        event = parse_event(body) if isinstance(body, dict) else None
+        if event is None:
+            raise OutcomeUnknownError("invalid_response")
+        return event
+
     # --- HTTP --------------------------------------------------------------------------------
+
+    async def _api_send(
+        self,
+        method: str,
+        url: str,
+        access_token: str,
+        *,
+        params: dict[str, str],
+        body: dict[str, Any] | None = None,
+        if_match: str | None = None,
+    ) -> httpx.Response:
+        """A write on a Google API. A failure before anything was sent (connection) is
+        ConnectorUnavailableError; after sending (timeout, broken connection), the write
+        may have happened: OutcomeUnknownError."""
+        parts = urlsplit(url)
+        if parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS:
+            raise ConnectorError("host_not_allowed")
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {access_token}"}
+        if if_match:
+            headers["If-Match"] = if_match
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, transport=self._transport, follow_redirects=False
+            ) as client:
+                return await client.request(method, url, params=params, json=body, headers=headers)
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise ConnectorUnavailableError("network") from None
+        except httpx.TimeoutException:
+            raise OutcomeUnknownError("timeout") from None
+        except httpx.HTTPError:
+            raise OutcomeUnknownError("network") from None
 
     async def _post(self, url: str, data: dict[str, str]) -> httpx.Response:
         parts = urlsplit(url)

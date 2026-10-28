@@ -75,6 +75,8 @@ class RemoteCollection:
     name: str
     primary: bool = False
     read_only: bool = False
+    # The account owns it (a writable calendar of someone else is shared with it).
+    owned: bool = True
 
 
 class OAuthProvider(Protocol):
@@ -134,10 +136,64 @@ class RemoteEvent:
     attendees: int = 0
     etag: str | None = None
     updated_at: datetime | None = None
+    # Addresses of the other attendees: filled by single reads (`get_event`), for the exact
+    # preview of a change; never by listings (the sync stores no address).
+    guests: tuple[str, ...] = ()
 
     @property
     def all_day(self) -> bool:
         return self.start_date is not None
+
+    @property
+    def times(self) -> "EventTimes":
+        return EventTimes(
+            starts_at=self.starts_at,
+            ends_at=self.ends_at,
+            start_date=self.start_date,
+            end_date=self.end_date,
+            timezone=self.timezone,
+        )
+
+
+@dataclass(frozen=True)
+class EventTimes:
+    """When an event takes place: aware instants, or dates (`end_date` exclusive)."""
+
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    # IANA zone the provider keeps for a timed event (recurrences, display).
+    timezone: str | None = None
+
+    def same_as(self, other: "EventTimes") -> bool:
+        """Same moments (instants compared as instants, whatever their offset)."""
+        if self.starts_at is not None or other.starts_at is not None:
+            return (
+                self.starts_at is not None
+                and other.starts_at is not None
+                and self.ends_at is not None
+                and other.ends_at is not None
+                and self.starts_at == other.starts_at
+                and self.ends_at == other.ends_at
+            )
+        return self.start_date == other.start_date and self.end_date == other.end_date
+
+
+@dataclass(frozen=True)
+class EventDraft:
+    """A new event, exactly as approved."""
+
+    summary: str
+    times: EventTimes
+    description: str | None = None
+    location: str | None = None
+    # Invited addresses (an invitation goes out only with send_updates="all").
+    guests: tuple[str, ...] = ()
+
+
+# Who the provider notifies of a change: every attendee, or nobody (the default).
+SendUpdates = Literal["all", "none"]
 
 
 @dataclass(frozen=True)
@@ -168,6 +224,58 @@ class CalendarAdapter(Protocol):
         cancelled occurrences left out; one page, `next_page` to continue (the token
         stays valid across processes, so an interrupted sync resumes where it stopped).
         Raises ConnectorGoneError when the calendar no longer exists."""
+        ...
+
+    # Writes (task 16), each behind an approval (guardian/operations.py). They are
+    # idempotent, so that a replay after a crash never writes twice: the client chooses
+    # the id of a new event, changes are conditional on the etag read for the preview.
+    # A timeout after sending raises OutcomeUnknownError (never resend blindly).
+
+    async def get_event(
+        self, access_token: str, calendar_ref: str, event_id: str
+    ) -> RemoteEvent | None:
+        """One event, attendees' addresses included; None when deleted or cancelled."""
+        ...
+
+    async def create_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        draft: EventDraft,
+        *,
+        event_id: str,
+        send_updates: SendUpdates,
+    ) -> RemoteEvent:
+        """Creates the event under `event_id` (base32hex). If an event already has this
+        id (a replayed creation), that event is returned: never a second one."""
+        ...
+
+    async def move_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        event_id: str,
+        times: EventTimes,
+        *,
+        etag: str | None,
+        send_updates: SendUpdates,
+    ) -> RemoteEvent:
+        """New times, if the event still has `etag`. Changed meanwhile: success if it
+        already has these times (a replay), ConnectorConflictError("event_changed")
+        otherwise. ConnectorGoneError when it no longer exists."""
+        ...
+
+    async def cancel_event(
+        self,
+        access_token: str,
+        calendar_ref: str,
+        event_id: str,
+        *,
+        etag: str | None,
+        send_updates: SendUpdates,
+    ) -> None:
+        """Deletes the event if it still has `etag`; already gone counts as done.
+        ConnectorConflictError("event_changed") when it changed meanwhile."""
         ...
 
 

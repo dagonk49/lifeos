@@ -167,6 +167,31 @@ const MESSAGES: Record<string, string> = {
   llm_blocked: "Le fournisseur IA a refusé de répondre à cette demande.",
   llm_invalid_output: "La réponse de l'IA n'a pas pu être validée. Réessayez.",
   approval_required: "Cette action demande votre approbation explicite.",
+  approval_not_pending: "Cette proposition a déjà été traitée (ou n'est plus valable) : rien n'a été refait.",
+  approval_params_mismatch: "Ces paramètres ne sont pas ceux que vous avez approuvés : rien n'a été fait.",
+  approval_not_editable: "Cette proposition ne peut pas être modifiée : refaites la demande.",
+  // Calendar writes (task 16)
+  event_changed:
+    "L'événement a changé dans l'agenda depuis l'aperçu : rien n'a été modifié. Refaites la demande.",
+  event_gone: "Cet événement n'existe plus dans l'agenda.",
+  target_gone: "L'élément visé n'existe plus chez le fournisseur.",
+  event_not_found: "Cet événement est introuvable : actualisez l'agenda.",
+  event_not_organizer:
+    "Seul l'organisateur peut déplacer cet événement. Vous pouvez l'annuler dans votre agenda.",
+  event_in_past: "Ce moment est déjà passé : choisissez une date à venir.",
+  event_unchanged: "L'événement a déjà lieu à ce moment-là.",
+  invalid_event_times: "Indiquez un début et une fin, la fin après le début (14 jours au plus).",
+  invalid_guest: "Une adresse de participant n'est pas valide.",
+  calendar_write_unavailable:
+    "Aucun agenda de cet espace ne peut être modifié : autorisez « Modifier l'agenda » dans Réglages > Comptes connectés.",
+  calendar_read_only: "Cet agenda est en lecture seule.",
+  calendar_gone: "Cet agenda n'est plus suivi ou n'existe plus.",
+  connector_unavailable: "Le fournisseur ne répond pas pour le moment. Réessayez plus tard.",
+  outcome_unknown:
+    "Le fournisseur n'a pas confirmé la modification. LifeOS vérifie dans quelques minutes, sans rien renvoyer.",
+  not_applied: "La modification n'a pas eu lieu chez le fournisseur : vous pouvez refaire la demande.",
+  too_many_attempts: "Cette modification a été tentée trop de fois : refaites la demande.",
+  superseded: "Remplacée par une proposition plus récente.",
   reauthentication_required: "Confirmez votre identité avec votre passkey.",
   origin_mismatch:
     "Requête refusée : elle ne provient pas de l'adresse de LifeOS. Rechargez la page ; si l'erreur persiste, vérifiez LIFEOS_PUBLIC_ORIGIN.",

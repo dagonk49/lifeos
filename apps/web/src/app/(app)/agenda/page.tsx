@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { AgendaDays } from "@/components/AgendaWeek";
+import { NewEventForm } from "@/components/CalendarChange";
 import { ConflictsList, SlotFinder } from "@/components/Planning";
 import { Button, Card, PageHeader } from "@/components/ui";
 import { addDays, mondayOf, weekDays, weekLabel } from "@/lib/calendar";
@@ -30,9 +31,9 @@ export default function AgendaPage() {
       </PageHeader>
       <Card
         title={weekLabel(monday)}
-        footer="Agendas suivis en lecture seule, synchronisés toutes les 15 minutes environ. Heures dans votre fuseau."
+        footer="Synchronisés toutes les 15 minutes environ, heures dans votre fuseau. « Déplacer » et « Annuler » ne modifient rien sans votre approbation."
       >
-        <AgendaDays days={days} spaceId={selected} emptyText="Aucun événement cette semaine." />
+        <AgendaDays days={days} spaceId={selected} emptyText="Aucun événement cette semaine." editable />
       </Card>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <Card
@@ -41,8 +42,17 @@ export default function AgendaPage() {
         >
           <ConflictsList spaceId={writeSpaceId} />
         </Card>
-        <Card title="Trouver un créneau" footer="Rien n'est ajouté à l'agenda : à vous de bloquer le créneau choisi.">
+        <Card
+          title="Trouver un créneau"
+          footer="« Bloquer ce créneau » propose l'événement : il n'est ajouté qu'après votre approbation."
+        >
           <SlotFinder spaceId={writeSpaceId} />
+        </Card>
+        <Card
+          title={`Nouvel événement · ${spaceName(writeSpaceId)}`}
+          footer="Vous voyez l'aperçu exact avant toute écriture. Avec des participants, votre passkey est demandée."
+        >
+          <NewEventForm spaceId={writeSpaceId} today={todayLocal()} />
         </Card>
       </div>
     </>

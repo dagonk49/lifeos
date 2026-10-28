@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { BlockSlotButton } from "@/components/CalendarChange";
 import { Alert, Badge, Button, Empty, Field, Input, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { dayLabel } from "@/lib/calendar";
@@ -47,8 +48,8 @@ export function ConflictsList({ spaceId }: { spaceId: string }) {
   );
 }
 
-/** Free slots for a duration, with what each proposal rests on. Read-only: nothing is
- * written in the calendar from here. */
+/** Free slots for a duration, with what each proposal rests on. « Bloquer ce créneau »
+ * only proposes the event: the calendar changes once the owner approves it. */
 export function SlotFinder({ spaceId, taskId }: { spaceId: string; taskId?: string }) {
   const [minutes, setMinutes] = useState(taskId ? "" : "60");
   const find = useMutation({
@@ -95,6 +96,12 @@ export function SlotFinder({ spaceId, taskId }: { spaceId: string; taskId?: stri
             {find.data.items.map((slot) => (
               <li key={slot.start} className="rounded-md border border-stone-200 p-2 dark:border-stone-800">
                 <p className="font-medium">{spanLabel(slot.start, slot.end)}</p>
+                <BlockSlotButton
+                  spaceId={spaceId}
+                  start={slot.start}
+                  end={slot.end}
+                  title={find.data.task_title ?? "Créneau réservé"}
+                />
                 <details className="mt-1 text-xs">
                   <summary>Hypothèses et événements pris en compte</summary>
                   <ul className="ml-4 list-disc">

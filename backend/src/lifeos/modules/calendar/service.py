@@ -7,9 +7,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import and_, or_, select
 
 from lifeos.core.errors import ProblemError
+from lifeos.core.security import utcnow
 from lifeos.modules.calendar.models import CalendarEvent
 from lifeos.modules.calendar.schemas import EventOut
-from lifeos.modules.connectors.models import ConnectorSource
+from lifeos.modules.connectors.models import ConnectorGrant, ConnectorSource
 from lifeos.modules.guardian.context import Ctx
 
 # One request covers at most this span (a month view and a little more).
@@ -46,7 +47,12 @@ async def list_events(
     first_day: date = start.astimezone(zone).date()
     last_day: date = (end - timedelta(microseconds=1)).astimezone(zone).date()
     result = await ctx.db.execute(
-        select(CalendarEvent, ConnectorSource.name, ConnectorSource.last_synced_at)
+        select(
+            CalendarEvent,
+            ConnectorSource.name,
+            ConnectorSource.last_synced_at,
+            ConnectorSource.account_id,
+        )
         .join(ConnectorSource, ConnectorSource.id == CalendarEvent.source_id)
         .where(
             CalendarEvent.user_id == ctx.principal.user_id,
@@ -77,6 +83,20 @@ async def list_events(
         return datetime.combine(event.start_date, datetime.min.time(), tzinfo=zone)
 
     rows.sort(key=lambda r: (key(r[0]), r[0].summary))
+    # Where each account may write (calendar.write consent of the space).
+    now = utcnow()
+    writable = set(
+        (
+            await ctx.db.execute(
+                select(ConnectorGrant.account_id, ConnectorGrant.space_id).where(
+                    ConnectorGrant.user_id == ctx.principal.user_id,
+                    ConnectorGrant.capability == "calendar.write",
+                    ConnectorGrant.revoked_at.is_(None),
+                    or_(ConnectorGrant.expires_at.is_(None), ConnectorGrant.expires_at > now),
+                )
+            )
+        ).all()
+    )
     return [
         EventOut(
             id=event.id,
@@ -97,6 +117,7 @@ async def list_events(
             busy=event.busy,
             recurring=event.series_id is not None,
             response=event.response,
+            editable=(account_id, event.space_id) in writable,
         )
-        for event, name, synced_at in rows
+        for event, name, synced_at, account_id in rows
     ]

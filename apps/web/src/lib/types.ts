@@ -236,7 +236,7 @@ export interface Approval {
   params: Record<string, unknown>;
   preview: { summary?: string; items?: { type: string; text: string; date: string | null }[] } & Record<string, unknown>;
   level: "approval" | "reinforced";
-  status: "pending" | "approved" | "rejected" | "expired" | "executed" | "failed";
+  status: "pending" | "approved" | "rejected" | "expired" | "executed" | "failed" | "invalidated";
   requested_by: string;
   created_at: string;
   expires_at: string;
@@ -895,12 +895,39 @@ export interface CalendarEvent {
   busy: boolean;
   recurring: boolean;
   response: string | null;
+  /** Its account may modify this calendar in this space: moving or cancelling it proposes an approval. */
+  editable?: boolean;
 }
 
 export interface CalendarEvents {
   items: CalendarEvent[];
   /** The owner's time zone, in which the times above are written. */
   timezone: string;
+}
+
+/** A followed calendar the owner consented to modify (task 16). */
+export interface WritableCalendar {
+  source_id: Uuid;
+  name: string;
+  account_id: Uuid;
+}
+
+/** Preview of a calendar change (approvals calendar.*), built by the server from the
+ * provider's state: times are already written in the owner's zone. */
+export interface CalendarPreview {
+  operation: "create" | "move" | "cancel";
+  calendar: string;
+  summary: string;
+  summary_line: string;
+  timezone: string;
+  before?: string;
+  after?: string;
+  location?: string;
+  attendees: string[];
+  notify: boolean;
+  shared: boolean;
+  recurring?: boolean;
+  notes: string[];
 }
 
 // --- Planning (task 15) ------------------------------------------------------------------

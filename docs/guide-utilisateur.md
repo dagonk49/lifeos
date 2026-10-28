@@ -172,6 +172,9 @@ et par période. Des expressions comme « la semaine dernière » ou « en mars 
 
 Toute action importante proposée par l'assistant attend ici votre accord : vous voyez
 exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou refuser.
+Une proposition « Plus valable » ne peut plus être approuvée (l'élément visé a changé, ou
+une proposition plus récente la remplace). Les modifications d'un événement partagé
+demandent votre passkey au moment d'approuver.
 
 ### Réglages
 
@@ -204,8 +207,28 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
     chevauchent) et **Trouver un créneau** : jusqu'à trois créneaux libres pour une durée,
     chacun avec ses hypothèses (durée, disponibilités du lundi au vendredi de 9 h à 18 h,
     marge de 10 min, événements provisoires comptés comme occupés, date de lecture de
-    l'agenda) et les événements autour. Rien n'est ajouté à votre agenda. Les événements
-    d'un autre espace comptent comme « Occupé (autre espace) », sans titre.
+    l'agenda) et les événements autour. Les événements d'un autre espace comptent comme
+    « Occupé (autre espace) », sans titre.
+  - **Modifier l'agenda sous approbation** (il faut avoir autorisé « Modifier l'agenda »
+    pour l'espace) : **Déplacer** et **Annuler l'événement** sous un événement,
+    **Nouvel événement**, et **Bloquer ce créneau** sous un créneau proposé. Aucun de ces
+    boutons ne modifie votre agenda : LifeOS relit l'événement chez Google et vous montre
+    l'aperçu exact (agenda, avant et après à votre heure avec le fuseau, participants, et
+    s'ils seront prévenus). L'agenda ne change qu'une fois que vous approuvez.
+    - Un **événement partagé** (avec d'autres participants, organisé par quelqu'un
+      d'autre, ou dans l'agenda de quelqu'un d'autre) porte la mention « Événement partagé
+      — confirmation par passkey » : votre passkey est demandée au moment d'approuver.
+    - Les participants ne sont prévenus par Google que si vous cochez **Prévenir les
+      participants**.
+    - Si l'événement a changé chez Google depuis l'aperçu, rien n'est modifié : la
+      proposition passe « Plus valable » et vous la refaites. Un double clic, une page
+      rechargée ou une coupure réseau ne créent jamais un deuxième événement.
+    - « Le fournisseur n'a pas confirmé la modification » : Google n'a pas répondu à
+      temps. LifeOS vérifie de lui-même
+      dans les minutes qui suivent, sans rien renvoyer, et la proposition passe
+      « Exécutée » si la modification a bien eu lieu.
+    - Pour un événement récurrent, seule l'occurrence choisie change. Seul l'organisateur
+      peut déplacer un événement ; l'annuler le retire de votre agenda.
   - L'**agent de planification**, s'il a la permission « agenda » dans l'espace, voit les 7
     prochains jours de l'agenda de cet espace, les conflits et deux créneaux calculés par
     LifeOS ; sans cette permission, il planifie à partir des tâches seules.
@@ -281,7 +304,6 @@ indisponible.
 
 ## Ce que cette version ne fait pas encore
 
-Un compte Google peut être connecté et autorisé espace par espace, mais l'agenda et les
-e-mails ne sont pas encore synchronisés ni utilisés par l'assistant. Pas de notifications
+Les e-mails ne sont pas encore synchronisés ni utilisés par l'assistant. Pas de notifications
 push sur le téléphone (les rappels s'affichent dans l'application) et pas d'application
 mobile native : utilisez le site dans le navigateur du téléphone. Voir le [journal des versions](../CHANGELOG.md).

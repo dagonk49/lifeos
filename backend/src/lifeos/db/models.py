@@ -13,7 +13,7 @@ from lifeos.modules.connectors.models import (
 from lifeos.modules.documents.models import Document
 from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
 from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
-from lifeos.modules.guardian.models import AgentPermission, Approval, LLMCall
+from lifeos.modules.guardian.models import AgentPermission, Approval, ExternalOperation, LLMCall
 from lifeos.modules.identity.models import (
     AuthChallenge,
     EnrollmentToken,
@@ -49,6 +49,7 @@ __all__ = [
     "Document",
     "Embedding",
     "EnrollmentToken",
+    "ExternalOperation",
     "Fact",
     "FactPairDismissal",
     "FinanceCategory",

@@ -1,12 +1,15 @@
+import hashlib
+import json
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, Text
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.orm import Mapped, mapped_column
 
-from lifeos.db.base import Base, UUIDPrimaryKey
+from lifeos.db.base import Base, Owned, UUIDPrimaryKey
 
 AGENTS = ("core", "planning", "memory", "coaching", "finance", "projects", "documents")
 RESOURCES = (
@@ -27,6 +30,16 @@ RESOURCES = (
 
 def _in(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
+
+
+def params_digest(params: Any) -> str:
+    """SHA-256 of the canonical JSON of approval parameters (keys sorted, compact)."""
+    canonical = json.dumps(params, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _params_digest_default(context: DefaultExecutionContext) -> str:
+    return params_digest(context.get_current_parameters()["params"])  # type: ignore[no-untyped-call]
 
 
 class AgentPermission(UUIDPrimaryKey, Base):
@@ -52,15 +65,34 @@ class AgentPermission(UUIDPrimaryKey, Base):
     created_at: Mapped[datetime]
 
 
+# "invalidated": the proposal no longer matches reality (the event changed at the provider,
+# a newer proposal replaced it); it can no longer be approved. Keep in sync with the
+# migrations and docs/modele-de-donnees.md.
+APPROVAL_STATUSES = (
+    "pending",
+    "approved",
+    "rejected",
+    "expired",
+    "executed",
+    "failed",
+    "invalidated",
+)
+
+
 class Approval(UUIDPrimaryKey, Base):
-    """An action awaiting the owner's decision. `params` are exactly what will be executed."""
+    """An action awaiting the owner's decision. `params` are exactly what will be executed,
+    bound by `params_sha256`: anything else is refused at execution."""
 
     __tablename__ = "approvals"
     __table_args__ = (
         CheckConstraint("level IN ('approval', 'reinforced')", name="level"),
-        CheckConstraint(
-            "status IN ('pending', 'approved', 'rejected', 'expired', 'executed', 'failed')",
-            name="status",
+        CheckConstraint(_in("status", APPROVAL_STATUSES), name="status"),
+        # Pending proposals about one object (dedupe, invalidation when it changes).
+        Index(
+            "ix_approvals_pending_target",
+            "user_id",
+            "target",
+            postgresql_where="status = 'pending'",
         ),
     )
 
@@ -70,7 +102,14 @@ class Approval(UUIDPrimaryKey, Base):
     space_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
     action: Mapped[str] = mapped_column(Text)
     params: Mapped[dict[str, Any]]
+    # SHA-256 of the canonical JSON of `params` (actions.params_digest).
+    # Nullable only so that the previous version can still insert during an update or a
+    # rollback (docs/modele-de-donnees.md §7): a missing digest never matches, the
+    # approval is then refused at execution.
+    params_sha256: Mapped[str | None] = mapped_column(Text, default=_params_digest_default)
     preview: Mapped[dict[str, Any]]
+    # The object the proposal acts on ("calendar_event:<uuid>"), if any.
+    target: Mapped[str | None] = mapped_column(Text)
     level: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="pending", index=True)
     requested_by: Mapped[str] = mapped_column(Text)
@@ -80,6 +119,42 @@ class Approval(UUIDPrimaryKey, Base):
     result: Mapped[dict[str, Any] | None]
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime]
+
+
+# claimed: the write may be under way (or its process died); succeeded / failed: settled;
+# unknown: sent, outcome not known (timeout): reconciled with the provider, never resent
+# blindly. Keep in sync with the migrations and docs/modele-de-donnees.md.
+OPERATION_STATES = ("claimed", "succeeded", "unknown", "failed")
+
+
+class ExternalOperation(UUIDPrimaryKey, Owned, Base):
+    """A write at an external provider for an approval: claimed once, before the call.
+
+    The claim is committed on its own (detached) before the provider is called, so a
+    replayed approval, a retried request or a crash after the call never sends a second
+    write: an existing claim is reconciled with the provider first (ADR 0016). No foreign
+    key to `approvals`: the claim is inserted while the deciding transaction holds the
+    approval's row lock (purged with the approval, actions.purge_decided).
+    """
+
+    __tablename__ = "external_operations"
+    __table_args__ = (CheckConstraint(_in("state", OPERATION_STATES), name="state"),)
+
+    approval_id: Mapped[uuid.UUID] = mapped_column(unique=True)
+    action: Mapped[str] = mapped_column(Text)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("connector_accounts.id", ondelete="SET NULL")
+    )
+    # Sent to the provider (client-chosen event id, request id): the same on every attempt.
+    idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
+    state: Mapped[str] = mapped_column(Text, index=True)
+    # Provider id of the object written, and the result recorded (ids only, no content).
+    provider_ref: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[dict[str, Any] | None]
+    error_code: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    claimed_at: Mapped[datetime]
+    finished_at: Mapped[datetime | None]
 
 
 # "reserved": quota held while the call runs (ADR 0010), then settled into "ok" or "error",

@@ -104,6 +104,27 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
   agent reçoit `403 action_denied` (audité). Des paramètres corrigés hors du schéma
   répondent `422 invalid_action_params`, l'approbation restant en attente.
 - `501 action_not_available` : action déclarée dans la politique mais pas encore implémentée.
+- Paramètres liés (ADR 0016) : l'empreinte SHA-256 des paramètres approuvés est
+  conservée ; exécuter d'autres paramètres répond `403 approval_params_mismatch` (audité).
+  Certaines actions ne se corrigent pas à l'approbation, leur aperçu venant de l'état du
+  fournisseur : `422 approval_not_editable`.
+- Statut `invalidated` : la proposition ne décrit plus la réalité, `error` dit pourquoi
+  (`event_changed`, `event_gone`, `superseded`). Elle ne peut plus être approuvée
+  (`409 approval_not_pending`, `approval_status: "invalidated"`). La même proposition
+  encore en attente est renvoyée au lieu d'en créer une seconde ; une nouvelle proposition
+  sur le même objet remplace l'ancienne.
+- Approbation `level: "reinforced"` (ex. événement partagé) : l'approuver demande une
+  connexion par passkey récente, sinon `403 reauthentication_required` (audité) ; le web
+  relance alors la passkey puis l'accord, une fois.
+- Écriture chez un fournisseur : l'accord répond `200` avec l'approbation `executed`, ou
+  `failed` et un code dans `error` :
+  - `outcome_unknown` : le fournisseur n'a pas confirmé (délai dépassé après l'envoi).
+    Rien n'est renvoyé ; LifeOS vérifie chez lui dans les minutes qui suivent, puis
+    l'approbation passe `executed`, ou garde `failed` avec `not_applied` ;
+  - `event_changed`, `event_gone`, `connector_reauth_required`, `connector_unavailable`,
+    `too_many_attempts` : rien n'a été écrit.
+  Une nouvelle tentative après un crash ne réécrit jamais : l'opération déjà réservée est
+  d'abord vérifiée chez le fournisseur.
 
 ## Mode dégradé du chat
 
@@ -231,7 +252,36 @@ puis envoie le message avec les seules pièces jointes `sent`.
     chevauchent `[start, end)` (62 jours au plus, sinon `422 invalid_window`), dans les
     espaces du principal. Une date sans décalage est lue dans le fuseau du propriétaire ;
     les instants rendus portent le décalage de ce fuseau, les journées entières sont des
-    dates (fin exclue). Chaque occurrence indique sa source et sa date de lecture.
+    dates (fin exclue). Chaque occurrence indique sa source et sa date de lecture, et
+    `editable` : son compte a le consentement `calendar.write` dans cet espace.
+- Modifier l'agenda (tâche 16, ADR 0016) : chaque route **propose** et répond `201` avec
+  l'approbation (aperçu exact relu chez le fournisseur) ; rien n'est écrit avant l'accord
+  (`POST /v1/approvals/{id}/approve`). `Idempotency-Key` est accepté. Une heure sans
+  décalage est lue dans le fuseau du propriétaire.
+  - `GET /v1/calendar/calendars?space_id` → `[{source_id, name, account_id}]` : agendas
+    suivis de l'espace qu'on peut modifier.
+  - `POST /v1/calendar/events` `{space_id, source_id?, summary, description?, location?,
+    starts_at, ends_at | start_date, end_date, guests?, notify?}`. Sans `source_id` : le
+    premier agenda modifiable de l'espace.
+  - `POST /v1/calendar/events/{id}/move` `{starts_at, ends_at | start_date, end_date,
+    notify?}`.
+  - `POST /v1/calendar/events/{id}/cancel` `{notify?}`.
+  - Action `calendar.create_event`, `calendar.move_event` ou `calendar.cancel_event`
+    (approbation simple) ; pour un événement partagé (autres participants, événement d'un
+    autre organisateur, agenda d'un autre propriétaire), `calendar.update_shared_event`
+    (approbation renforcée). Paramètres non modifiables à l'approbation.
+  - `preview` : `{operation, calendar, summary, summary_line, timezone, before?, after?,
+    location?, attendees, notify, shared, recurring?, notes}`, heures écrites dans le
+    fuseau du propriétaire.
+  - `notify` : les participants ne sont prévenus (`sendUpdates=all`) que si c'est coché.
+  - Erreurs : `409 calendar_write_unavailable` (aucun agenda modifiable dans l'espace),
+    `409 calendar_read_only`, `409 calendar_gone`, `409 event_gone`, `409
+    event_not_organizer` (seul l'organisateur déplace un événement), `422 event_in_past`,
+    `422 event_unchanged`, `422 invalid_event_times` (fin avant le début, plus de 14 jours,
+    ou 31 jours entiers), `422 invalid_guest` (adresse non renvoyée), `404
+    event_not_found`, `403 connector_capability_missing` sans consentement `calendar.write`
+    de l'espace, `403 agent_permission_required` pour un agent sans permission `calendar`
+    en écriture.
 - Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
   - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
     `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous
@@ -241,7 +291,8 @@ puis envoie le message avec les seules pièces jointes `sent`.
     not_after?}` → au plus trois créneaux (un par jour), chacun avec ses `assumptions`
     (durée et son origine, disponibilités, marge, provisoires, fraîcheur de l'agenda) et ses
     `events_used`. Sans durée : l'estimation de la tâche, sinon une heure ; avec une tâche
-    datée, avant son échéance. Rien n'est écrit dans l'agenda.
+    datée, avant son échéance. Rien n'est écrit dans l'agenda : « Bloquer ce créneau » propose
+    un `calendar.create_event` à approuver.
 
 ## Tâches : dépendances, état bloqué, étiquettes (tâche 22)
 
@@ -395,5 +446,5 @@ leurs métadonnées (T26) ne sont pas incluses.
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
 | `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas suivis, déconnexion |
-| `/v1/calendar` | 5 | occurrences des agendas suivis (lecture) |
+| `/v1/calendar` | 5 | occurrences des agendas suivis, propositions de création, de déplacement et d'annulation (approbation) |
 | `/v1/planning` | 5 | conflits d'agenda et créneaux libres, calculés localement (lecture seule) |

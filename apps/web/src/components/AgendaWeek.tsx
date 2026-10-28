@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
+import { EventActions } from "@/components/CalendarChange";
 import { Alert, Badge, Empty, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { dayLabel, groupByDay, rangeQuery, responseLabel, timeLabel } from "@/lib/calendar";
@@ -11,7 +12,7 @@ import type { CalendarEvent, CalendarEvents } from "@/lib/types";
 
 export const EVENTS_KEY = "calendar-events";
 
-function EventItem({ event, day }: { event: CalendarEvent; day: string }) {
+function EventItem({ event, day, editable }: { event: CalendarEvent; day: string; editable: boolean }) {
   const answer = responseLabel(event);
   return (
     <li className="flex flex-col gap-0.5 rounded-md border border-stone-200 px-3 py-2 dark:border-stone-800">
@@ -31,6 +32,7 @@ function EventItem({ event, day }: { event: CalendarEvent; day: string }) {
         Source : {event.source_name}
         {event.synced_at ? ` · lu le ${formatDateTime(event.synced_at)}` : ""}
       </span>
+      {editable && event.editable && <EventActions event={event} />}
     </li>
   );
 }
@@ -44,11 +46,14 @@ export function AgendaDays({
   spaceId,
   emptyText = "Aucun événement.",
   hideEmptyDays = false,
+  editable = false,
 }: {
   days: string[];
   spaceId: string | null;
   emptyText?: string;
   hideEmptyDays?: boolean;
+  /** Offer « Déplacer » and « Annuler » (each proposes an approval). */
+  editable?: boolean;
 }) {
   const path = rangeQuery(days[0], days.length, spaceId);
   const events = useQuery({
@@ -81,7 +86,7 @@ export function AgendaDays({
             ) : (
               <ul className="flex flex-col gap-1">
                 {list.map((event) => (
-                  <EventItem key={`${event.id}-${day}`} event={event} day={day} />
+                  <EventItem key={`${event.id}-${day}`} event={event} day={day} editable={editable} />
                 ))}
               </ul>
             )}
