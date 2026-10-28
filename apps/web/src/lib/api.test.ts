@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, ApiError, errorMessage, withReauth } from "./api";
+import { api, ApiError, attachmentName, download, errorMessage, withReauth } from "./api";
 
 function respond(status: number, body: unknown) {
   return new Response(body === undefined ? null : JSON.stringify(body), {
@@ -72,5 +72,38 @@ describe("withReauth", () => {
     const failure = new ApiError(404, { status: 404, code: "task_not_found", title: "" });
     await expect(withReauth(() => Promise.reject(failure), reauth)).rejects.toBe(failure);
     expect(reauth).not.toHaveBeenCalled();
+  });
+});
+
+describe("download", () => {
+  it("reads the attachment name, RFC 8187 form first", () => {
+    expect(attachmentName('attachment; filename="a.zip"', "x")).toBe("a.zip");
+    expect(attachmentName("attachment; filename=\"Releve.pdf\"; filename*=UTF-8''Relev%C3%A9.pdf", "x")).toBe(
+      "Relevé.pdf",
+    );
+    expect(attachmentName(null, "x.zip")).toBe("x.zip");
+  });
+
+  it("saves the file and throws problems as ApiError", async () => {
+    const createObjectURL = vi.fn(() => "blob:1");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response("PK", { headers: { "Content-Disposition": 'attachment; filename="e.zip"' } }),
+        )
+        .mockResolvedValueOnce(respond(403, { status: 403, code: "reauthentication_required", title: "" })),
+    );
+    await expect(download("/v1/privacy/export.zip", "x.zip")).resolves.toBe("e.zip");
+    expect(click).toHaveBeenCalledOnce();
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    const error = await download("/v1/privacy/export.zip", "x.zip").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("reauthentication_required");
+    expect(click).toHaveBeenCalledOnce();
+    click.mockRestore();
   });
 });

@@ -67,6 +67,49 @@ export async function upload<T>(
   return data as T;
 }
 
+/** The file name of an `attachment` Content-Disposition (RFC 6266, `filename*` first). */
+export function attachmentName(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  const extended = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (extended?.[1]) {
+    try {
+      return decodeURIComponent(extended[1]);
+    } catch {
+      // Malformed encoding: fall back on the plain name.
+    }
+  }
+  const plain = /filename="([^"]+)"/i.exec(header);
+  return plain?.[1] ?? fallback;
+}
+
+/**
+ * Downloads a file through fetch (so that a problem, e.g. a recent passkey sign-in to
+ * confirm, comes back as an ApiError usable with `withReauth`), then hands it to the
+ * browser as a download. The file is held in memory meanwhile: for exports only.
+ */
+export async function download(path: string, fallbackName: string): Promise<string> {
+  const response = await fetch(path, { credentials: "same-origin" });
+  if (!response.ok) {
+    const data: unknown = await response.json().catch(() => null);
+    throw new ApiError(response.status, (data as Problem | null) ?? null);
+  }
+  const name = attachmentName(response.headers.get("Content-Disposition"), fallbackName);
+  const url = URL.createObjectURL(await response.blob());
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+  } finally {
+    // After the click has started the download.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return name;
+}
+
 export function isApiError(error: unknown, code?: string): error is ApiError {
   return error instanceof ApiError && (code === undefined || error.code === code);
 }

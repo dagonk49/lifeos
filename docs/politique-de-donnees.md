@@ -88,13 +88,39 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
   ancienne, ou les déclarer perdus (`lifeos-admin reconcile-originals --yes`, audité
   `document.original_missing`) : le document et son texte restent, l'original n'est plus
   proposé.
-- Export complet sur demande : JSON (mémoire, journal, tâches et leurs dépendances,
-  documents : métadonnées et texte extrait, finances), CSV (tâches, finances), ICS (tâches
-  datées). Les originaux chiffrés se téléchargent un par un depuis la page Documents.
+- **Export complet (réversibilité)**, Réglages > Mes données, réservé au propriétaire (les
+  agents n'exportent jamais : action `data.export` sans niveau agent) et en validation
+  renforcée : une connexion par passkey récente est demandée (une session volée ne suffit
+  pas à tout emporter), le refus est audité :
+  - une archive ZIP (`GET /v1/privacy/export.zip`) qui contient le JSON complet
+    (`lifeos-export.json`, format version 2 : toutes les tables du propriétaire, une clé
+    par table), les tâches et les opérations en CSV, les tâches (VTODO) et les événements
+    des agendas suivis (VEVENT) en iCalendar, le journal en Markdown (une entrée par
+    fichier) et un README qui décrit chaque format ; le JSON seul reste disponible
+    (`GET /v1/privacy/export`). Formats détaillés : [conventions-api.md](conventions-api.md)
+    « Export et réversibilité » ;
+  - **ce qui n'est pas exporté**, et pourquoi (listé aussi dans le JSON, clé `excluded`) :
+    les vecteurs (`embeddings`, recalculés à partir des textes), les réponses
+    d'idempotence (24 h), les défis WebAuthn et consentements OAuth en cours (quelques
+    minutes), les empreintes des jetons d'enrôlement ; et, dans les tables exportées, les
+    jetons scellés des comptes connectés, l'empreinte des cookies de session, le matériel
+    de clé des passkeys, le curseur et le verrou de synchronisation des agendas,
+    l'emplacement des fichiers chiffrés. `backend/tests/test_export.py` parcourt le schéma :
+    une nouvelle table du propriétaire doit être exportée ou exclue avec sa raison ;
+  - les **originaux déchiffrés** des documents ne sont dans l'archive que sur demande
+    (case « Inclure les originaux déchiffrés », `?originals=true`) ; chaque export est
+    audité `privacy.export` (format, nombre de lignes et d'originaux,
+    jamais de contenu). Les images jamais nettoyées de leurs métadonnées n'y figurent pas,
+    comme au téléchargement unitaire. Chaque original se télécharge aussi seul depuis la
+    page Documents ;
+  - les fichiers téléchargés **ne sont pas chiffrés** (ils contiennent le journal, les
+    conversations et le texte des documents, sensibles compris) : l'interface et le README
+    le rappellent.
 - Les originaux des documents figurent, **chiffrés**, dans les sauvegardes : illisibles sans
   `lifeos_documents_key`, qui est conservée à part.
 - **Comptes connectés** : l'export JSON liste les comptes (fournisseur, adresse, scopes,
-  statut), les consentements par espace et les sources, jamais les jetons. Déconnecter
+  statut), les consentements par espace, les sources et les événements synchronisés,
+  jamais les jetons. Déconnecter
   révoque l'accès chez le fournisseur, efface les jetons et retire tous les consentements ;
   LifeOS demande à chaque fois s'il faut garder (par défaut) ou supprimer les données déjà
   synchronisées. Les jetons figurent, chiffrés, dans les sauvegardes : illisibles sans

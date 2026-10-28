@@ -211,7 +211,25 @@ exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou 
   - Les jetons d'accès restent chiffrés sur votre serveur : ils ne sont jamais affichés,
     exportés ni journalisés.
 - **Préférences** : nom, fuseau horaire, plages de tranquillité.
-- **Mes données** : export complet (JSON).
+- **Mes données** : **Télécharger l'archive (ZIP)** rassemble toutes vos données dans un
+  dossier `lifeos-export-AAAAMMJJ` :
+  - `lifeos-export.json` : tout, dans un format complet et documenté (montants en
+    décimaux exacts) ;
+  - `tasks.csv` et `transactions.csv` : vos tâches et vos opérations, à ouvrir dans un
+    tableur (Excel : Données > À partir d'un fichier texte/CSV ; LibreOffice : jeu de
+    caractères UTF-8, séparateur virgule) ;
+  - `calendar.ics` (événements de vos agendas suivis) et `tasks.ics` (tâches, avec
+    échéances et rappels), à importer dans Google Agenda, Apple Calendrier, Thunderbird
+    ou un gestionnaire de tâches ;
+  - `journal/` : une entrée de journal par fichier Markdown ;
+  - `README.md` : ce que contient chaque fichier, et ce qui n'est pas exporté.
+
+  **JSON seul** télécharge uniquement le fichier JSON. Cochez **Inclure les originaux
+  déchiffrés de mes documents** pour ajouter le dossier `originaux/`. LifeOS vous demande
+  votre passkey si vous ne vous êtes pas connecté récemment, et inscrit chaque export au
+  journal d'audit. Les jetons des comptes connectés et les clés des passkeys ne sont
+  jamais exportés. **Les fichiers téléchargés ne sont pas chiffrés** : rangez-les sur un
+  support chiffré, pas dans un dossier synchronisé dans le cloud.
 - **Journal d'audit** : qui a fait quoi, sans le contenu. Les refus apparaissent en rouge
   (`denied`), par exemple :
   - `auth.session.rejected` : une session révoquée ou expirée a été réutilisée (un ancien

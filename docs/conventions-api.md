@@ -278,6 +278,64 @@ puis envoie le message avec les seules pièces jointes `sent`.
 - Pour un agent, lier deux tâches relève de `task.update` (niveau `rule` : permission
   `tasks` en écriture dans l'espace).
 
+## Export et réversibilité (tâche 33)
+
+- `GET /v1/privacy/export` : le JSON complet (`application/json`, pièce jointe
+  `lifeos-export-AAAAMMJJ.json`).
+- `GET /v1/privacy/export.zip[?originals=true]` : l'archive (`application/zip`, pièce
+  jointe `lifeos-export-AAAAMMJJ.zip`), écrite pendant l'envoi fichier par fichier (les
+  lignes sont lues avant, dans la transaction de la requête). Tout est dans un dossier
+  `lifeos-export-AAAAMMJJ/`.
+- Autorisation : `data.export` (propriétaire, jamais un agent) en validation renforcée,
+  pour les deux routes, originaux ou non : `403 reauthentication_required` (refus audité)
+  si la connexion par passkey n'est pas récente. Sans cookie : `401`.
+  Succès audité `privacy.export` avec `format` (`json`, `zip`), `rows` et `originals`
+  (nombre prévu) : jamais de contenu. `503 documents_unavailable` si des originaux sont
+  demandés sans clé de stockage.
+- Chaque ligne est choisie par son propriétaire, déduit du schéma (`user_id`, ou celui de
+  la ligne parente : révisions d'un souvenir, jalons d'un objectif).
+
+**JSON, format `lifeos-export` version 2** (la version 1 imbriquait les révisions dans les
+souvenirs et écrivait les montants en nombres) : `format`, `version`, `app_version`,
+`exported_at`, `excluded` (`tables` et `columns` non exportées, avec leur raison), `user`
+(le compte et ses réglages), puis une clé par table, nommée comme la table (`tasks`,
+`task_dependencies`, `memory_revisions`, `memory_facts`, `goal_milestones`,
+`calendar_events`, `audit_events`…), chaque ligne avec ses colonnes sauf `user_id` et
+`search_vector`. Types : UUID et adresses IP en chaînes, dates et instants ISO 8601,
+**décimaux en chaînes exactes** (`"12.50"`, jamais de flottant ; dérogation assumée au
+`jsonable_encoder` de FastAPI), JSONB tel quel. `documents[].original_available` remplace
+l'emplacement du fichier chiffré. L'encodeur refuse les octets bruts : aucune colonne
+binaire (matériel de clé) ne peut partir par mégarde.
+
+**CSV** (`tasks.csv`, `transactions.csv`) : RFC 4180 (virgule, guillemets doubles, CRLF),
+UTF-8 avec BOM, point décimal, en-têtes anglais en snake_case (à reprendre par l'import CSV
+de la tâche 25). Instants ISO 8601 dans le fuseau du propriétaire, avec leur décalage.
+Une cellule de texte qui commence par `=`, `+`, `-`, `@`, tabulation ou retour chariot est
+préfixée d'une apostrophe (injection de formules : les tickets lus par OCR et les agendas
+synchronisés sont du texte tiers) ; les colonnes numériques ne le sont jamais.
+`transactions.csv` : `amount` toujours positif, `signed_amount` négatif pour une dépense,
+`category` (nom), `category_confirmed` (`true`/`false`). `tasks.csv` : `tags` séparés par
+`, ` (une étiquette ne contient jamais de virgule), `depends_on` (identifiants séparés par
+une espace), `goal` (titre).
+
+**iCalendar** (RFC 5545, écrit sans dépendance par `privacy/ics.py`) : CRLF, lignes pliées
+à 75 octets sans couper un caractère UTF-8, TEXT échappé (`\\`, `;`, `,`, saut de ligne) et
+débarrassé des caractères de contrôle, instants en UTC (`Z`). `calendar.ics` : un VEVENT
+par occurrence synchronisée (`UID:calendar-<id>@lifeos`, journée entière en
+`VALUE=DATE` avec fin exclusive, `STATUS`, `TRANSP`). `tasks.ics` : un VTODO par tâche
+(`UID:task-<id>@lifeos`, `DUE`, `STATUS`, `PRIORITY` 1/5/9, `COMPLETED`, `CATEGORIES`
+= étiquettes, `RELATED-TO;RELTYPE=DEPENDS-ON` pour les dépendances, VALARM au rappel) ;
+Google Agenda ignore les VTODO. Les UID sont stables : un nouvel import met à jour.
+L'espace figure en `X-LIFEOS-SPACE`.
+
+**Markdown** (`journal/AAAA-MM-JJ-<id8>.md`) : en-tête YAML (valeurs JSON : `id`, `date`,
+`space`, `mood`, `created_at`, `updated_at`), puis le texte de l'entrée.
+
+**Originaux** (`originaux/<date>-<id8>-<titre>.<ext>`, sur demande) : déchiffrés, stockés
+sans recompression ; titre réduit aux lettres, chiffres, `-` et `_`. Un original absent ou
+illisible est nommé dans le README, jamais omis en silence ; les images jamais nettoyées de
+leurs métadonnées (T26) ne sont pas incluses.
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -288,7 +346,8 @@ puis envoie le message avec les seules pièces jointes `sent`.
 | `/v1/chat` | 2 | conversations, messages |
 | `/v1/tasks` | 2 | CRUD, rappels, statuts, dépendances et étiquettes (tâche 22) |
 | `/v1/journal` | 2 | entrées, analyse (propositions à valider) |
-| `/v1/memory` | 2 | faits, souvenirs, correction, protection, export, suppression |
+| `/v1/memory` | 2 | faits, souvenirs, correction, protection, suppression |
+| `/v1/privacy` | 2 | export complet : JSON (`/export`), archive ZIP (`/export.zip`, originaux déchiffrés en option) |
 | `/v1/search` | 2, 3, 4 | recherche hybride (plein texte + sens), filtrée par espace, type (dont `documents`) et période |
 | `/v1/approvals` | 2 | prévisualisation, accepter / refuser |
 | `/v1/guardian` | 2 | permissions d'agents, journal d'audit, appels LLM |

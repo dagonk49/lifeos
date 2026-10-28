@@ -100,6 +100,9 @@ _SPECS = [
     ActionSpec("permission.grant", "Accorder une permission à un agent", Level.REINFORCED, None),
     ActionSpec("space.cloud_consent", "Modifier le consentement cloud", Level.REINFORCED, None),
     ActionSpec("data.bulk_delete", "Destruction importante de données", Level.REINFORCED, None),
+    # Reversibility (task 33): only the owner exports, after a recent passkey sign-in (the
+    # whole of their data leaves the server: a stolen session alone is not enough).
+    ActionSpec("data.export", "Exporter mes données", Level.REINFORCED, None, None, "read"),
     # Connected accounts (ADR 0012): giving access is reinforced, withdrawing it immediate.
     ActionSpec("connector.connect", "Connecter un compte externe", Level.REINFORCED, None),
     ActionSpec(

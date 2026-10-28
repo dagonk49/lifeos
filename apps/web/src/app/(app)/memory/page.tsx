@@ -1,10 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 
 import { MemoryReviewPanel, useMemoryReview } from "@/components/MemoryReview";
-import { FactCorrectionForm, useInvalidateFacts } from "@/components/MemoryReviewCorrectForm";
+import {
+  FactCorrectionForm,
+  useInvalidateFacts,
+} from "@/components/MemoryReviewCorrectForm";
 import {
   Alert,
   Badge,
@@ -20,8 +24,17 @@ import {
   cx,
 } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
-import { formatDate, formatDateTime, KIND_LABELS, ORIGIN_LABELS } from "@/lib/format";
-import { ORIGIN_TONES, reviewBadgeText, reviewCountText } from "@/lib/memoryReview";
+import {
+  formatDate,
+  formatDateTime,
+  KIND_LABELS,
+  ORIGIN_LABELS,
+} from "@/lib/format";
+import {
+  ORIGIN_TONES,
+  reviewBadgeText,
+  reviewCountText,
+} from "@/lib/memoryReview";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { Fact, FactKind, Memory, MemoryRevision, Page } from "@/lib/types";
 
@@ -33,7 +46,8 @@ function FactRow({ fact }: { fact: Fact }) {
   const refresh = useInvalidateFacts();
 
   const retract = useMutation({
-    mutationFn: () => api(`/v1/memory/facts/${fact.id}/retract`, { method: "POST" }),
+    mutationFn: () =>
+      api(`/v1/memory/facts/${fact.id}/retract`, { method: "POST" }),
     onSuccess: refresh,
   });
   const remove = useMutation({
@@ -48,18 +62,26 @@ function FactRow({ fact }: { fact: Fact }) {
   return (
     <li className="py-3">
       {correcting ? (
-        <FactCorrectionForm fact={fact} onCancel={() => setCorrecting(false)} onCorrected={() => setCorrecting(false)} />
+        <FactCorrectionForm
+          fact={fact}
+          onCancel={() => setCorrecting(false)}
+          onCorrected={() => setCorrecting(false)}
+        />
       ) : (
         <p>{fact.statement}</p>
       )}
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
         <Badge tone="violet">{KIND_LABELS[fact.kind]}</Badge>
-        <Badge tone={ORIGIN_TONES[fact.origin]}>{ORIGIN_LABELS[fact.origin]}</Badge>
+        <Badge tone={ORIGIN_TONES[fact.origin]}>
+          {ORIGIN_LABELS[fact.origin]}
+        </Badge>
         <span>confiance {Math.round(Number(fact.confidence) * 100)} %</span>
         {fact.occurred_at && <span>· le {formatDate(fact.occurred_at)}</span>}
         <span>· source {fact.source_type}</span>
         <span>· {formatDateTime(fact.created_at)}</span>
-        {fact.last_confirmed_at && <span>· confirmé le {formatDate(fact.last_confirmed_at)}</span>}
+        {fact.last_confirmed_at && (
+          <span>· confirmé le {formatDate(fact.last_confirmed_at)}</span>
+        )}
         {!selected && <Badge>{spaceName(fact.space_id)}</Badge>}
       </div>
       {!correcting && (
@@ -67,7 +89,11 @@ function FactRow({ fact }: { fact: Fact }) {
           <Button size="sm" variant="ghost" onClick={() => setCorrecting(true)}>
             Corriger
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => loadHistory.mutate()}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => loadHistory.mutate()}
+          >
             Historique
           </Button>
           <Button size="sm" variant="ghost" onClick={() => retract.mutate()}>
@@ -82,15 +108,20 @@ function FactRow({ fact }: { fact: Fact }) {
         <ol className="mt-2 border-l-2 border-stone-200 pl-3 text-xs text-stone-600 dark:border-stone-700">
           {history.slice(1).map((h) => (
             <li key={h.id}>
-              <span className="line-through">{h.statement}</span> · {formatDateTime(h.created_at)}
+              <span className="line-through">{h.statement}</span> ·{" "}
+              {formatDateTime(h.created_at)}
             </li>
           ))}
         </ol>
       )}
-      {history && history.length <= 1 && <p className="mt-1 text-xs text-stone-500">Jamais corrigé.</p>}
+      {history && history.length <= 1 && (
+        <p className="mt-1 text-xs text-stone-500">Jamais corrigé.</p>
+      )}
       {(retract.error ?? remove.error ?? loadHistory.error) && (
         <div className="mt-2">
-          <Alert tone="error">{errorMessage(retract.error ?? remove.error ?? loadHistory.error)}</Alert>
+          <Alert tone="error">
+            {errorMessage(retract.error ?? remove.error ?? loadHistory.error)}
+          </Alert>
         </div>
       )}
     </li>
@@ -105,11 +136,15 @@ function MemoryCard({ memory }: { memory: Memory }) {
   const [note, setNote] = useState("");
   const [revisions, setRevisions] = useState<MemoryRevision[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["memories"] });
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: ["memories"] });
 
   const update = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api<Memory>(`/v1/memory/memories/${memory.id}`, { method: "PATCH", body }),
+      api<Memory>(`/v1/memory/memories/${memory.id}`, {
+        method: "PATCH",
+        body,
+      }),
     onSuccess: () => {
       setEditing(false);
       void refresh();
@@ -118,12 +153,15 @@ function MemoryCard({ memory }: { memory: Memory }) {
   });
   const remove = useMutation({
     mutationFn: (confirm: boolean) =>
-      api(`/v1/memory/memories/${memory.id}${confirm ? "?confirm=true" : ""}`, { method: "DELETE" }),
+      api(`/v1/memory/memories/${memory.id}${confirm ? "?confirm=true" : ""}`, {
+        method: "DELETE",
+      }),
     onSuccess: refresh,
     onError: (e) => setError(errorMessage(e)),
   });
   const loadRevisions = useMutation({
-    mutationFn: () => api<MemoryRevision[]>(`/v1/memory/memories/${memory.id}/revisions`),
+    mutationFn: () =>
+      api<MemoryRevision[]>(`/v1/memory/memories/${memory.id}/revisions`),
     onSuccess: setRevisions,
   });
 
@@ -134,7 +172,9 @@ function MemoryCard({ memory }: { memory: Memory }) {
         <>
           {memory.protected && <Badge tone="teal">Protégé</Badge>}
           <Badge>Importance {memory.importance}/5</Badge>
-          <Badge tone={ORIGIN_TONES[memory.origin]}>{ORIGIN_LABELS[memory.origin]}</Badge>
+          <Badge tone={ORIGIN_TONES[memory.origin]}>
+            {ORIGIN_LABELS[memory.origin]}
+          </Badge>
         </>
       }
       footer={`Révision ${memory.revision} · modifié le ${formatDateTime(memory.updated_at)}`}
@@ -147,14 +187,31 @@ function MemoryCard({ memory }: { memory: Memory }) {
             update.mutate({ title, content, change_note: note || null });
           }}
         >
-          <Input aria-label="Titre" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <Textarea aria-label="Contenu" value={content} onChange={(e) => setContent(e.target.value)} />
-          <Input aria-label="Motif de la modification" placeholder="Motif (facultatif)" value={note} onChange={(e) => setNote(e.target.value)} />
+          <Input
+            aria-label="Titre"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <Textarea
+            aria-label="Contenu"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+          />
+          <Input
+            aria-label="Motif de la modification"
+            placeholder="Motif (facultatif)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
           <div className="flex gap-2">
             <Button size="sm" type="submit">
               Enregistrer
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setEditing(false)}
+            >
               Annuler
             </Button>
           </div>
@@ -167,17 +224,30 @@ function MemoryCard({ memory }: { memory: Memory }) {
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
             Modifier
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => update.mutate({ protected: !memory.protected })}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => update.mutate({ protected: !memory.protected })}
+          >
             {memory.protected ? "Retirer la protection" : "Protéger"}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => loadRevisions.mutate()}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => loadRevisions.mutate()}
+          >
             Révisions
           </Button>
           <Button
             size="sm"
             variant="ghost"
             onClick={() => {
-              if (!memory.protected || window.confirm("Ce souvenir est protégé. Le supprimer définitivement ?")) {
+              if (
+                !memory.protected ||
+                window.confirm(
+                  "Ce souvenir est protégé. Le supprimer définitivement ?",
+                )
+              ) {
                 remove.mutate(memory.protected);
               }
             }}
@@ -192,8 +262,10 @@ function MemoryCard({ memory }: { memory: Memory }) {
           {revisions.length === 0 && <li>Aucune révision antérieure.</li>}
           {revisions.map((r) => (
             <li key={r.revision}>
-              <strong>Révision {r.revision}</strong> ({formatDateTime(r.changed_at)}
-              {r.change_note && ` — ${r.change_note}`}) : {r.title} — {r.content.slice(0, 200)}
+              <strong>Révision {r.revision}</strong> (
+              {formatDateTime(r.changed_at)}
+              {r.change_note && ` — ${r.change_note}`}) : {r.title} —{" "}
+              {r.content.slice(0, 200)}
             </li>
           ))}
         </ol>
@@ -215,16 +287,21 @@ export default function MemoryPage() {
   const invalidateFacts = useInvalidateFacts();
   // Loaded whatever the tab, for the count badge.
   const review = useMemoryReview();
-  const reviewCount = review.isPending && review.items.length === 0 ? null : review.items.length;
+  const reviewCount =
+    review.isPending && review.items.length === 0 ? null : review.items.length;
 
   const facts = useQuery({
     queryKey: ["facts", selected],
-    queryFn: () => api<Page<Fact>>(`/v1/memory/facts?limit=200${spaceParam(selected, "&")}`),
+    queryFn: () =>
+      api<Page<Fact>>(`/v1/memory/facts?limit=200${spaceParam(selected, "&")}`),
     enabled: tab === "facts",
   });
   const memories = useQuery({
     queryKey: ["memories", selected],
-    queryFn: () => api<Page<Memory>>(`/v1/memory/memories?limit=200${spaceParam(selected, "&")}`),
+    queryFn: () =>
+      api<Page<Memory>>(
+        `/v1/memory/memories?limit=200${spaceParam(selected, "&")}`,
+      ),
     enabled: tab === "memories",
   });
   const addFact = useMutation({
@@ -264,40 +341,64 @@ export default function MemoryPage() {
   const tabClass = (active: boolean) =>
     cx(
       "rounded-md px-3 py-1.5 text-sm",
-      active ? "bg-teal-100 font-medium text-teal-900 dark:bg-teal-900/50 dark:text-teal-100" : "hover:bg-stone-100 dark:hover:bg-stone-800",
+      active
+        ? "bg-teal-100 font-medium text-teal-900 dark:bg-teal-900/50 dark:text-teal-100"
+        : "hover:bg-stone-100 dark:hover:bg-stone-800",
     );
 
   return (
     <>
       <PageHeader title="Mémoire">
-        <a
-          href="/v1/privacy/export"
-          download
+        <Link
+          href="/settings#mes-donnees"
           className="rounded-md border border-stone-300 px-2.5 py-1 text-sm hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800"
         >
-          Exporter mes données (JSON)
-        </a>
+          Exporter mes données
+        </Link>
       </PageHeader>
-      <div role="tablist" aria-label="Type de mémoire" className="mb-4 flex flex-wrap gap-2">
-        <button role="tab" aria-selected={tab === "facts"} className={tabClass(tab === "facts")} onClick={() => setTab("facts")}>
+      <div
+        role="tablist"
+        aria-label="Type de mémoire"
+        className="mb-4 flex flex-wrap gap-2"
+      >
+        <button
+          role="tab"
+          aria-selected={tab === "facts"}
+          className={tabClass(tab === "facts")}
+          onClick={() => setTab("facts")}
+        >
           Faits
         </button>
-        <button role="tab" aria-selected={tab === "memories"} className={tabClass(tab === "memories")} onClick={() => setTab("memories")}>
+        <button
+          role="tab"
+          aria-selected={tab === "memories"}
+          className={tabClass(tab === "memories")}
+          onClick={() => setTab("memories")}
+        >
           Souvenirs
         </button>
         <button
           role="tab"
           aria-selected={tab === "review"}
-          className={cx(tabClass(tab === "review"), "inline-flex items-center gap-1.5")}
+          className={cx(
+            tabClass(tab === "review"),
+            "inline-flex items-center gap-1.5",
+          )}
           onClick={() => setTab("review")}
         >
           À vérifier
           {reviewCount !== null && reviewCount > 0 && (
             <>
-              <span aria-hidden className="rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+              <span
+                aria-hidden
+                className="rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
+              >
                 {reviewBadgeText(reviewCount, review.truncated)}
               </span>
-              <span className="sr-only"> ({reviewCountText(reviewCount, review.truncated)})</span>
+              <span className="sr-only">
+                {" "}
+                ({reviewCountText(reviewCount, review.truncated)})
+              </span>
             </>
           )}
         </button>
@@ -322,7 +423,10 @@ export default function MemoryPage() {
               </ul>
             )}
           </Card>
-          <Card title="Ajouter un fait" footer={`Espace : ${spaceName(writeSpaceId)}`}>
+          <Card
+            title="Ajouter un fait"
+            footer={`Espace : ${spaceName(writeSpaceId)}`}
+          >
             <form
               className="flex flex-col gap-3"
               onSubmit={(e) => {
@@ -331,7 +435,10 @@ export default function MemoryPage() {
               }}
             >
               <Field label="Type">
-                <Select value={kind} onChange={(e) => setKind(e.target.value as FactKind)}>
+                <Select
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value as FactKind)}
+                >
                   {Object.entries(KIND_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
                       {label}
@@ -340,12 +447,22 @@ export default function MemoryPage() {
                 </Select>
               </Field>
               <Field label="Énoncé">
-                <Textarea value={statement} onChange={(e) => setStatement(e.target.value)} rows={3} required />
+                <Textarea
+                  value={statement}
+                  onChange={(e) => setStatement(e.target.value)}
+                  rows={3}
+                  required
+                />
               </Field>
-              <Button type="submit" disabled={!statement.trim() || addFact.isPending}>
+              <Button
+                type="submit"
+                disabled={!statement.trim() || addFact.isPending}
+              >
                 Ajouter
               </Button>
-              {addFact.error && <Alert tone="error">{errorMessage(addFact.error)}</Alert>}
+              {addFact.error && (
+                <Alert tone="error">{errorMessage(addFact.error)}</Alert>
+              )}
             </form>
           </Card>
         </div>
@@ -361,10 +478,15 @@ export default function MemoryPage() {
                 <Empty>Aucun souvenir.</Empty>
               </Card>
             ) : (
-              memories.data.items.map((m) => <MemoryCard key={m.id} memory={m} />)
+              memories.data.items.map((m) => (
+                <MemoryCard key={m.id} memory={m} />
+              ))
             )}
           </div>
-          <Card title="Nouveau souvenir" footer={`Espace : ${spaceName(writeSpaceId)}`}>
+          <Card
+            title="Nouveau souvenir"
+            footer={`Espace : ${spaceName(writeSpaceId)}`}
+          >
             <form
               className="flex flex-col gap-3"
               onSubmit={(e) => {
@@ -373,13 +495,25 @@ export default function MemoryPage() {
               }}
             >
               <Field label="Titre">
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                  maxLength={200}
+                />
               </Field>
               <Field label="Contenu">
-                <Textarea value={content} onChange={(e) => setContent(e.target.value)} required />
+                <Textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  required
+                />
               </Field>
               <Field label="Importance">
-                <Select value={importance} onChange={(e) => setImportance(e.target.value)}>
+                <Select
+                  value={importance}
+                  onChange={(e) => setImportance(e.target.value)}
+                >
                   {[1, 2, 3, 4, 5].map((n) => (
                     <option key={n} value={n}>
                       {n}
@@ -388,13 +522,20 @@ export default function MemoryPage() {
                 </Select>
               </Field>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" className="accent-teal-700" checked={isProtected} onChange={(e) => setProtected(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="accent-teal-700"
+                  checked={isProtected}
+                  onChange={(e) => setProtected(e.target.checked)}
+                />
                 Protéger (jamais purgé automatiquement)
               </label>
               <Button type="submit" disabled={addMemory.isPending}>
                 Enregistrer
               </Button>
-              {addMemory.error && <Alert tone="error">{errorMessage(addMemory.error)}</Alert>}
+              {addMemory.error && (
+                <Alert tone="error">{errorMessage(addMemory.error)}</Alert>
+              )}
             </form>
           </Card>
         </div>

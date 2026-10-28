@@ -5,15 +5,41 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { AgentAccessPanel } from "@/components/AgentAccessPanel";
 import { ConnectorsPanel } from "@/components/ConnectorsPanel";
+import { DataExport } from "@/components/DataExport";
 import { SessionList } from "@/components/SessionList";
 import { UsagePanel } from "@/components/UsagePanel";
-import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Empty,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  Spinner,
+} from "@/components/ui";
 import { api, errorMessage, withReauth } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { loginWithPasskey, registerPasskey } from "@/lib/passkeys";
-import type { AgentPermission, AuditEvent, Passkey, Settings, Space } from "@/lib/types";
+import type {
+  AgentPermission,
+  AuditEvent,
+  Passkey,
+  Settings,
+  Space,
+} from "@/lib/types";
 
-const AGENTS = ["core", "planning", "memory", "coaching", "finance", "projects", "documents"];
+const AGENTS = [
+  "core",
+  "planning",
+  "memory",
+  "coaching",
+  "finance",
+  "projects",
+  "documents",
+];
 // Mirror of guardian/models.py RESOURCES.
 const RESOURCES = [
   "tasks",
@@ -31,7 +57,10 @@ const RESOURCES = [
 
 function useInvalidate(...keys: string[]) {
   const queryClient = useQueryClient();
-  return () => keys.forEach((key) => void queryClient.invalidateQueries({ queryKey: [key] }));
+  return () =>
+    keys.forEach(
+      (key) => void queryClient.invalidateQueries({ queryKey: [key] }),
+    );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -40,11 +69,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 function SpacesSection() {
   const invalidate = useInvalidate("spaces", "dashboard");
-  const spaces = useQuery({ queryKey: ["spaces"], queryFn: () => api<Space[]>("/v1/spaces") });
+  const spaces = useQuery({
+    queryKey: ["spaces"],
+    queryFn: () => api<Space[]>("/v1/spaces"),
+  });
   const toggle = useMutation({
     mutationFn: (space: Space) =>
       withReauth(
-        () => api<Space>(`/v1/spaces/${space.id}`, { method: "PATCH", body: { cloud_ai_enabled: !space.cloud_ai_enabled } }),
+        () =>
+          api<Space>(`/v1/spaces/${space.id}`, {
+            method: "PATCH",
+            body: { cloud_ai_enabled: !space.cloud_ai_enabled },
+          }),
         loginWithPasskey,
       ),
     onSuccess: invalidate,
@@ -52,24 +88,35 @@ function SpacesSection() {
   return (
     <Section title="Espaces et assistant IA">
       <p className="mb-2 text-sm text-stone-600 dark:text-stone-400">
-        Autoriser l&apos;assistant pour un espace permet d&apos;envoyer au fournisseur IA des
-        extraits minimaux de cet espace, après masquage local des données sensibles. Changer ce
-        réglage demande une confirmation par passkey.
+        Autoriser l&apos;assistant pour un espace permet d&apos;envoyer au
+        fournisseur IA des extraits minimaux de cet espace, après masquage local
+        des données sensibles. Changer ce réglage demande une confirmation par
+        passkey.
       </p>
       {spaces.isPending ? (
         <Spinner />
       ) : (
         <ul className="divide-y divide-stone-100 dark:divide-stone-800">
           {spaces.data?.map((space) => (
-            <li key={space.id} className="flex items-center justify-between py-2">
+            <li
+              key={space.id}
+              className="flex items-center justify-between py-2"
+            >
               <span>
                 {space.name}{" "}
                 <Badge tone={space.cloud_ai_enabled ? "teal" : "neutral"}>
                   {space.cloud_ai_enabled ? "IA autorisée" : "IA non autorisée"}
                 </Badge>
               </span>
-              <Button size="sm" variant="secondary" onClick={() => toggle.mutate(space)} disabled={toggle.isPending}>
-                {space.cloud_ai_enabled ? "Retirer l'autorisation" : "Autoriser l'IA"}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => toggle.mutate(space)}
+                disabled={toggle.isPending}
+              >
+                {space.cloud_ai_enabled
+                  ? "Retirer l'autorisation"
+                  : "Autoriser l'IA"}
               </Button>
             </li>
           ))}
@@ -82,8 +129,17 @@ function SpacesSection() {
 
 function PreferencesSection() {
   const invalidate = useInvalidate("settings", "dashboard", "llm-usage");
-  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api<Settings>("/v1/settings") });
-  const [form, setForm] = useState({ display_name: "", timezone: "", start: "", end: "", budget: "" });
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => api<Settings>("/v1/settings"),
+  });
+  const [form, setForm] = useState({
+    display_name: "",
+    timezone: "",
+    start: "",
+    end: "",
+    budget: "",
+  });
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     if (settings.data) {
@@ -113,10 +169,11 @@ function PreferencesSection() {
       invalidate();
     },
   });
-  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => {
-    setSaved(false);
-    setForm((f) => ({ ...f, [key]: e.target.value }));
-  };
+  const set =
+    (key: keyof typeof form) => (e: { target: { value: string } }) => {
+      setSaved(false);
+      setForm((f) => ({ ...f, [key]: e.target.value }));
+    };
   return (
     <Section title="Préférences">
       <form
@@ -132,20 +189,35 @@ function PreferencesSection() {
         <Field label="Fuseau horaire" hint="Nom IANA, ex. Europe/Paris">
           <Input value={form.timezone} onChange={set("timezone")} />
         </Field>
-        <Field label="Tranquillité : début" hint="Les notifications non critiques attendent la fin.">
+        <Field
+          label="Tranquillité : début"
+          hint="Les notifications non critiques attendent la fin."
+        >
           <Input type="time" value={form.start} onChange={set("start")} />
         </Field>
         <Field label="Tranquillité : fin">
           <Input type="time" value={form.end} onChange={set("end")} />
         </Field>
-        <Field label="Budget IA mensuel (jetons)" hint="Arrêt automatique des appels au-delà.">
-          <Input type="number" min={0} value={form.budget} onChange={set("budget")} />
+        <Field
+          label="Budget IA mensuel (jetons)"
+          hint="Arrêt automatique des appels au-delà."
+        >
+          <Input
+            type="number"
+            min={0}
+            value={form.budget}
+            onChange={set("budget")}
+          />
         </Field>
         <div className="flex items-end gap-2">
           <Button type="submit" disabled={save.isPending}>
             Enregistrer
           </Button>
-          {saved && <span role="status" className="text-sm text-teal-700">Enregistré</span>}
+          {saved && (
+            <span role="status" className="text-sm text-teal-700">
+              Enregistré
+            </span>
+          )}
         </div>
       </form>
       {save.error && <Alert tone="error">{errorMessage(save.error)}</Alert>}
@@ -155,15 +227,25 @@ function PreferencesSection() {
 
 function DevicesSection() {
   const invalidate = useInvalidate("passkeys", "sessions");
-  const passkeys = useQuery({ queryKey: ["passkeys"], queryFn: () => api<Passkey[]>("/v1/auth/passkeys") });
+  const passkeys = useQuery({
+    queryKey: ["passkeys"],
+    queryFn: () => api<Passkey[]>("/v1/auth/passkeys"),
+  });
   const [label, setLabel] = useState("");
   const revokePasskey = useMutation({
     mutationFn: (id: string) =>
-      withReauth(() => api(`/v1/auth/passkeys/${id}`, { method: "DELETE" }), loginWithPasskey),
+      withReauth(
+        () => api(`/v1/auth/passkeys/${id}`, { method: "DELETE" }),
+        loginWithPasskey,
+      ),
     onSuccess: invalidate,
   });
   const addPasskey = useMutation({
-    mutationFn: () => withReauth(() => registerPasskey(label || "Nouvel appareil"), loginWithPasskey),
+    mutationFn: () =>
+      withReauth(
+        () => registerPasskey(label || "Nouvel appareil"),
+        loginWithPasskey,
+      ),
     onSuccess: () => {
       setLabel("");
       invalidate();
@@ -176,13 +258,19 @@ function DevicesSection() {
         {passkeys.data?.map((p) => (
           <li key={p.id} className="flex items-center justify-between py-2">
             <span>
-              {p.label} {p.backup_state && <Badge tone="blue">Synchronisée</Badge>}
+              {p.label}{" "}
+              {p.backup_state && <Badge tone="blue">Synchronisée</Badge>}
               <span className="block text-xs text-stone-500">
                 Créée le {formatDateTime(p.created_at)}
-                {p.last_used_at && ` · utilisée le ${formatDateTime(p.last_used_at)}`}
+                {p.last_used_at &&
+                  ` · utilisée le ${formatDateTime(p.last_used_at)}`}
               </span>
             </span>
-            <Button size="sm" variant="ghost" onClick={() => revokePasskey.mutate(p.id)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => revokePasskey.mutate(p.id)}
+            >
               Révoquer
             </Button>
           </li>
@@ -195,13 +283,24 @@ function DevicesSection() {
           addPasskey.mutate();
         }}
       >
-        <Input aria-label="Nom du nouvel appareil" placeholder="Nom de l'appareil" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <Button type="submit" variant="secondary" disabled={addPasskey.isPending}>
+        <Input
+          aria-label="Nom du nouvel appareil"
+          placeholder="Nom de l'appareil"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={addPasskey.isPending}
+        >
           Ajouter une passkey
         </Button>
       </form>
       {(revokePasskey.error || addPasskey.error) && (
-        <Alert tone="error">{errorMessage(revokePasskey.error ?? addPasskey.error)}</Alert>
+        <Alert tone="error">
+          {errorMessage(revokePasskey.error ?? addPasskey.error)}
+        </Alert>
       )}
 
       <SessionList />
@@ -212,12 +311,22 @@ function DevicesSection() {
 function PermissionsSection() {
   // "agents": the per-space access shown in « Agents spécialisés ».
   const invalidate = useInvalidate("permissions", "agents");
-  const spaces = useQuery({ queryKey: ["spaces"], queryFn: () => api<Space[]>("/v1/spaces") });
+  const spaces = useQuery({
+    queryKey: ["spaces"],
+    queryFn: () => api<Space[]>("/v1/spaces"),
+  });
   const permissions = useQuery({
     queryKey: ["permissions"],
     queryFn: () => api<AgentPermission[]>("/v1/guardian/permissions"),
   });
-  const [form, setForm] = useState({ agent: "coaching", space_id: "", resource: "journal", access: "read", purpose: "", days: "30" });
+  const [form, setForm] = useState({
+    agent: "coaching",
+    space_id: "",
+    resource: "journal",
+    access: "read",
+    purpose: "",
+    days: "30",
+  });
   const grant = useMutation({
     mutationFn: () =>
       withReauth(
@@ -230,7 +339,11 @@ function PermissionsSection() {
               resource: form.resource,
               access: form.access,
               purpose: form.purpose,
-              expires_at: form.days ? new Date(Date.now() + Number(form.days) * 86_400_000).toISOString() : null,
+              expires_at: form.days
+                ? new Date(
+                    Date.now() + Number(form.days) * 86_400_000,
+                  ).toISOString()
+                : null,
             },
           }),
         loginWithPasskey,
@@ -241,33 +354,46 @@ function PermissionsSection() {
     },
   });
   const revoke = useMutation({
-    mutationFn: (id: string) => api(`/v1/guardian/permissions/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      api(`/v1/guardian/permissions/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
   });
-  const spaceName = (id: string) => spaces.data?.find((s) => s.id === id)?.name ?? id;
-  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const spaceName = (id: string) =>
+    spaces.data?.find((s) => s.id === id)?.name ?? id;
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
 
   return (
     <Section title="Permissions des agents">
       <p className="mb-2 text-sm text-stone-600 dark:text-stone-400">
-        Un agent spécialisé n&apos;accède qu&apos;aux données explicitement autorisées ici, pour une
-        finalité et une durée données. Il ne peut jamais s&apos;octroyer de permission.
+        Un agent spécialisé n&apos;accède qu&apos;aux données explicitement
+        autorisées ici, pour une finalité et une durée données. Il ne peut
+        jamais s&apos;octroyer de permission.
       </p>
       {permissions.data?.length === 0 ? (
         <Empty>Aucune permission accordée.</Empty>
       ) : (
         <ul className="divide-y divide-stone-100 text-sm dark:divide-stone-800">
           {permissions.data?.map((p) => (
-            <li key={p.id} className="flex items-center justify-between gap-2 py-2">
+            <li
+              key={p.id}
+              className="flex items-center justify-between gap-2 py-2"
+            >
               <span>
-                <strong>{p.agent}</strong> · {p.access === "write" ? "lecture/écriture" : "lecture"} {p.resource} ·{" "}
-                {spaceName(p.space_id)}
+                <strong>{p.agent}</strong> ·{" "}
+                {p.access === "write" ? "lecture/écriture" : "lecture"}{" "}
+                {p.resource} · {spaceName(p.space_id)}
                 <span className="block text-xs text-stone-500">
                   {p.purpose}
-                  {p.expires_at && ` · jusqu'au ${formatDateTime(p.expires_at)}`}
+                  {p.expires_at &&
+                    ` · jusqu'au ${formatDateTime(p.expires_at)}`}
                 </span>
               </span>
-              <Button size="sm" variant="ghost" onClick={() => revoke.mutate(p.id)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => revoke.mutate(p.id)}
+              >
                 Retirer
               </Button>
             </li>
@@ -283,7 +409,9 @@ function PermissionsSection() {
       >
         <Field label="Agent">
           <Select value={form.agent} onChange={set("agent")}>
-            {AGENTS.map((a) => <option key={a}>{a}</option>)}
+            {AGENTS.map((a) => (
+              <option key={a}>{a}</option>
+            ))}
           </Select>
         </Field>
         <Field label="Espace">
@@ -297,7 +425,9 @@ function PermissionsSection() {
         </Field>
         <Field label="Données">
           <Select value={form.resource} onChange={set("resource")}>
-            {RESOURCES.map((r) => <option key={r}>{r}</option>)}
+            {RESOURCES.map((r) => (
+              <option key={r}>{r}</option>
+            ))}
           </Select>
         </Field>
         <Field label="Accès">
@@ -307,10 +437,20 @@ function PermissionsSection() {
           </Select>
         </Field>
         <Field label="Durée (jours)">
-          <Input type="number" min={1} value={form.days} onChange={set("days")} />
+          <Input
+            type="number"
+            min={1}
+            value={form.days}
+            onChange={set("days")}
+          />
         </Field>
         <Field label="Finalité">
-          <Input value={form.purpose} onChange={set("purpose")} minLength={3} required />
+          <Input
+            value={form.purpose}
+            onChange={set("purpose")}
+            minLength={3}
+            required
+          />
         </Field>
         <div className="sm:col-span-3">
           <Button type="submit" variant="secondary" disabled={grant.isPending}>
@@ -336,9 +476,13 @@ function AuditSection() {
         <ul className="max-h-80 divide-y divide-stone-100 overflow-y-auto text-xs dark:divide-stone-800">
           {audit.data?.items.map((e) => (
             <li key={e.id} className="flex flex-wrap items-center gap-2 py-1.5">
-              <span className="text-stone-500">{formatDateTime(e.occurred_at)}</span>
+              <span className="text-stone-500">
+                {formatDateTime(e.occurred_at)}
+              </span>
               <code>{e.action}</code>
-              <Badge tone={e.outcome === "success" ? "neutral" : "red"}>{e.outcome}</Badge>
+              <Badge tone={e.outcome === "success" ? "neutral" : "red"}>
+                {e.outcome}
+              </Badge>
               <span className="text-stone-500">{e.actor_type}</span>
             </li>
           ))}
@@ -367,16 +511,12 @@ export default function SettingsPage() {
         <DevicesSection />
         <PermissionsSection />
         <AuditSection />
-        <Section title="Mes données">
-          <p className="mb-2 text-sm">Export complet (tâches, journal, mémoire, conversations) au format JSON.</p>
-          <a
-            href="/v1/privacy/export"
-            download
-            className="inline-block rounded-md border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800"
-          >
-            Télécharger l&apos;export
-          </a>
-        </Section>
+        {/* Anchor of the memory page's "Exporter mes données" link. */}
+        <div id="mes-donnees" className="scroll-mt-4">
+          <Section title="Mes données">
+            <DataExport />
+          </Section>
+        </div>
       </div>
     </>
   );

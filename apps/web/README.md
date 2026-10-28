@@ -13,7 +13,7 @@ origine (cookie de session `SameSite=Strict`).
 | `/memory` | faits (origine, confiance, historique de correction) et souvenirs (protection, révisions), export |
 | `/search` | recherche plein texte, filtres type/période/espace |
 | `/approvals` | actions en attente de votre accord, paramètres exacts |
-| `/settings` | consentement IA par espace, plages de tranquillité, budget IA, passkeys, sessions, permissions d'agents, audit |
+| `/settings` | consentement IA par espace, plages de tranquillité, budget IA, passkeys, sessions, permissions d'agents, audit, « Mes données » (archive ZIP JSON/CSV/ICS/Markdown, originaux déchiffrés sur confirmation par passkey) |
 
 Les opérations sensibles (consentement IA, permissions, passkeys) déclenchent une nouvelle
 vérification par passkey si la connexion date de plus de 10 minutes.
