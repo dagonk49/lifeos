@@ -115,6 +115,9 @@ class ConnectorSource(UUIDPrimaryKey, Owned, Timestamps, Base):
     sync_generation: Mapped[int] = mapped_column(default=0, server_default="0")
     page_token: Mapped[str | None] = mapped_column(Text)
     lease_until: Mapped[datetime | None]
+    # Mail labels (task 17): the provider's change cursor (Gmail historyId) after the
+    # last complete pass; None until the first full pass is done.
+    sync_cursor: Mapped[str | None] = mapped_column(Text)
 
 
 class OAuthState(UUIDPrimaryKey, Base):

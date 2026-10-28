@@ -27,10 +27,12 @@ from lifeos.modules.chat.schemas import (
 )
 from lifeos.modules.guardian import gateway
 from lifeos.modules.guardian.context import Ctx
-from lifeos.modules.guardian.principal import agent_principal
+from lifeos.modules.guardian.principal import Principal, agent_principal
 from lifeos.modules.guardian.privacy import mask
 from lifeos.modules.identity.models import Space
 from lifeos.modules.llm.base import LLMMessage, LLMRequest
+from lifeos.modules.mail import service as mail
+from lifeos.modules.mail.models import MailMessage
 from lifeos.modules.memory import service as memory
 from lifeos.modules.memory.models import Memory
 from lifeos.modules.memory.schemas import MemoryCreate
@@ -237,6 +239,41 @@ async def _system_prompt(
     )
 
 
+async def _load_mails(
+    ctx: Ctx, conversation: Conversation, reader: Principal, ids: list[uuid.UUID]
+) -> list[MailMessage]:
+    """The attached e-mails, checked before anything is saved: readable by the replying
+    principal in this space, not sensitive, and the space consents to cloud AI (an
+    e-mail never goes to the cloud otherwise). Refusals are audited."""
+    if not ids:
+        return []
+    try:
+        messages = await mail.load_for_chat(ctx.db, reader, conversation.space_id, ids)
+        space = await ctx.db.get(Space, conversation.space_id)
+        if space is None or not space.cloud_ai_enabled:
+            raise ProblemError(
+                403,
+                "cloud_consent_required",
+                "Cloud AI is not enabled for this space",
+                "Enable cloud AI for this space in the settings to use the assistant.",
+            )
+    except ProblemError as exc:
+        await audit.record_detached(
+            ctx.database,
+            action="mail.attach",
+            outcome="denied",
+            actor_type=reader.kind,
+            actor_id=reader.actor_id,
+            user_id=ctx.principal.user_id,
+            space_id=conversation.space_id,
+            target_type="conversation",
+            target_id=conversation.id,
+            details={"reason": exc.code, "mails": len(ids)},
+        )
+        raise
+    return messages
+
+
 async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) -> SendResult:
     conversation = await get_conversation(ctx, conversation_id)
     agent = (
@@ -264,6 +301,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
                 details={"reason": "no_permission", "attachments": len(data.attachments)},
             )
         raise
+    attached_mails = await _load_mails(ctx, conversation, reader, data.mail_ids)
     now = utcnow()
     user_message = Message(
         user_id=ctx.principal.user_id,
@@ -290,9 +328,14 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         # data it was not granted (facts, journal, memories...).
         recent = [m for m in recent if m.role == "user" or m.agent == data.agent]
     history = _history(recent)
+    blocks = []
     if attached:
+        blocks.append(attachments.block(attached))
+    if attached_mails:
+        blocks.append(mail.block(attached_mails))
+    if blocks:
         # Only with the message they were attached to: later turns do not resend them.
-        block = attachments.block(attached)
+        block = "\n\n".join(blocks)
         if history and history[-1].role == "user":
             history[-1] = LLMMessage(role="user", text=f"{history[-1].text}\n\n{block}")
         else:
@@ -353,6 +396,8 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         context_items = len(sections)
     if attached:
         await attachments.record(ctx.db, reader, attached, message_id=user_message.id)
+    if attached_mails:
+        await mail.record_attach(ctx.db, reader, attached_mails, message_id=user_message.id)
     request = LLMRequest(
         purpose="chat.reply" if data.agent == "core" else f"agent.{data.agent}",
         system=system,

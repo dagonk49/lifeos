@@ -21,6 +21,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Comptes connectés (adresse, scopes accordés, statut) et consentements par espace | tant que le propriétaire ne supprime pas le compte ; consentements retirés gardés en historique | déconnecter efface les jetons tout de suite et garde le compte (`revoked`) ; « supprimer » l'efface avec ses données synchronisées ([ADR 0012](adr/0012-connecteurs-oauth.md)) |
 | Jetons OAuth (accès, renouvellement) | tant que le compte est actif | scellés AES-256-GCM (`lifeos_connectors_key`) ; effacés à la déconnexion, quand le fournisseur refuse le renouvellement ou quand la clé ne les déchiffre plus |
 | Données synchronisées (agenda, e-mails : tâches 14 à 18) | tant que la source existe | gardées à la déconnexion, sauf si le propriétaire choisit de les supprimer ; supprimées avec le compte (cascade) |
+| Copies locales des e-mails (libellés suivis) | **90 jours** après leur réception ; aussitôt qu'ils quittent le libellé chez le fournisseur (supprimés, corbeille, spam, libellé retiré) ou que le libellé n'est plus suivi | texte brut seulement (HTML jamais conservé), 20 000 caractères au plus ; `purge_after` et purge quotidienne avec audit (nombre) ; pièces jointes jamais copiées, sauf import explicite dans Documents (le document suit alors la durée des documents et garde son expéditeur) ([ADR 0017](adr/0017-lecture-des-e-mails.md)) |
 | Consentements OAuth en cours (`oauth_states`) | expiration ou usage + 1 jour (valables 10 minutes) | empreinte du `state` seulement, vérificateur PKCE scellé ; purge quotidienne avec événement d'audit |
 | Sessions | expiration + 30 jours | purge quotidienne |
 | Défis WebAuthn, jetons d'enrôlement | expiration + 1 jour | purge quotidienne |
@@ -169,6 +170,13 @@ pièce jointe ou annuler. Sinon, le message part sans étape de plus. Le récapi
 sur ce que le propriétaire ajoute (son message et ses pièces jointes) ; le reste de la
 requête (consignes, souvenirs, contexte d'un agent) est masqué de la même façon à l'envoi.
 
+**E-mails** : un e-mail copié n'est **jamais** envoyé au LLM de lui-même, ni dans le
+contexte automatique, ni par un agent. Il ne part que joint explicitement par le
+propriétaire à un message (trois au plus), si l'espace a l'IA cloud activée et si l'e-mail
+n'est pas sensible (identité, santé, banque : détecté localement à la copie et de nouveau
+à l'envoi). Il est alors délimité comme une donnée de tiers, jamais une instruction, et
+masqué comme le reste (adresses, IBAN, téléphones…).
+
 **Documents sensibles, jamais transmis, même masqués** : un document est classé sensible
 **localement**, avant tout usage, sur son titre et son texte, s'il relève de l'une de ces
 catégories :
@@ -257,6 +265,10 @@ ils comptent comme « Occupé (autre espace) », sans aucun détail.
 - Un compte connecté (agenda, e-mails) ne sert que dans les espaces et pour les usages que
   le propriétaire y a autorisés (`connector_grants`) ; un agent a besoin en plus de sa
   propre permission `calendar` ou `email`.
+- Seuls les libellés e-mail choisis par le propriétaire sont copiés, chacun dans **un**
+  espace : le scope `gmail.readonly` ouvre toute la boîte, c'est ce choix local qui la
+  limite. Un même message dans deux libellés de deux espaces est copié deux fois, une
+  copie par espace.
 
 ## 5. Journalisation
 

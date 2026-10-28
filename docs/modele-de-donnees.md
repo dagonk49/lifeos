@@ -306,7 +306,11 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     La migration le pose sur les images dont le remplacement figure au journal d'audit
     (`document.process`, `sanitized: true`).
   - Provenance : `source_type` / `source_id` (message, conversation, entrée de journal,
-    tâche, objectif, opération).
+    tâche, objectif, opération, `mail_message` pour une pièce jointe d'e-mail).
+  - Fichier de tiers (migration 0018) : `received_from text null` (expéditeur de l'e-mail,
+    gardé après la purge de l'e-mail), `active_content text[] NOT NULL DEFAULT '{}'`
+    (contenu actif trouvé dans un PDF : `javascript`, `open_action`, `automatic_action`,
+    `launch`, `embedded_file`, `rich_media`, `xfa_form` ; un avertissement, pas un refus).
   - `version`, `search_vector` (titre + texte extrait), `created_at`, `updated_at`.
   - Les fichiers : `<documents_dir>/<user>/<document>.bin`, au format `LOS1 | id de clé |
     nonce | AES-256-GCM`, avec l'identifiant du document en données associées.
@@ -369,6 +373,9 @@ colonnes ne sort par l'API ni par l'export.
     `page_token` (page à reprendre d'un passage interrompu), `lease_until` (un seul passage
     à la fois). Les lignes synchronisées référencent leur source avec `ON DELETE CASCADE` :
     retirer la source ou supprimer le compte supprime ses données.
+  - `sync_cursor text null` (migration 0018, libellés e-mail) : curseur de l'historique du
+    fournisseur (`historyId` Gmail) après le dernier passage complet ; `page_token` porte
+    alors le type du passage en cours (`full:` ou `history:` suivi de la page).
 - **`calendar_events`** (migration 0011, tâche 14) : une occurrence d'un agenda suivi, dans
   l'espace de sa source.
   - `id`, `user_id`, `space_id`, `source_id` (cascade), `provider_event_id` (unique par
@@ -386,6 +393,20 @@ colonnes ne sort par l'API ni par l'export.
   - Une écriture approuvée (tâche 16) met la ligne à jour aussitôt (nouvel etag) ; un etag
     changé ou une occurrence disparue à la synchronisation invalide les propositions en
     attente qui la visent. Jamais l'adresse d'un participant.
+- **`mail_messages`** (migration 0018, tâche 17, [ADR 0017](adr/0017-lecture-des-e-mails.md)) :
+  un e-mail d'un libellé suivi, dans l'espace de sa source **seulement** (un même message
+  dans deux libellés rattachés à deux espaces = deux lignes).
+  - `id`, `user_id`, `space_id`, `source_id` (cascade), `provider_message_id` (unique par
+    source), `thread_id`.
+  - `from_address`, `from_name`, `to_addresses text[]`, `cc_addresses text[]` (50 au plus),
+    `subject` (300 caractères), `body_text` (texte brut, HTML converti sans rendu, 20 000
+    caractères au plus), `body_truncated`, `received_at` : texte de tiers, donnée et jamais
+    instruction.
+  - `attachments jsonb` : `[{part_id, filename, mime, size, document_id?}]`, métadonnées
+    seulement ; `document_id` une fois la pièce importée par le propriétaire.
+  - `sensitivity text[]` (identité, santé, banque, détectés localement à la copie),
+    `purge_after` (réception + 90 jours, indexé), `seen_generation` (passage complet qui l'a
+    vu), horodatages. Index `(space_id, received_at)`.
 - **`oauth_states`** : un consentement en cours, à usage unique.
   - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
     jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).
@@ -400,7 +421,6 @@ colonnes ne sort par l'API ni par l'export.
 
 | Table | Étape | Notes |
 |---|---|---|
-| e-mails synchronisés | 5 | rattachés à une `connector_sources` (cascade), tâche 17 |
 | `push_devices` | 5 | jetons de notification mobile |
 | import d'opérations bancaires (`transactions.source_type = 'import'`) | 5 | via une source autorisée, sans paiement |
 

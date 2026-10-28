@@ -1,11 +1,13 @@
-"""Calendars (and later mail labels) of a connected account, mapped to a space (task 14).
+"""Calendars (task 14) and mail labels (task 17) of a connected account, mapped to a space.
 
-Mapping a calendar needs the account's calendar.read consent in that space: the owner
-chooses which calendar feeds which space, within what was consented. Removing a mapping
-deletes its synced rows (cascade); withdrawing the consent only stops the sync.
+Mapping a calendar needs the account's calendar.read consent in that space, a label its
+mail.read consent: the owner chooses which calendar or label feeds which space, within
+what was consented, one space per calendar or label. Removing a mapping deletes its
+synced rows (cascade); withdrawing the consent only stops the sync.
 """
 
 import uuid
+from typing import Literal
 
 from sqlalchemy import select
 
@@ -14,8 +16,10 @@ from lifeos.modules.audit import service as audit
 from lifeos.modules.connectors import Connectors, tokens
 from lifeos.modules.connectors.base import (
     CalendarAdapter,
+    Capability,
     ConnectorAuthError,
     ConnectorError,
+    MailAdapter,
     RemoteCollection,
 )
 from lifeos.modules.connectors.models import ConnectorAccount, ConnectorSource
@@ -23,8 +27,10 @@ from lifeos.modules.connectors.service import own_account, provider_for, require
 from lifeos.modules.guardian.context import Ctx
 from lifeos.workers.queue import enqueue
 
-SYNC_ACTOR = "sync_calendar_source"
+SYNC_ACTORS = {"calendar": "sync_calendar_source", "mail_label": "sync_mail_source"}
 SYNC_QUEUE = "connectors"
+SourceKind = Literal["calendar", "mail_label"]
+CAPABILITY: dict[str, Capability] = {"calendar": "calendar.read", "mail_label": "mail.read"}
 
 
 def _calendar_adapter(connectors: Connectors, account: ConnectorAccount) -> CalendarAdapter:
@@ -35,25 +41,48 @@ def _calendar_adapter(connectors: Connectors, account: ConnectorAccount) -> Cale
     return adapter
 
 
+def _mail_adapter(connectors: Connectors, account: ConnectorAccount) -> MailAdapter:
+    provider = provider_for(connectors, account.provider)
+    if not hasattr(provider, "list_labels"):
+        raise ProblemError(409, "connector_capability_missing", "No mail for this account")
+    adapter: MailAdapter = provider  # type: ignore[assignment]
+    return adapter
+
+
 async def remote_calendars(
     ctx: Ctx, connectors: Connectors, account_id: uuid.UUID
 ) -> list[RemoteCollection]:
     """The account's calendars, read live at the provider (names only)."""
+    return await remote_collections(ctx, connectors, account_id, "calendar")
+
+
+async def remote_labels(
+    ctx: Ctx, connectors: Connectors, account_id: uuid.UUID
+) -> list[RemoteCollection]:
+    """The account's mail labels, read live at the provider (names only)."""
+    return await remote_collections(ctx, connectors, account_id, "mail_label")
+
+
+async def remote_collections(
+    ctx: Ctx, connectors: Connectors, account_id: uuid.UUID, kind: SourceKind
+) -> list[RemoteCollection]:
     account = await own_account(ctx, account_id)
     if account.status != "active":
         raise ProblemError(409, "connector_reauth_required", "This account must be connected again")
     provider = provider_for(connectors, account.provider)
-    if "calendar.read" not in provider.capabilities_in(account.scopes):
+    capability = CAPABILITY[kind]
+    if capability not in provider.capabilities_in(account.scopes):
         raise ProblemError(
             403,
             "connector_capability_missing",
-            "Calendar reading was not granted at the provider",
-            extra={"capability": "calendar.read"},
+            "This reading was not granted at the provider",
+            extra={"capability": capability},
         )
-    adapter = _calendar_adapter(connectors, account)
     try:
         token = await tokens.access_token(ctx.database, ctx.settings, provider, account.id)
-        return await adapter.list_calendars(token)
+        if kind == "calendar":
+            return await _calendar_adapter(connectors, account).list_calendars(token)
+        return await _mail_adapter(connectors, account).list_labels(token)
     except ConnectorAuthError as exc:
         raise ProblemError(
             409, "connector_reauth_required", "This account must be connected again"
@@ -74,32 +103,37 @@ async def map_calendar(
     account_id: uuid.UUID,
     provider_ref: str,
     space_id: uuid.UUID,
+    kind: SourceKind = "calendar",
 ) -> ConnectorSource:
-    """Feeds `space_id` with this calendar (one space per calendar); first sync queued."""
-    account = await require_capability(ctx, connectors, account_id, space_id, "calendar.read")
-    calendars = {c.provider_ref: c for c in await remote_calendars(ctx, connectors, account_id)}
-    remote = calendars.get(provider_ref)
+    """Feeds `space_id` with this calendar or label (one space each); first sync queued."""
+    account = await require_capability(ctx, connectors, account_id, space_id, CAPABILITY[kind])
+    remotes = {
+        c.provider_ref: c for c in await remote_collections(ctx, connectors, account_id, kind)
+    }
+    remote = remotes.get(provider_ref)
     if remote is None:
-        raise not_found("calendar_not_found", "This calendar is not in the account")
+        if kind == "calendar":
+            raise not_found("calendar_not_found", "This calendar is not in the account")
+        raise not_found("label_not_found", "This label is not in the account")
     source = await ctx.db.scalar(
         select(ConnectorSource).where(
             ConnectorSource.account_id == account.id,
-            ConnectorSource.kind == "calendar",
+            ConnectorSource.kind == kind,
             ConnectorSource.provider_ref == provider_ref,
         )
     )
     if source is not None and source.space_id != space_id:
         raise ProblemError(
             409,
-            "calendar_already_mapped",
-            "This calendar already feeds another space: remove it there first",
+            "calendar_already_mapped" if kind == "calendar" else "label_already_mapped",
+            "This source already feeds another space: remove it there first",
         )
     if source is None:
         source = ConnectorSource(
             user_id=ctx.principal.user_id,
             space_id=space_id,
             account_id=account.id,
-            kind="calendar",
+            kind=kind,
             provider_ref=provider_ref,
             name=remote.name,
         )
@@ -117,7 +151,7 @@ async def map_calendar(
         space_id=space_id,
         target_type="connector_source",
         target_id=source.id,
-        details={"kind": "calendar"},
+        details={"kind": kind},
     )
     return source
 
@@ -136,7 +170,8 @@ async def own_source(ctx: Ctx, source_id: uuid.UUID) -> ConnectorSource:
 
 
 async def remove_source(ctx: Ctx, source_id: uuid.UUID) -> None:
-    """Stops feeding the space and deletes what was synced from this calendar."""
+    """Stops feeding the space and deletes what was synced from this calendar or label
+    (documents imported from its e-mails stay)."""
     source = await own_source(ctx, source_id)
     await ctx.db.delete(source)
     await ctx.db.flush()
@@ -153,6 +188,6 @@ async def remove_source(ctx: Ctx, source_id: uuid.UUID) -> None:
     )
 
 
-def queue_sync(source_id: uuid.UUID) -> bool:
+def queue_sync(source_id: uuid.UUID, kind: str = "calendar") -> bool:
     """Best effort: the periodic sync catches up if the broker is down."""
-    return enqueue(SYNC_ACTOR, str(source_id), queue=SYNC_QUEUE)
+    return enqueue(SYNC_ACTORS.get(kind, SYNC_ACTORS["calendar"]), str(source_id), queue=SYNC_QUEUE)

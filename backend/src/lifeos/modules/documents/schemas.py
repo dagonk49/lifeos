@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field, model_validator
 # "dictation" documents come from the voice module, never from an upload.
 UploadPurpose = Literal["document", "receipt", "attachment"]
 # Objects a document may come from or be attached to (provenance).
-SourceType = Literal["journal_entry", "message", "conversation", "task", "goal", "transaction"]
+SourceType = Literal[
+    "journal_entry", "message", "conversation", "task", "goal", "transaction", "mail_message"
+]
 # Longest extracted (or corrected) text kept for one document.
 MAX_TEXT_CHARS = 200_000
 
@@ -75,6 +77,10 @@ class DocumentSummary(BaseModel):
     keep_original: bool
     source_type: str | None
     source_id: uuid.UUID | None
+    # A third party's file (e-mail attachment): its sender, shown with the document, and
+    # the active content found in a PDF (warning before downloading the original).
+    received_from: str | None = None
+    active_content: list[str] = []
     # Purpose-specific, never authoritative: {"sensitivity_reasons": {...}, "receipt": {...}}.
     analysis: dict[str, Any] | None
     version: int

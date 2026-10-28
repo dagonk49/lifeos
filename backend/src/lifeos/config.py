@@ -168,6 +168,11 @@ class Settings(BaseSettings):
     calendar_sync_minutes: int = Field(default=15, ge=5, le=24 * 60)
     calendar_past_days: int = Field(default=30, ge=1, le=365)
     calendar_future_days: int = Field(default=365, ge=7, le=3 * 365)
+    # Mail reading (task 17): every mapped label is read again this often (its changes
+    # only, after a first pass over the last `mail_retention_days`). Local copies are
+    # deleted `mail_retention_days` after their reception.
+    mail_sync_minutes: int = Field(default=15, ge=5, le=24 * 60)
+    mail_retention_days: int = Field(default=90, ge=1, le=365)
     connectors_timeout_seconds: float = Field(default=15.0, gt=0)
 
     @model_validator(mode="after")

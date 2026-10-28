@@ -33,6 +33,7 @@ from lifeos.modules.goals.models import Goal
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.journal.models import JournalEntry
+from lifeos.modules.mail.models import MailMessage
 from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks.models import Task
 
@@ -45,6 +46,8 @@ SOURCE_MODELS: dict[str, Any] = {
     "task": Task,
     "goal": Goal,
     "transaction": Transaction,
+    # An e-mail attachment imported by the owner (task 17).
+    "mail_message": MailMessage,
 }
 DEFAULT_TITLES = {
     "document": "Document",
@@ -98,6 +101,8 @@ def _fields(document: Document) -> dict[str, Any]:
         "keep_original": available and document.original_until is None,
         "source_type": document.source_type,
         "source_id": document.source_id,
+        "received_from": document.received_from,
+        "active_content": list(document.active_content or []),
         "analysis": document.analysis,
         "version": document.version,
         "created_at": document.created_at,

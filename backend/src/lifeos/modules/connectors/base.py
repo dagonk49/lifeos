@@ -279,10 +279,105 @@ class CalendarAdapter(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class RemoteAttachment:
+    """An attachment listed with its message: metadata only, never downloaded by a sync
+    (ADR 0011). `part_id` is stable for the message; the provider's own attachment id is
+    not, so the download looks it up again."""
+
+    part_id: str
+    filename: str
+    mime: str
+    size: int
+
+
+@dataclass(frozen=True)
+class RemoteMail:
+    """One message, already reduced to plain text by `lifeos.modules.mail.sanitize`: no
+    HTML, no control or bidirectional characters, bounded sizes. Everything in it comes
+    from third parties: data, never instructions (T10)."""
+
+    provider_id: str
+    received_at: datetime
+    label_ids: frozenset[str]
+    subject: str = ""
+    from_address: str | None = None
+    from_name: str | None = None
+    to: tuple[str, ...] = ()
+    cc: tuple[str, ...] = ()
+    body_text: str = ""
+    body_truncated: bool = False
+    thread_id: str | None = None
+    attachments: tuple[RemoteAttachment, ...] = ()
+
+
+@dataclass(frozen=True)
+class MailIdPage:
+    """Ids of a label's messages, newest first; `next_page` None on the last page."""
+
+    ids: list[str]
+    next_page: str | None = None
+
+
+@dataclass(frozen=True)
+class MailChanges:
+    """One page of the mailbox's changes since a cursor.
+
+    `added`: messages that appeared in the synced label, got it, or came back from the
+    spam or the bin (read if not copied yet, then kept only if they carry the label);
+    `removed`: messages deleted, that lost the label, or moved to the spam or the bin.
+    `cursor`: where the next sync starts, given on the last page. A message is in one
+    list only: its last change wins.
+    """
+
+    added: list[str]
+    removed: list[str]
+    next_page: str | None = None
+    cursor: str | None = None
+
+
+# System labels never synced: their messages are not the owner's mail.
+EXCLUDED_LABELS = frozenset({"SPAM", "TRASH", "DRAFT", "CHAT"})
+
+
 class MailAdapter(Protocol):
-    """Mail access (tasks 17 and 18): reading, then sending behind an approval."""
+    """Mail access (tasks 17 and 18): reading, then sending behind an approval.
+
+    Each call receives a fresh access token from `tokens.access_token`.
+    """
 
     async def list_labels(self, access_token: str) -> list[RemoteCollection]: ...
+
+    async def mail_cursor(self, access_token: str) -> str:
+        """The mailbox's current change cursor (Gmail: historyId), taken BEFORE a full
+        pass: changes made during the pass are replayed after it."""
+        ...
+
+    async def list_mail_ids(
+        self, access_token: str, label_ref: str, *, newer_than_days: int, page: str | None
+    ) -> MailIdPage:
+        """Messages of a label received in the last `newer_than_days` days, spam and bin
+        excluded. Raises ConnectorGoneError when the label no longer exists."""
+        ...
+
+    async def get_mail(self, access_token: str, message_id: str) -> RemoteMail | None:
+        """One message, or None when it no longer exists."""
+        ...
+
+    async def list_mail_changes(
+        self, access_token: str, cursor: str, *, label_ref: str, page: str | None
+    ) -> MailChanges:
+        """Changes since `cursor` that concern the label `label_ref`. Raises
+        CursorExpiredError when the provider no longer keeps that far back: a full pass
+        is then needed."""
+        ...
+
+    async def get_attachment(
+        self, access_token: str, message_id: str, part_id: str, *, max_bytes: int
+    ) -> bytes:
+        """The attachment's bytes. Raises AttachmentTooLargeError beyond `max_bytes`,
+        ConnectorGoneError when the message or the part no longer exists."""
+        ...
 
 
 # --- Errors ---------------------------------------------------------------------------------
@@ -330,6 +425,14 @@ class ConnectorGoneError(ConnectorError):
 
 class CursorExpiredError(ConnectorGoneError):
     """The sync cursor is no longer valid: a full resync is needed."""
+
+
+class AttachmentTooLargeError(ConnectorError):
+    """An attachment bigger than what LifeOS accepts: never downloaded whole."""
+
+    def __init__(self, size: int | None = None) -> None:
+        super().__init__("attachment_too_large")
+        self.size = size
 
 
 class OutcomeUnknownError(ConnectorError):

@@ -60,6 +60,7 @@ EXPORTED: tuple[str, ...] = (
     "connector_grants",
     "connector_sources",
     "calendar_events",
+    "mail_messages",
     "llm_calls",
     "passkey_credentials",
     "user_sessions",
@@ -94,6 +95,7 @@ OMITTED_COLUMNS: dict[str, dict[str, str]] = {
         "lease_until": "verrou de synchronisation",
     },
     "documents": {"storage_key": "emplacement du fichier chiffré sur le serveur"},
+    "mail_messages": {"seen_generation": "suivi de la synchronisation"},
     "passkey_credentials": {
         "credential_id": "matériel de clé de l'authentificateur",
         "public_key": "matériel de clé de l'authentificateur",

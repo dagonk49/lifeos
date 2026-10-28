@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
 import { CalendarSources } from "@/components/CalendarSources";
+import { MailSources } from "@/components/MailSources";
 import { Alert, Badge, Button, Card, Empty, Field, Select, Spinner } from "@/components/ui";
 import { api, errorMessage, withReauth } from "@/lib/api";
 import {
@@ -380,14 +381,13 @@ function AccountItem({
       )}
 
       {account.status !== "revoked" && <CalendarSources account={account} />}
+      {account.status !== "revoked" && <MailSources account={account} />}
 
-      {account.sources.some((s) => s.kind !== "calendar" || account.status === "revoked") && (
+      {account.status === "revoked" && account.sources.length > 0 && (
         <div className="mt-2">
           <h4 className="text-xs font-medium">Sources suivies</h4>
           <ul className="text-xs text-stone-600 dark:text-stone-400">
-            {account.sources
-              .filter((s) => s.kind !== "calendar" || account.status === "revoked")
-              .map((source) => (
+            {account.sources.map((source) => (
               <li key={source.id}>
                 {source.kind === "calendar" ? "Agenda" : "Libellé"} « {source.name} » · {spaceName(source.space_id)} ·{" "}
                 {!source.enabled

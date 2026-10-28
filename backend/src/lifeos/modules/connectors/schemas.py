@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -108,7 +109,20 @@ class CalendarOut(BaseModel):
     space_id: uuid.UUID | None = None
 
 
+class LabelOut(BaseModel):
+    """A mail label of the account, read live at the provider (task 17)."""
+
+    provider_ref: str
+    name: str
+    primary: bool
+    # Already mapped: the space it feeds.
+    source_id: uuid.UUID | None = None
+    space_id: uuid.UUID | None = None
+
+
 class SourceIn(BaseModel):
     account_id: uuid.UUID
     provider_ref: str = Field(min_length=1, max_length=1024)
     space_id: uuid.UUID
+    # A calendar (task 14) or a mail label (task 17).
+    kind: Literal["calendar", "mail_label"] = "calendar"

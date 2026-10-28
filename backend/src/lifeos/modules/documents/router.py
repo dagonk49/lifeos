@@ -71,6 +71,7 @@ UPLOAD_OPENAPI: dict[str, Any] = {
                                 "task",
                                 "goal",
                                 "transaction",
+                                "mail_message",
                             ],
                         },
                         "source_id": {"type": "string", "format": "uuid"},

@@ -39,6 +39,12 @@ def build_scheduler() -> BlockingScheduler:
             id="reconcile_external_operations",
             misfire_grace_time=300,
         )
+        scheduler.add_job(
+            actors.sync_mail.send,
+            IntervalTrigger(minutes=5, timezone=tz),
+            id="sync_mail",
+            misfire_grace_time=60,
+        )
     scheduler.add_job(
         actors.purge_auth_artifacts.send,
         CronTrigger(hour=3, minute=10, timezone=tz),
@@ -63,6 +69,11 @@ def build_scheduler() -> BlockingScheduler:
         actors.purge_messages.send,
         CronTrigger(hour=3, minute=20, timezone=tz),
         id="purge_messages",
+    )
+    scheduler.add_job(
+        actors.purge_mail.send,
+        CronTrigger(hour=3, minute=25, timezone=tz),
+        id="purge_mail",
     )
     scheduler.add_job(
         actors.purge_idempotency_keys.send,

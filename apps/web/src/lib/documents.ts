@@ -65,6 +65,7 @@ export const SOURCE_TYPE_LABELS: Record<DocumentSourceType, string> = {
   task: "Tâche",
   goal: "Objectif",
   transaction: "Opération",
+  mail_message: "E-mail",
 };
 
 // --- Filters and queries ---------------------------------------------------------------
@@ -411,6 +412,7 @@ export function sourceLink(type: DocumentSourceType | null, id: string | null): 
     conversation: "/chat",
     message: "/chat",
     transaction: "/finances",
+    mail_message: `/mail?id=${encodeURIComponent(id)}`,
   };
   return { label, href: pages[type] ?? "/" };
 }

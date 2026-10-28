@@ -603,7 +603,8 @@ export type DocumentSourceType =
   | "conversation"
   | "task"
   | "goal"
-  | "transaction";
+  | "transaction"
+  | "mail_message";
 
 /** Local receipt reading (UC02), stored in `analysis.receipt`; never applied by itself. */
 export interface ReceiptAnalysis {
@@ -655,6 +656,10 @@ export interface DocumentSummary {
   keep_original: boolean;
   source_type: DocumentSourceType | null;
   source_id: Uuid | null;
+  /** A third party's file (e-mail attachment): who sent it. */
+  received_from?: string | null;
+  /** Active content found in a PDF from a third party (warning, never a refusal). */
+  active_content?: string[];
   analysis: DocumentAnalysis | null;
   version: number;
   created_at: string;
@@ -967,4 +972,49 @@ export interface PlanningSlots {
   task_title: string | null;
   synced_at: string | null;
   calendars: number;
+}
+
+// --- E-mails (task 17) ---------------------------------------------------------------------
+
+/** A mail label of a connected account, read live at the provider. */
+export interface RemoteLabel {
+  provider_ref: string;
+  name: string;
+  primary: boolean;
+  /** Already followed: the source and the space it feeds. */
+  source_id: Uuid | null;
+  space_id: Uuid | null;
+}
+
+/** A copied e-mail. Every text in it was written by a third party: plain text only. */
+export interface MailSummary {
+  id: Uuid;
+  space_id: Uuid;
+  source_id: Uuid;
+  source_name: string;
+  from_name: string | null;
+  from_address: string | null;
+  subject: string;
+  snippet: string;
+  received_at: string;
+  attachments: number;
+  sensitivity: SensitivityCategory[];
+}
+
+export interface MailAttachment {
+  part_id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  /** Imported into Documents by the owner. */
+  document_id: Uuid | null;
+}
+
+export interface MailDetail extends MailSummary {
+  to_addresses: string[];
+  cc_addresses: string[];
+  body_text: string;
+  body_truncated: boolean;
+  attachment_list: MailAttachment[];
+  synced_at: string | null;
 }

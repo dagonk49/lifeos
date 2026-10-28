@@ -264,6 +264,16 @@ const MESSAGES: Record<string, string> = {
   notification_preferences_invalid:
     "Ces réglages de notifications sont invalides : vérifiez les créneaux, les heures de regroupement et le maximum par jour.",
   notification_not_found: "Cette notification n'existe plus.",
+  // E-mails (task 17)
+  mail_not_found: "Cet e-mail est introuvable dans cet espace (supprimé, ou libellé plus suivi).",
+  mail_sensitive:
+    "Cet e-mail reste sur votre serveur (données sensibles détectées) : son contenu n'est jamais envoyé à l'assistant IA.",
+  mail_not_allowed:
+    "Cet agent n'a pas accès aux e-mails de cet espace : discutez-en avec l'assistant général.",
+  label_not_found: "Ce libellé n'existe plus dans le compte.",
+  label_already_mapped: "Ce libellé alimente déjà un autre espace : retirez-le d'abord de cet espace.",
+  attachment_not_found: "Cette pièce jointe est introuvable dans l'e-mail.",
+  attachment_gone: "L'e-mail n'est plus chez le fournisseur : la pièce jointe ne peut plus être importée.",
 };
 
 export function problemMessage(code: string, fallback: string): string {

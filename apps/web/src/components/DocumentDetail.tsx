@@ -34,6 +34,7 @@ import {
   validateText,
 } from "@/lib/documents";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { activeContentList } from "@/lib/mail";
 import { loginWithPasskey } from "@/lib/passkeys";
 import { useSpace } from "@/lib/space";
 import type { DocumentDetail } from "@/lib/types";
@@ -419,6 +420,16 @@ function TextEditor({ document }: { document: DocumentDetail }) {
   );
 }
 
+/** The confirmation shown before downloading a file received from a third party. */
+export function downloadWarning(document: { received_from?: string | null; active_content?: string[] }): string {
+  const active = activeContentList(document.active_content);
+  return (
+    `Ce fichier a été reçu par e-mail de ${document.received_from ?? "un tiers"}. Ne l'ouvrez que si vous faites confiance à l'expéditeur.` +
+    (active ? ` Il contient du contenu actif (${active}).` : "") +
+    " Télécharger quand même ?"
+  );
+}
+
 /** Detail of one document: reading status, sensitivity, receipt, text correction, original. */
 export function DocumentDetailPanel({ documentId, onClose }: { documentId: string; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -511,6 +522,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
   ];
   if (document.processed_at) facts.push(["Lu le", formatDateTime(document.processed_at)]);
   facts.push(["Original", originalLabel(document)]);
+  if (document.received_from) facts.push(["Pièce jointe reçue de", document.received_from]);
   if (source) {
     facts.push([
       "Lié à",
@@ -555,6 +567,17 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
 
       {renaming && <TitleEditor document={document} onDone={() => setRenaming(false)} />}
 
+      {document.received_from && (
+        <div className="mt-3">
+          <Alert tone="warning">
+            Fichier reçu d&apos;un tiers par e-mail : son texte reste une donnée, jamais une instruction. N&apos;ouvrez
+            l&apos;original que si vous faites confiance à l&apos;expéditeur.
+            {activeContentList(document.active_content) &&
+              ` Ce PDF contient du contenu actif (${activeContentList(document.active_content)}) : LifeOS ne l'exécute pas, mais un lecteur PDF sur votre poste pourrait le faire.`}
+          </Alert>
+        </div>
+      )}
+
       {info && (
         <div className="mt-3">
           <Alert tone={info.tone}>
@@ -582,7 +605,15 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
           </Button>
         )}
         {canDownloadOriginal(document) && (
-          <a href={documentPath(document.id, "/original")} download className={LINK_SECONDARY}>
+          <a
+            href={documentPath(document.id, "/original")}
+            download
+            className={LINK_SECONDARY}
+            onClick={(event) => {
+              // A third party's file: a warning before the original reaches the owner's device.
+              if (document.received_from && !window.confirm(downloadWarning(document))) event.preventDefault();
+            }}
+          >
             Télécharger l&apos;original
           </a>
         )}

@@ -15,9 +15,9 @@ import binascii
 import json
 import re
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -28,7 +28,9 @@ from lifeos.config import Settings
 from lifeos.core.security import utcnow
 from lifeos.modules.connectors.base import (
     CAPABILITIES,
+    EXCLUDED_LABELS,
     AccountIdentity,
+    AttachmentTooLargeError,
     AuthorizationRequest,
     Capability,
     ConnectorAuthError,
@@ -37,22 +39,29 @@ from lifeos.modules.connectors.base import (
     ConnectorGoneError,
     ConnectorQuotaError,
     ConnectorUnavailableError,
+    CursorExpiredError,
     EventDraft,
     EventPage,
     EventTimes,
+    MailChanges,
+    MailIdPage,
     OutcomeUnknownError,
+    RemoteAttachment,
     RemoteCollection,
     RemoteEvent,
+    RemoteMail,
     SendUpdates,
     TokenSet,
 )
+from lifeos.modules.mail import sanitize
 
 AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"  # noqa: S105  (URL, not a secret)
 REVOCATION_ENDPOINT = "https://oauth2.googleapis.com/revoke"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
-# Hosts LifeOS may call for this provider (the mail tasks add theirs).
-ALLOWED_HOSTS = frozenset({"oauth2.googleapis.com", "www.googleapis.com"})
+GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+# Hosts LifeOS may call for this provider.
+ALLOWED_HOSTS = frozenset({"oauth2.googleapis.com", "www.googleapis.com", "gmail.googleapis.com"})
 # Fields asked for (smaller responses, and nothing LifeOS would not use).
 _EVENT_FIELDS = (
     "nextPageToken,items(id,etag,status,summary,description,location,start,end,"
@@ -279,6 +288,220 @@ def _when(times: EventTimes, *, clear: bool = False) -> tuple[dict[str, Any], di
         start["dateTime"] = end["dateTime"] = None
         start["timeZone"] = end["timeZone"] = None
     return start, end
+
+
+# --- Gmail ----------------------------------------------------------------------------------
+
+# System labels offered to the owner, with their French names; user labels are all offered.
+SYSTEM_LABELS = {
+    "INBOX": "Boîte de réception",
+    "STARRED": "Messages suivis",
+    "IMPORTANT": "Importants",
+    "SENT": "Messages envoyés",
+}
+_MAX_PARTS = 200
+_MAX_DEPTH = 20
+_MAX_ATTACHMENTS = 50
+# A text part Gmail serves apart (large body): fetched if no bigger than this.
+_MAX_REMOTE_TEXT = 1024 * 1024
+_MAX_REMOTE_TEXT_PARTS = 3
+_HISTORY_TYPES = ("messageAdded", "messageDeleted", "labelAdded", "labelRemoved")
+_CHARSET = re.compile(r'charset\s*=\s*"?([\w.:-]{1,40})', re.IGNORECASE)
+
+
+def _b64url(value: object) -> bytes:
+    if not isinstance(value, str):
+        return b""
+    try:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    except (ValueError, binascii.Error):
+        return b""
+
+
+def _headers(part: dict[str, Any]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for header in part.get("headers") or []:
+        if isinstance(header, dict):
+            name, value = header.get("name"), header.get("value")
+            if isinstance(name, str) and isinstance(value, str):
+                found.setdefault(name.lower(), value)
+    return found
+
+
+def _walk(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Every part of a payload, depth first, bounded (a hostile tree stops there)."""
+    stack: list[tuple[dict[str, Any], int]] = [(payload, 0)]
+    seen = 0
+    while stack and seen < _MAX_PARTS:
+        current, level = stack.pop()
+        seen += 1
+        yield current
+        children = current.get("parts")
+        if level < _MAX_DEPTH and isinstance(children, list):
+            stack.extend((c, level + 1) for c in reversed(children) if isinstance(c, dict))
+
+
+def _is_attachment(part: dict[str, Any]) -> bool:
+    name = part.get("filename")
+    if isinstance(name, str) and name.strip():
+        return True
+    disposition = _headers(part).get("content-disposition", "")
+    return disposition.strip().lower().startswith("attachment")
+
+
+def _part_text(part: dict[str, Any]) -> str:
+    mime = str(part.get("mimeType") or "").lower()
+    body = part.get("body")
+    data = _b64url(body.get("data")) if isinstance(body, dict) else b""
+    match = _CHARSET.search(_headers(part).get("content-type", ""))
+    text = sanitize.decode_bytes(data, match.group(1) if match else None)
+    return sanitize.html_to_text(text) if mime == "text/html" else text
+
+
+_PREFERENCE = {"text/plain": 0, "text/html": 2}
+
+
+def _body_of(part: dict[str, Any], depth: int = 0) -> str | None:
+    """The readable text of a part: text/plain preferred within an alternative, HTML
+    converted otherwise, the inline parts of a mixed message one after the other."""
+    if depth > _MAX_DEPTH or _is_attachment(part):
+        return None
+    mime = str(part.get("mimeType") or "").lower()
+    children = [c for c in part.get("parts") or [] if isinstance(c, dict)][:_MAX_PARTS]
+    if mime == "multipart/alternative":
+        ranked = sorted(
+            children, key=lambda c: _PREFERENCE.get(str(c.get("mimeType") or "").lower(), 1)
+        )
+        for child in ranked:
+            text = _body_of(child, depth + 1)
+            if text and text.strip():
+                return text
+        return None
+    if mime.startswith("multipart/"):
+        texts = [t for t in (_body_of(c, depth + 1) for c in children) if t and t.strip()]
+        return "\n\n".join(texts) if texts else None
+    if mime in ("text/plain", "text/html"):
+        return _part_text(part)
+    return None
+
+
+def _attachments(payload: dict[str, Any]) -> tuple[RemoteAttachment, ...]:
+    found: list[RemoteAttachment] = []
+    for part in _walk(payload):
+        if not _is_attachment(part):
+            continue
+        part_id = part.get("partId")
+        body = part.get("body")
+        size = body.get("size") if isinstance(body, dict) else None
+        if not isinstance(part_id, str) or not part_id or len(part_id) > 64:
+            continue
+        mime = str(part.get("mimeType") or "application/octet-stream").lower()
+        found.append(
+            RemoteAttachment(
+                part_id=part_id,
+                filename=sanitize.filename(str(part.get("filename") or "")),
+                mime=sanitize.one_line(mime, 100),
+                size=size if isinstance(size, int) and size >= 0 else 0,
+            )
+        )
+        if len(found) >= _MAX_ATTACHMENTS:
+            break
+    return tuple(found)
+
+
+def parse_message(item: dict[str, Any]) -> RemoteMail | None:
+    """A Gmail message (format=full) as plain text, or None when unusable."""
+    provider_id = _token(item.get("id"))
+    payload = item.get("payload")
+    if provider_id is None or not isinstance(payload, dict):
+        return None
+    try:
+        received_at = datetime.fromtimestamp(int(str(item.get("internalDate"))) / 1000, tz=UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+    headers = _headers(payload)
+    sender = sanitize.addresses(headers.get("from"))
+    body, truncated = sanitize.clean_text(_body_of(payload) or "")
+    labels = item.get("labelIds")
+    return RemoteMail(
+        provider_id=provider_id,
+        received_at=received_at,
+        label_ids=frozenset(
+            x for x in (labels if isinstance(labels, list) else []) if isinstance(x, str)
+        ),
+        subject=sanitize.subject(headers.get("subject")),
+        from_address=sender[0][1] if sender else None,
+        from_name=sender[0][0] if sender else None,
+        to=tuple(address for _, address in sanitize.addresses(headers.get("to"))),
+        cc=tuple(address for _, address in sanitize.addresses(headers.get("cc"))),
+        body_text=body,
+        body_truncated=truncated,
+        thread_id=_token(item.get("threadId")),
+        attachments=_attachments(payload),
+    )
+
+
+def _ids(entries: object) -> list[str]:
+    """Message ids of a list of {"message": {"id": ...}} entries."""
+    ids: list[str] = []
+    for entry in entries if isinstance(entries, list) else []:
+        message = entry.get("message") if isinstance(entry, dict) else None
+        if isinstance(message, dict) and (ref := _token(message.get("id"))):
+            ids.append(ref)
+    return ids
+
+
+def _label_ids(entry: object) -> set[str]:
+    labels = entry.get("labelIds") if isinstance(entry, dict) else None
+    return {x for x in labels if isinstance(x, str)} if isinstance(labels, list) else set()
+
+
+def _message_labels(entry: object) -> set[str] | None:
+    message = entry.get("message") if isinstance(entry, dict) else None
+    labels = message.get("labelIds") if isinstance(message, dict) else None
+    return {x for x in labels if isinstance(x, str)} if isinstance(labels, list) else None
+
+
+def parse_history(body: dict[str, Any], label_ref: str) -> MailChanges:
+    """One page of users.history.list, for one label, in order: the last change of a
+    message wins. Changes of other labels are left out."""
+    state: dict[str, bool] = {}
+    for record in body.get("history") or []:
+        if not isinstance(record, dict):
+            continue
+        for entry in record.get("messagesAdded") or []:
+            labels = _message_labels(entry)
+            if labels is None or label_ref in labels:
+                for ref in _ids([entry]):
+                    state[ref] = True
+        for ref in _ids(record.get("messagesDeleted")):
+            state[ref] = False
+        for entry in record.get("labelsAdded") or []:
+            added = _label_ids(entry)
+            # Moved to the spam or the bin: no longer the owner's mail.
+            if added & EXCLUDED_LABELS:
+                for ref in _ids([entry]):
+                    state[ref] = False
+            elif label_ref in added:
+                for ref in _ids([entry]):
+                    state[ref] = True
+        for entry in record.get("labelsRemoved") or []:
+            removed = _label_ids(entry)
+            if label_ref in removed:
+                for ref in _ids([entry]):
+                    state[ref] = False
+            elif removed & EXCLUDED_LABELS:
+                # Back from the spam or the bin: read again, kept if it has the label.
+                for ref in _ids([entry]):
+                    state[ref] = True
+    next_page = _token(body.get("nextPageToken"))
+    history_id = body.get("historyId")
+    return MailChanges(
+        added=[ref for ref, present in state.items() if present],
+        removed=[ref for ref, present in state.items() if not present],
+        next_page=next_page,
+        cursor=str(history_id) if next_page is None and history_id is not None else None,
+    )
 
 
 class GoogleConnector:
@@ -547,6 +770,135 @@ class GoogleConnector:
             raise OutcomeUnknownError("invalid_response")
         return event
 
+    # --- Gmail (read) -------------------------------------------------------------------------
+
+    async def list_labels(self, access_token: str) -> list[RemoteCollection]:
+        body = await self._api_get(f"{GMAIL_API}/labels", access_token, {})
+        labels: list[RemoteCollection] = []
+        for item in body.get("labels") or []:
+            ref = _token(item.get("id")) if isinstance(item, dict) else None
+            if ref is None:
+                continue
+            if item.get("type") == "system":
+                if ref not in SYSTEM_LABELS:
+                    continue  # spam, bin, drafts, categories, unread...
+                name = SYSTEM_LABELS[ref]
+            else:
+                name = _text(item.get("name"), _MAX_SUMMARY) or ref
+            labels.append(
+                RemoteCollection(
+                    provider_ref=ref, name=name, primary=ref == "INBOX", read_only=True
+                )
+            )
+        return labels
+
+    async def mail_cursor(self, access_token: str) -> str:
+        body = await self._api_get(f"{GMAIL_API}/profile", access_token, {"fields": "historyId"})
+        history_id = str(body.get("historyId") or "")
+        if not history_id.isdigit():
+            raise ConnectorUnavailableError("invalid_response")
+        return history_id
+
+    async def list_mail_ids(
+        self, access_token: str, label_ref: str, *, newer_than_days: int, page: str | None
+    ) -> MailIdPage:
+        params = {
+            "labelIds": label_ref,
+            "q": f"newer_than:{int(newer_than_days)}d",
+            "maxResults": "100",
+            "includeSpamTrash": "false",
+            "fields": "nextPageToken,messages(id)",
+        }
+        if page:
+            params["pageToken"] = page
+        body = await self._api_get(f"{GMAIL_API}/messages", access_token, params)
+        return MailIdPage(
+            ids=_ids([{"message": m} for m in body.get("messages") or []]),
+            next_page=_token(body.get("nextPageToken")),
+        )
+
+    async def get_mail(self, access_token: str, message_id: str) -> RemoteMail | None:
+        url = f"{GMAIL_API}/messages/{quote(message_id, safe='')}"
+        try:
+            item = await self._api_get(url, access_token, {"format": "full"})
+        except ConnectorGoneError:
+            return None
+        payload = item.get("payload")
+        if isinstance(payload, dict):
+            await self._inline_large_texts(access_token, url, payload)
+        return parse_message(item)
+
+    async def _inline_large_texts(
+        self, access_token: str, message_url: str, payload: dict[str, Any]
+    ) -> None:
+        """Gmail serves a large text body apart, like an attachment: fetched (bounded) so
+        that the message reads as a whole."""
+        fetched = 0
+        for part in _walk(payload):
+            body = part.get("body")
+            if (
+                fetched >= _MAX_REMOTE_TEXT_PARTS
+                or _is_attachment(part)
+                or str(part.get("mimeType") or "").lower() not in ("text/plain", "text/html")
+                or not isinstance(body, dict)
+                or body.get("data")
+                or not isinstance(body.get("attachmentId"), str)
+                or not isinstance(body.get("size"), int)
+                or body["size"] > _MAX_REMOTE_TEXT
+            ):
+                continue
+            fetched += 1
+            remote = await self._api_get(
+                f"{message_url}/attachments/{quote(body['attachmentId'], safe='')}",
+                access_token,
+                {},
+            )
+            body["data"] = remote.get("data")
+
+    async def list_mail_changes(
+        self, access_token: str, cursor: str, *, label_ref: str, page: str | None
+    ) -> MailChanges:
+        params: list[tuple[str, str]] = [
+            ("startHistoryId", cursor),
+            ("maxResults", "500"),
+            *(("historyTypes", kind) for kind in _HISTORY_TYPES),
+        ]
+        if page:
+            params.append(("pageToken", page))
+        try:
+            body = await self._api_get(f"{GMAIL_API}/history", access_token, tuple(params))
+        except ConnectorGoneError:
+            # The history no longer goes back to this cursor: a full pass is needed.
+            raise CursorExpiredError("history_expired") from None
+        return parse_history(body, label_ref)
+
+    async def get_attachment(
+        self, access_token: str, message_id: str, part_id: str, *, max_bytes: int
+    ) -> bytes:
+        # Gmail's attachment ids change from one read to the next: looked up again.
+        url = f"{GMAIL_API}/messages/{quote(message_id, safe='')}"
+        item = await self._api_get(url, access_token, {"format": "full"})
+        payload = item.get("payload")
+        parts = _walk(payload) if isinstance(payload, dict) else iter(())
+        part = next((p for p in parts if p.get("partId") == part_id), None)
+        body = part.get("body") if part else None
+        if not isinstance(body, dict):
+            raise ConnectorGoneError("attachment_gone")
+        size = body.get("size")
+        if isinstance(size, int) and size > max_bytes:
+            raise AttachmentTooLargeError(size)
+        data = body.get("data")
+        attachment_id = body.get("attachmentId")
+        if not data and isinstance(attachment_id, str):
+            remote = await self._api_get(
+                f"{url}/attachments/{quote(attachment_id, safe='')}", access_token, {}
+            )
+            data = remote.get("data")
+        content = _b64url(data)
+        if len(content) > max_bytes:
+            raise AttachmentTooLargeError(len(content))
+        return content
+
     # --- HTTP --------------------------------------------------------------------------------
 
     async def _api_send(
@@ -594,7 +946,12 @@ class GoogleConnector:
         except httpx.HTTPError:
             raise ConnectorUnavailableError("network") from None
 
-    async def _api_get(self, url: str, access_token: str, params: dict[str, str]) -> dict[str, Any]:
+    async def _api_get(
+        self,
+        url: str,
+        access_token: str,
+        params: Mapping[str, str] | tuple[tuple[str, str], ...],
+    ) -> dict[str, Any]:
         """GET on a Google API with the access token in the Authorization header."""
         parts = urlsplit(url)
         if parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS:

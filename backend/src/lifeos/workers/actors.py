@@ -19,6 +19,8 @@ from lifeos.modules.guardian import operations
 from lifeos.modules.guardian.actions import expire_stale, purge_decided
 from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
+from lifeos.modules.mail import sync as mail_sync
+from lifeos.modules.mail.service import purge_expired as purge_expired_mail
 from lifeos.modules.notifications.service import build_digests, dispatch_reminders
 from lifeos.modules.notifications.service import purge_old as purge_old_notifications
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
@@ -269,3 +271,38 @@ async def sync_calendar_source(source_id: str) -> None:
         "sync_calendar_source",
         lambda: calendar_sync.sync_source(database(), get_settings(), connectors(), target),
     )
+
+
+# --- Mail (task 17) ---------------------------------------------------------------------------
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=0, time_limit=30 * 60_000)
+async def sync_mail() -> None:
+    """Every mapped mail label not read for `mail_sync_minutes` (scheduler)."""
+    if not connectors():
+        return
+    await run_task(
+        "sync_mail", lambda: mail_sync.sync_due(database(), get_settings(), connectors())
+    )
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=1, time_limit=15 * 60_000)
+async def sync_mail_source(source_id: str) -> None:
+    """One label now (sent by the API after mapping it, or on « Synchroniser »)."""
+    try:
+        target = uuid.UUID(source_id)
+    except ValueError:
+        log.warning("invalid_source_id")
+        return
+    if not connectors():
+        return
+    await run_task(
+        "sync_mail_source",
+        lambda: mail_sync.sync_source(database(), get_settings(), connectors(), target),
+    )
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_mail() -> None:
+    """Local copies of e-mails past their retention (`mail_retention_days`)."""
+    await run_job("purge_mail", purge_expired_mail)

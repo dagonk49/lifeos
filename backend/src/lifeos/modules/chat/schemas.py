@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 
 from lifeos.modules.chat.attachments import MAX_ATTACHMENTS
 
+# E-mails attached to one message at most (lifeos.modules.mail.service.MAX_MAILS).
+MAX_MAILS = 3
+
 
 class ConversationCreate(BaseModel):
     space_id: uuid.UUID
@@ -72,8 +75,11 @@ class SendMessage(BaseModel):
     agent: AgentChoice = "core"
     # Documents whose locally extracted text goes with the message (never sensitive ones).
     attachments: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_ATTACHMENTS)
+    # E-mails the owner attaches to this message (task 17): sent as delimited data with
+    # it only, never if sensitive nor if the space has no cloud AI consent.
+    mail_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_MAILS)
 
-    @field_validator("attachments")
+    @field_validator("attachments", "mail_ids")
     @classmethod
     def _distinct(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
         return list(dict.fromkeys(value))
@@ -86,8 +92,11 @@ class PreviewRequest(BaseModel):
     content: str = Field(min_length=1, max_length=MAX_CONTENT_CHARS)
     agent: AgentChoice = "core"
     attachments: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_ATTACHMENTS)
+    # E-mails the owner attaches to this message (task 17): sent as delimited data with
+    # it only, never if sensitive nor if the space has no cloud AI consent.
+    mail_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_MAILS)
 
-    @field_validator("attachments")
+    @field_validator("attachments", "mail_ids")
     @classmethod
     def _distinct(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
         return list(dict.fromkeys(value))

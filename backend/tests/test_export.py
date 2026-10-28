@@ -38,6 +38,7 @@ from lifeos.modules.guardian.models import AgentPermission, Approval, LLMCall
 from lifeos.modules.identity.models import PasskeyCredential, Space, User, UserSession
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.llm.fake import FakeProvider
+from lifeos.modules.mail.models import MailMessage
 from lifeos.modules.memory.models import (
     Fact,
     FactPairDismissal,
@@ -313,6 +314,28 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
             end_date=date(2026, 10, 24),
             status="tentative",
             busy=False,
+        )
+    )
+    mailbox = add(
+        ConnectorSource(
+            **owned,
+            account_id=account.id,
+            kind="mail_label",
+            provider_ref="INBOX",
+            name=f"{mark} boîte",
+        )
+    )
+    await db.flush()
+    add(
+        MailMessage(
+            **owned,
+            source_id=mailbox.id,
+            provider_message_id=f"{mark}-m1",
+            from_address="lea@example.org",
+            subject=f"{mark} Pique-nique",
+            body_text=NOTES,
+            received_at=NOW,
+            purge_after=NOW + timedelta(days=90),
         )
     )
     add(

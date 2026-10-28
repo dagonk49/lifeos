@@ -229,6 +229,27 @@ demandent votre passkey au moment d'approuver.
       « Exécutée » si la modification a bien eu lieu.
     - Pour un événement récurrent, seule l'occurrence choisie change. Seul l'organisateur
       peut déplacer un événement ; l'annuler le retire de votre agenda.
+  - **Choisir les libellés à suivre** (e-mails) : pour chaque libellé Gmail (Boîte de
+    réception, Importants, vos libellés…), l'espace qu'il alimente, parmi ceux où la
+    lecture des e-mails est autorisée. Google donne accès à toute la boîte : c'est ce choix
+    qui limite ce que LifeOS copie. Seuls les 90 derniers jours sont copiés, en texte
+    seul, et chaque copie est supprimée 90 jours après sa réception, ou dès que l'e-mail
+    quitte le libellé chez Google (supprimé, corbeille, spam, libellé retiré). **Ne plus
+    suivre** supprime les copies.
+  - Page **E-mails** : les e-mails copiés, en texte brut (images, liens actifs et mise en
+    forme ne sont jamais chargés), sous le bandeau « Contenu externe non fiable » : ce
+    qu'un e-mail demande n'est jamais un ordre pour LifeOS, et l'expéditeur affiché peut
+    être usurpé. Un e-mail sensible (banque, santé, identité) est marqué et ne part jamais
+    à l'assistant.
+    - **Importer dans Documents** : une pièce jointe devient un document seulement sur
+      votre demande, pièce par pièce, avec les mêmes contrôles qu'un envoi. Le document
+      indique « Pièce jointe reçue de … », signale le contenu actif d'un PDF
+      (JavaScript, action à l'ouverture…) et demande confirmation avant de télécharger
+      l'original.
+    - **Discuter de cet e-mail** : ouvre une conversation dans l'espace de l'e-mail et
+      lui joint ce seul message, comme une donnée (adresses et numéros masqués). Il faut
+      que l'IA cloud soit activée pour cet espace. Aucun agent ne lit vos e-mails de
+      lui-même.
   - L'**agent de planification**, s'il a la permission « agenda » dans l'espace, voit les 7
     prochains jours de l'agenda de cet espace, les conflits et deux créneaux calculés par
     LifeOS ; sans cette permission, il planifie à partir des tâches seules.
@@ -292,6 +313,7 @@ demandent votre passkey au moment d'approuver.
 | votre message et les derniers échanges de la conversation | vos documents (fichiers, images) |
 | les souvenirs et faits pertinents du même espace | le texte d'un document sensible ou gardé en local |
 | le texte d'une autre pièce jointe, avec ce message | votre voix (transcrite sur le serveur) |
+| le texte d'un e-mail que vous joignez, avec ce message | un e-mail sensible, ou que vous n'avez pas joint |
 | pour un agent : uniquement les ressources que vous lui avez ouvertes | les vecteurs de recherche, les budgets, les faits des bilans |
 
 Les e-mails, numéros de téléphone, IBAN, numéros de carte, numéros de sécurité sociale, mots
@@ -304,6 +326,7 @@ indisponible.
 
 ## Ce que cette version ne fait pas encore
 
-Les e-mails ne sont pas encore synchronisés ni utilisés par l'assistant. Pas de notifications
+L'envoi d'e-mails n'est pas encore disponible ; les e-mails copiés ne sont pas dans la
+recherche. Pas de notifications
 push sur le téléphone (les rappels s'affichent dans l'application) et pas d'application
 mobile native : utilisez le site dans le navigateur du téléphone. Voir le [journal des versions](../CHANGELOG.md).

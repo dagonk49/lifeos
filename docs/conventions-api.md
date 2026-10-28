@@ -149,6 +149,14 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
 - `404 document_not_found` (autre espace ou dictée) ;
 - `403 attachment_not_allowed` (agent sans droit `documents`), audité (`document.attach`).
 
+E-mails joints (tâche 17) : `mail_ids` (au plus 3 identifiants d'e-mails copiés) joint leur
+texte au message, dans un bloc délimité annoncé comme des données de tiers. Refus **avant**
+tout enregistrement, audités (`mail.attach`, `denied`, raison) : `404 mail_not_found` (autre
+espace que la conversation), `403 mail_not_allowed` (agent sans droit `email`), `422
+mail_sensitive` (catégories enregistrées ou trouvées à l'envoi, en extension `mail_id` et
+`sensitivity`), `403 cloud_consent_required` (espace sans IA cloud : un e-mail n'est jamais
+envoyé dans ce cas).
+
 Contrôle avant l'envoi : `POST /v1/chat/preview` (`space_id`, `content`, `agent`,
 `attachments`) applique les mêmes règles **sans rien enregistrer ni envoyer** et répond
 `200` :
@@ -282,6 +290,28 @@ puis envoie le message avec les seules pièces jointes `sent`.
     event_not_found`, `403 connector_capability_missing` sans consentement `calendar.write`
     de l'espace, `403 agent_permission_required` pour un agent sans permission `calendar`
     en écriture.
+- Libellés e-mail (tâche 17) :
+  - `GET /v1/connectors/accounts/{id}/labels` → les libellés du compte, lus en direct
+    (`provider_ref`, `name`, `primary`, `source_id`/`space_id` s'il est déjà suivi) ; spam,
+    corbeille, brouillons et catégories ne sont pas proposés.
+  - `POST /v1/connectors/sources` `{account_id, provider_ref, space_id, kind: "mail_label"}`
+    → `201` ; exige le consentement `mail.read` de cet espace ; `404 label_not_found`,
+    `409 label_already_mapped`. `DELETE` supprime les e-mails copiés (les documents
+    importés restent).
+- E-mails copiés (tâche 17), texte brut seulement :
+  - `GET /v1/mail/messages?space_id?&source_id?&limit&cursor` → `{items, next_cursor}`, du
+    plus récent au plus ancien (curseur sur la date de réception) : expéditeur, objet,
+    début du texte, nombre de pièces jointes, `sensitivity`.
+  - `GET /v1/mail/messages/{id}` → le détail (`to_addresses`, `cc_addresses`, `body_text`,
+    `body_truncated`, `attachment_list` avec `document_id` une fois importée). `404
+    mail_not_found` hors des espaces du principal.
+  - `POST /v1/mail/messages/{id}/attachments/{part_id}/import` (`Idempotency-Key`) → `201`
+    le document (`purpose = attachment`, `source_type = mail_message`, `received_from`,
+    `active_content`) ; un second import rend le même document. `404
+    attachment_not_found`, `410 attachment_gone`, `413 document_too_large`, `415
+    unsupported_type` (signature refusée : HTML, SVG, exécutable…), `403
+    connector_capability_missing` sans consentement `mail.read`, `503
+    connector_unavailable`.
 - Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
   - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
     `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous
@@ -445,6 +475,7 @@ leurs métadonnées (T26) ne sont pas incluses.
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
-| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas suivis, déconnexion |
+| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas et libellés e-mail suivis, déconnexion |
+| `/v1/mail` | 5 | e-mails copiés des libellés suivis (lecture, texte brut), import d'une pièce jointe dans Documents |
 | `/v1/calendar` | 5 | occurrences des agendas suivis, propositions de création, de déplacement et d'annulation (approbation) |
 | `/v1/planning` | 5 | conflits d'agenda et créneaux libres, calculés localement (lecture seule) |

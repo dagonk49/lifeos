@@ -69,6 +69,13 @@ class Document(UUIDPrimaryKey, Owned, Timestamps, Base):
     # Provenance: where the document comes from or what it is attached to.
     source_type: Mapped[str | None] = mapped_column(Text)
     source_id: Mapped[uuid.UUID | None]
+    # A file from a third party (e-mail attachment, task 17): who sent it, kept on the
+    # document even after the message is gone (ADR 0011 §6), and the active content
+    # found in a PDF (a warning, never a refusal).
+    received_from: Mapped[str | None] = mapped_column(Text)
+    active_content: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), default=list, server_default="{}"
+    )
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     search_vector: Mapped[Any] = search_vector_column(
         "coalesce(title, '') || ' ' || coalesce(extracted_text, '')"

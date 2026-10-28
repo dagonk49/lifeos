@@ -50,4 +50,5 @@ def build_connectors(settings: Settings) -> Connectors:
     # End-to-end runs: every process (API, worker) holds the same demo calendars.
     fake = FakeConnector()
     fake.add_demo_week(datetime.now(ZoneInfo(settings.timezone)).date(), settings.timezone)
+    fake.add_demo_inbox(datetime.now(ZoneInfo("UTC")))
     return {"fake": fake}

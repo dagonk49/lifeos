@@ -12,6 +12,7 @@ from lifeos.modules.connectors.schemas import (
     DisconnectOut,
     GrantOut,
     GrantsIn,
+    LabelOut,
     OAuthCallbackIn,
     OAuthCallbackOut,
     OAuthStartIn,
@@ -153,20 +154,47 @@ async def list_calendars(
     ]
 
 
+@router.get("/accounts/{account_id}/labels")
+async def list_labels(
+    account_id: uuid.UUID, ctx: CtxDep, connectors: ConnectorsDep
+) -> list[LabelOut]:
+    """The account's mail labels (live), with the space each one already feeds."""
+    remote = await sources.remote_labels(ctx, connectors, account_id)
+    mapped = {
+        s.provider_ref: s
+        for s in (
+            await service.account_view(ctx, connectors, await service.own_account(ctx, account_id))
+        ).sources
+        if s.kind == "mail_label"
+    }
+    return [
+        LabelOut(
+            provider_ref=label.provider_ref,
+            name=label.name,
+            primary=label.primary,
+            source_id=mapped[label.provider_ref].id if label.provider_ref in mapped else None,
+            space_id=mapped[label.provider_ref].space_id if label.provider_ref in mapped else None,
+        )
+        for label in remote
+    ]
+
+
 @router.post("/sources", status_code=201)
 async def map_calendar(
     body: SourceIn, ctx: CtxDep, connectors: ConnectorsDep, background: BackgroundTasks
 ) -> SourceOut:
-    """Feeds a space with a calendar (calendar.read consent in that space required)."""
+    """Feeds a space with a calendar or a mail label (calendar.read or mail.read consent
+    in that space required)."""
     source = await sources.map_calendar(
         ctx,
         connectors,
         account_id=body.account_id,
         provider_ref=body.provider_ref,
         space_id=body.space_id,
+        kind=body.kind,
     )
     # After the response, hence after the commit: the worker sees the source.
-    background.add_task(sources.queue_sync, source.id)
+    background.add_task(sources.queue_sync, source.id, source.kind)
     return SourceOut.model_validate(source)
 
 
@@ -180,5 +208,5 @@ async def remove_source(source_id: uuid.UUID, ctx: CtxDep) -> None:
 async def sync_source(source_id: uuid.UUID, ctx: CtxDep, background: BackgroundTasks) -> SourceOut:
     """Asks for a sync now (done by the worker; the periodic sync catches up otherwise)."""
     source = await sources.own_source(ctx, source_id)
-    background.add_task(sources.queue_sync, source.id)
+    background.add_task(sources.queue_sync, source.id, source.kind)
     return SourceOut.model_validate(source)

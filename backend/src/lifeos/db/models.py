@@ -23,6 +23,7 @@ from lifeos.modules.identity.models import (
     UserSession,
 )
 from lifeos.modules.journal.models import JournalEntry
+from lifeos.modules.mail.models import MailMessage
 from lifeos.modules.memory.models import (
     Fact,
     FactPairDismissal,
@@ -59,6 +60,7 @@ __all__ = [
     "IdempotencyKey",
     "JournalEntry",
     "LLMCall",
+    "MailMessage",
     "Memory",
     "MemoryRevision",
     "Message",
