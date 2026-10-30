@@ -115,6 +115,10 @@ configurée.
 | Paramètres corrigés hors du schéma (type faux, champ en trop) | refusé, toujours en attente ; corrigés dans le schéma : exactement ces paramètres exécutés | `422 invalid_action_params` | — | `test_security.py::test_edited_params_must_match_the_schema` |
 | Approbation d'un autre compte | `404` | `approval_not_found` | — | matrice du §3 |
 | Action importante exécutée sans approbation | refusée | `403 approval_required` | `denied` | `test_guardian.py::test_email_without_confirmation_is_blocked_and_audited` |
+| Envoi réel d'un e-mail sans approbation, ou avec une approbation en attente, refusée ou expirée (T37) | rien n'est envoyé | `403 approval_required`, `409 approval_not_pending` | `email.send…` `denied` (`approval_required`) | `test_mail_send.py::test_no_email_leaves_without_an_approval` |
+| E-mail à un nouveau destinataire ou avec une pièce sensible, sans passkey récente | refusé, rien n'est envoyé | `403 reauthentication_required` | `approval.approve` `denied` | `test_mail_send.py::test_a_known_recipient_needs_a_plain_approval_a_new_one_a_passkey` |
+| Brouillon modifié, paramètres ou pièce jointe falsifiés après la demande | approbation invalidée ou refusée, rien n'est envoyé | `approval_stale`, `attachment_changed`, `approval_params_mismatch` | `approval.invalidate` | `test_mail_send.py::test_editing_the_draft_invalidates_its_approval`, `test_tampered_parameters_or_files_are_refused` |
+| Double approbation, approbations simultanées, plantage après l'envoi, issue inconnue | un seul e-mail envoyé | `409`, `outcome_unknown` | `external_operation` | `test_mail_send.py::test_concurrent_approvals_send_once`, `test_a_crash_after_sending_never_sends_twice`, `test_an_unknown_outcome_is_reconciled_never_resent`, `test_without_the_read_scope_an_uncertain_send_stays_uncertain` |
 
 ## 9. Client web : politique de sécurité du contenu (T14)
 

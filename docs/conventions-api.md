@@ -312,6 +312,42 @@ puis envoie le message avec les seules pièces jointes `sent`.
     unsupported_type` (signature refusée : HTML, SVG, exécutable…), `403
     connector_capability_missing` sans consentement `mail.read`, `503
     connector_unavailable`.
+- Envoi d'e-mails (tâche 18, [ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) :
+  rien ne part sans une approbation qui montre le message exact.
+  - `GET /v1/mail/send-accounts?space_id` → les comptes autorisés à envoyer dans l'espace
+    (consentement `mail.send`).
+  - `POST /v1/mail/drafts` (`Idempotency-Key`) `{space_id, account_id?, to[], cc[], bcc[],
+    subject, body, attachment_ids[], in_reply_to_id?}` → `201` le brouillon. `GET
+    /v1/mail/drafts?space_id?`, `GET /v1/mail/drafts/{id}`, `DELETE` (`204`).
+  - `PATCH /v1/mail/drafts/{id}` (`If-Match: <version>`) → nouvelle version ; l'approbation
+    en attente devient `invalidated` (`error = draft_changed`). `409 version_conflict`.
+  - Un brouillon porte `state` : `draft`, `awaiting_approval`, `sending`, `unknown` (envoi
+    peut-être fait : vérifié chez le fournisseur, jamais renvoyé), `failed` (rien n'est
+    parti), `sent`. `sending`, `unknown` et `sent` ne se modifient pas (`409
+    outcome_unknown`, `409 draft_already_sent`).
+  - `POST /v1/mail/drafts/{id}/send` (`Idempotency-Key`) → `201` l'approbation (`email.send`,
+    ou `email.send_reinforced` pour un nouveau destinataire ou une pièce jointe sensible :
+    passkey récente). Ses `params` sont le message ; son `preview` : `from`, `to`, `cc`,
+    `bcc`, `subject`, `body`, `attachments [{title, filename, mime, size_bytes,
+    sensitivity, local_only}]`, `reply`, `new_recipients`, `reinforced`, `notes`. Un second
+    appel rend la même approbation en attente. On l'approuve par `POST
+    /v1/approvals/{id}/approve` (paramètres non modifiables : `422 approval_not_editable`).
+  - `GET /v1/mail/drafts/{id}/approval` → la dernière approbation d'envoi.
+  - `POST /v1/mail/drafts/{id}/resolve` `{sent: bool}` : le propriétaire indique, après
+    vérification de ses messages envoyés, si un envoi incertain est parti (`409
+    draft_not_uncertain` sinon).
+  - Refus : `422 invalid_recipient` (l'adresse n'est jamais renvoyée), `invalid_subject`,
+    `too_many_recipients`, `too_many_attachments`, `body_too_long`, `recipient_required`,
+    `mail_empty` ; `413 mail_too_large` ; `404 document_not_found` (document d'un autre
+    espace) ; `409 attachment_unavailable`, `mail_send_unavailable`.
+  - À l'exécution (approbation `failed`, `error`) : `approval_stale` (brouillon, contenu,
+    compte ou sensibilité changés), `attachment_changed` (SHA-256 différent),
+    `draft_already_sent`, `draft_gone`, `outcome_unknown` (sans conclusion : rapproché par
+    la tâche `reconcile_external_operations`), `connector_capability_missing`,
+    `connector_reauth_required`, `connector_unavailable`.
+  - Le contenu exact d'une approbation d'envoi décidée est effacé après
+    `mail_approval_redact_days` (30 jours) : `params = {redacted, draft_id, recipients,
+    attachments}`, l'empreinte `params_sha256` reste.
 - Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
   - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
     `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous
@@ -591,6 +627,6 @@ conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu**
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois, import de relevés CSV, échéances récurrentes, projection |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
 | `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas et libellés e-mail suivis, déconnexion |
-| `/v1/mail` | 5 | e-mails copiés des libellés suivis (lecture, texte brut), import d'une pièce jointe dans Documents |
+| `/v1/mail` | 5 | e-mails copiés des libellés suivis (lecture, texte brut), import d'une pièce jointe dans Documents, brouillons et envoi sous approbation |
 | `/v1/calendar` | 5 | occurrences des agendas suivis, propositions de création, de déplacement et d'annulation (approbation) |
 | `/v1/planning` | 5 | conflits d'agenda et créneaux libres, calculés localement (lecture seule) |

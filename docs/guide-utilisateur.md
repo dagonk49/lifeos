@@ -379,6 +379,33 @@ demandent votre passkey au moment d'approuver.
       lui joint ce seul message, comme une donnée (adresses et numéros masqués). Il faut
       que l'IA cloud soit activée pour cet espace. Aucun agent ne lit vos e-mails de
       lui-même.
+    - **Répondre** : ouvre un brouillon de réponse (destinataire, « Re: » et texte cité
+      préremplis), rattaché à la même conversation chez Gmail.
+  - **Écrire et envoyer un e-mail** (page **E-mails** → **Écrire**), si « Envoyer des
+    e-mails » est autorisé pour l'espace :
+    1. Choisissez le compte d'envoi, les destinataires (À, Cc, Cci : adresses séparées par
+       des virgules), l'objet, le texte (texte brut) et, si besoin, des documents de
+       l'espace en pièces jointes (10 Mo en tout). **Enregistrer le brouillon** ne fait que
+       le garder.
+    2. **Préparer l'envoi** n'envoie rien : une carte « Vérifiez l'e-mail avant de
+       l'envoyer » montre exactement ce qui partira — expéditeur, À, Cc, Cci, objet, texte
+       entier, pièces jointes avec leur taille et leur sensibilité.
+    3. **Approuver** l'envoie, une seule fois. Une adresse à laquelle LifeOS n'a jamais
+       écrit depuis cet espace (marquée « Nouveau destinataire ») ou une pièce jointe
+       sensible demande votre passkey (**Approuver avec ma passkey**) : vérifiez l'adresse
+       lettre par lettre, c'est la seule protection contre une faute de frappe.
+    4. Modifier le brouillon après l'avoir préparé **annule** l'approbation : préparez de
+       nouveau l'envoi. Une approbation refusée ou expirée n'envoie rien.
+    - « Envoyé » : Gmail l'a accepté. « État incertain — vérifiez vos e-mails envoyés » : la
+      connexion a coupé pendant l'envoi. LifeOS ne le renvoie **jamais** de lui-même : si la
+      lecture de Gmail est autorisée, il le cherche dans vos messages envoyés ; sinon vous
+      recevez une notification, vous vérifiez dans Gmail, puis vous indiquez sur le
+      brouillon « Il est bien parti » ou « Il n'est pas parti » (vous pourrez alors le
+      préparer de nouveau).
+    - Les brouillons envoyés sont supprimés 90 jours après l'envoi ; le contenu des
+      approbations d'envoi est effacé 30 jours après votre décision.
+    - Une adresse « envoyer en tant que » doit d'abord être validée dans les paramètres de
+      Gmail.
   - L'**agent de planification**, s'il a la permission « agenda » dans l'espace, voit les 7
     prochains jours de l'agenda de cet espace, les conflits et deux créneaux calculés par
     LifeOS ; sans cette permission, il planifie à partir des tâches seules.
@@ -455,8 +482,7 @@ indisponible.
 
 ## Ce que cette version ne fait pas encore
 
-- **Envoyer un e-mail** : l'usage « Envoyer des e-mails » peut être accordé dans les
-  comptes connectés, mais LifeOS n'envoie encore aucun e-mail.
+- Un e-mail envoyé par LifeOS est en **texte brut** (pas de mise en forme).
 - Les e-mails copiés ne sont pas dans la **Recherche** (ils se consultent dans la page
   **E-mails**).
 - Pas de **notifications push** sur le téléphone : notifications et rappels s'affichent
@@ -465,7 +491,6 @@ indisponible.
 - Pas de **tâches récurrentes** ([ADR 0013](adr/0013-taches-recurrentes.md)), pas de
   connexion bancaire (import de relevés CSV seulement), pas d'autre fournisseur que Google
   pour l'agenda et les e-mails.
-- L'accueil n'est pas personnalisable (cartes fixes).
 
 En cas de problème : [dépannage](depannage.md). Nouveautés : [journal des
 versions](../CHANGELOG.md).

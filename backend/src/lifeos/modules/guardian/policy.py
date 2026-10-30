@@ -102,7 +102,18 @@ _SPECS = [
     # Data access is checked section by section with the principal's own read rights.
     ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),
-    ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL),
+    # E-mail sending (task 18, ADR 0018): every e-mail is approved by the owner from its
+    # exact content; a new recipient (never written to from LifeOS in this space) or a
+    # sensitive attachment also requires a recent passkey login. Agents only propose.
+    ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL, "email"),
+    ActionSpec(
+        "email.send_reinforced",
+        "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe sensible",
+        Level.APPROVAL,
+        Level.APPROVAL,
+        "email",
+        approval_level="reinforced",
+    ),
     # Calendar writes (task 16): every write is approved by the owner, even an event of
     # their own (owner's decision); a shared event (other attendees, someone else's event
     # or calendar) also requires a recent passkey login. Agents only propose.

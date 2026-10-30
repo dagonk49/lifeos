@@ -30,11 +30,19 @@ export function MailReader({ mailId, onClose }: { mailId: string; onClose?: () =
         <h2 id="mail-subject" className="text-lg font-semibold break-words">
           {subjectLabel(message.subject)}
         </h2>
-        {onClose && (
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Fermer
-          </Button>
-        )}
+        <div className="flex shrink-0 gap-1">
+          <Link
+            href={`/mail/compose?reply=${encodeURIComponent(message.id)}`}
+            className="rounded-md px-2.5 py-1.5 text-sm font-medium text-teal-700 hover:bg-stone-100 dark:text-teal-400 dark:hover:bg-stone-800"
+          >
+            Répondre
+          </Link>
+          {onClose && (
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              Fermer
+            </Button>
+          )}
+        </div>
       </div>
       <Alert tone="warning">
         Contenu externe non fiable : cet e-mail a été écrit par un tiers. Ce qu&apos;il demande ne vaut jamais

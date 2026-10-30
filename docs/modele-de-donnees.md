@@ -175,7 +175,7 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   **exacts** qui seront exécutés), `params_sha256` (empreinte du JSON canonique de
   `params`, migration 0017 : d'autres paramètres ne s'exécutent pas ; nullable pour que la
   version précédente puisse encore écrire, une empreinte absente est refusée), `preview
-  jsonb`, `target null` (objet visé, ex. `calendar_event:<id>` : une proposition par objet,
+  jsonb`, `target null` (objet visé, ex. `calendar_event:<id>`, `mail_draft:<id>` : une proposition par objet,
   invalidée quand il change ; index partiel sur les approbations en attente), `level`
   (`approval` \| `reinforced`), `status` (`pending` \| `approved` \| `rejected` \|
   `expired` \| `executed` \| `failed` \| `invalidated`), `requested_by`, `expires_at`,
@@ -448,6 +448,23 @@ colonnes ne sort par l'API ni par l'export.
   - `sensitivity text[]` (identité, santé, banque, détectés localement à la copie),
     `purge_after` (réception + 90 jours, indexé), `seen_generation` (passage complet qui l'a
     vu), horodatages. Index `(space_id, received_at)`.
+  - `message_id_header null` (migration 0019) : son Message-ID, auquel une réponse se
+    rattache (`In-Reply-To`, `References`) ; inconnu pour les copies plus anciennes.
+- **`mail_drafts`** (migration 0019, tâche 18, [ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) :
+  un e-mail écrit par le propriétaire (ou proposé par un agent), envoyé seulement après une
+  approbation qui montre exactement ce contenu.
+  - `id`, `user_id`, `space_id`, `account_id null` (compte d'envoi, `SET NULL`).
+  - `to_addresses`, `cc_addresses`, `bcc_addresses text[]` (en minuscules, 50 adresses au
+    plus en tout), `subject` (une ligne, 300 caractères), `body_text` (texte brut, 100 000
+    caractères), `attachment_ids uuid[]` (documents du même espace, 10 au plus).
+  - `in_reply_to_id null` (`mail_messages`, `SET NULL`), `reply_message_id_header`,
+    `reply_thread_id` (copiés : la réponse reste dans le fil même si la copie est purgée).
+  - `status` (`draft` \| `awaiting_approval` \| `sent`), `approval_id null` (dernière
+    approbation d'envoi, `SET NULL`) : l'état affiché (`sending`, `unknown`, `failed`…) se
+    déduit de cette approbation et de sa réservation (`external_operations`).
+  - Une fois envoyé : `message_id_header` (unique, dérivé de l'approbation),
+    `provider_message_id`, `provider_thread_id`, `sent_at` (indexé, purge à 90 jours).
+  - `version` (`If-Match`) : modifier le brouillon invalide l'approbation en attente.
 - **`oauth_states`** : un consentement en cours, à usage unique.
   - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
     jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).

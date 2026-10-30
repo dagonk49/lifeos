@@ -47,8 +47,9 @@ L'adresse de retour est toujours `LIFEOS_PUBLIC_ORIGIN` + `/connexions/retour`.
      (lire l'agenda) ;
    - `.../auth/calendar.events` (modifier l'agenda) ;
    - `.../auth/gmail.readonly` (lire les e-mails, scope « restreint ») ;
-   - `.../auth/gmail.send` (envoyer des e-mails : l'envoi n'est **pas encore disponible**
-     dans cette version, inutile de l'ajouter pour l'instant).
+   - `.../auth/gmail.send` (envoyer des e-mails, toujours après votre approbation ; sans
+     `gmail.readonly`, un envoi interrompu ne peut pas être vérifié par LifeOS : c'est vous
+     qui confirmez dans Gmail s'il est parti, voir l'[ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)).
 5. Utilisateurs de test : ajouter votre ou vos adresses Google.
 6. **Publier l'application** (« En production »). En mode « Test », Google fait expirer les
    jetons de renouvellement au bout d'environ 7 jours, et LifeOS demanderait de reconnecter
@@ -113,8 +114,8 @@ Dans LifeOS, **Réglages → Comptes connectés** :
 
 1. Choisir l'espace (personnel ou professionnel) et cocher les usages : lire l'agenda,
    modifier l'agenda, lire les e-mails, envoyer des e-mails. Au départ, seule la lecture de
-   l'agenda est cochée. « Envoyer des e-mails » peut être accordé, mais LifeOS n'envoie encore
-   aucun e-mail dans cette version.
+   l'agenda est cochée. « Envoyer des e-mails » permet à LifeOS d'envoyer un e-mail, toujours
+   après votre approbation du message exact.
 2. « Connecter un compte Google » : LifeOS demande une confirmation par passkey si la
    dernière date de plus de 10 minutes.
 3. Chez Google : choisir le compte. Avertissement « Google n'a pas validé cette

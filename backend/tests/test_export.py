@@ -45,7 +45,7 @@ from lifeos.modules.guardian.models import AgentPermission, Approval, LLMCall
 from lifeos.modules.identity.models import PasskeyCredential, Space, User, UserSession
 from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.llm.fake import FakeProvider
-from lifeos.modules.mail.models import MailMessage
+from lifeos.modules.mail.models import MailDraft, MailMessage
 from lifeos.modules.memory.models import (
     Fact,
     FactPairDismissal,
@@ -374,6 +374,16 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
             body_text=NOTES,
             received_at=NOW,
             purge_after=NOW + timedelta(days=90),
+        )
+    )
+    add(
+        MailDraft(
+            **owned,
+            account_id=account.id,
+            to_addresses=["lea@example.org"],
+            subject=f"{mark} Réponse",
+            body_text=NOTES,
+            status="draft",
         )
     )
     add(

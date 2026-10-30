@@ -58,7 +58,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | Étape | État |
 |---|---|
 | 0 à 4 | réalisées (version 1.0.0) |
-| 5 — Connecteurs | en cours : comptes Google, lecture de l'agenda, modifications d'agenda sous approbation, lecture de Gmail, notifications adaptatives dans l'application. **Prévu** : envoi d'e-mails sous approbation, notifications push sur le téléphone |
+| 5 — Connecteurs | en cours : comptes Google, lecture de l'agenda, modifications d'agenda sous approbation, lecture de Gmail, envoi d'e-mails sous approbation, notifications adaptatives dans l'application. **Prévu** : notifications push sur le téléphone |
 | 6 — Stabilisation | en cours : recette de sécurité, CSP à nonces, exercices de restauration scriptés, alertes, mises à jour avec retour arrière, documentation d'exploitation et de dépannage. **Reste** : exercice de restauration réel sur une VM vierge (journal vide), recette sur la machine cible, accessibilité |
 
 ## 4. Couverture du cahier des charges
@@ -82,7 +82,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 
 | Exigence | Statut | Remarque |
 |---|---|---|
-| §5 — Quatre niveaux, moteur d'autorisation hors IA | Réalisé | Guardian ; approbation aux paramètres exacts ; modification d'un événement partagé avec passkey. Envoi de message et partage de document : pas encore d'action réelle |
+| §5 — Quatre niveaux, moteur d'autorisation hors IA | Réalisé | Guardian ; approbation aux paramètres exacts ; modification d'un événement partagé avec passkey. Envoi d'un e-mail : approbation du message exact, passkey pour un nouveau destinataire ou une pièce sensible. Partage de document : pas encore d'action réelle |
 | §5 — Instructions des contenus importés jamais autorisation | Réalisé | e-mails, documents et événements présentés comme des données ([recette-securite.md](recette-securite.md)) |
 | §6 — Minimisation, masquage, séparation des espaces, consentement, audit, conservation, export complet | Réalisé | [politique-de-donnees.md](politique-de-donnees.md) |
 | §6 — Sauvegardes chiffrées, test de restauration | Réalisé | sauvegardes restic quotidiennes, copie hors site, tests automatiques ; exercice réel à faire |
@@ -95,7 +95,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | UC01 — Journal oral | Réalisé | dictée transcrite localement, tâches et faits proposés puis validés, échéances proposées |
 | UC02 — Ticket de caisse | Réalisé | marchand, date et total avec leur ligne d'origine, vérifiés avant l'ajout |
 | UC03 — Achat important | Partiel | l'agent Finances voit budget et projection ; pas d'orchestration Finances + Coaching en une recommandation |
-| UC04 — Action externe (e-mail) | Non réalisé | **prévu** : envoi d'e-mail sous approbation. Le blocage d'un envoi sans approbation est déjà en place et testé |
+| UC04 — Action externe (e-mail) | Réalisé | brouillon, approbation du message exact (passkey pour un nouveau destinataire ou une pièce sensible), jamais envoyé deux fois, issue incertaine vérifiée dans Gmail ([ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) |
 | UC05 — Droit à l'oubli | Réalisé | effacement propagé aux index, copies, sauvegardes (sous 23 jours) et rejoué à la restauration |
 
 ### Exigences non fonctionnelles (§8)
@@ -116,7 +116,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 |---|---|
 | Consulter, corriger, exporter, supprimer ses souvenirs | Réalisé |
 | Purge des conversations à 90 jours, index compris | Réalisé |
-| Envoi de mail sans confirmation bloqué et journalisé | Réalisé pour le contrôle (testé) ; l'envoi lui-même n'existe pas encore |
+| Envoi de mail sans confirmation bloqué et journalisé | Réalisé (testé) : aucun envoi sans approbation du message exact |
 | Pièce jointe professionnelle inaccessible à l'agent Finance sans permission | Réalisé |
 | Notification non critique dans les plages de tranquillité | Réalisé |
 | Indisponibilité cloud sans effet sur les tâches et le budget | Réalisé |

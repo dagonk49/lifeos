@@ -125,7 +125,7 @@ ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à 
 - **Sécurité** : CSP à nonce, recette de sécurité, fichiers hostiles lus dans un processus
   confiné.
 
-Pas encore : envoi d'e-mails, notifications push sur le téléphone, application mobile
+Pas encore : notifications push sur le téléphone, application mobile
 native ([guide d'utilisation](docs/guide-utilisateur.md#ce-que-cette-version-ne-fait-pas-encore)).
 
 ## Licence

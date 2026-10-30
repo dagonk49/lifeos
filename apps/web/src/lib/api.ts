@@ -277,6 +277,28 @@ const MESSAGES: Record<string, string> = {
   label_already_mapped: "Ce libellé alimente déjà un autre espace : retirez-le d'abord de cet espace.",
   attachment_not_found: "Cette pièce jointe est introuvable dans l'e-mail.",
   attachment_gone: "L'e-mail n'est plus chez le fournisseur : la pièce jointe ne peut plus être importée.",
+  // Sending e-mails (task 18)
+  approval_stale:
+    "Le brouillon ou ses pièces jointes ont changé depuis la demande : rien n'a été envoyé. Préparez de nouveau l'envoi.",
+  draft_already_sent: "Cet e-mail est déjà parti : il n'est ni modifié ni renvoyé.",
+  draft_changed: "Le brouillon a été modifié : cette approbation ne vaut plus.",
+  draft_deleted: "Le brouillon a été supprimé.",
+  draft_not_found: "Ce brouillon est introuvable.",
+  draft_gone: "Ce brouillon n'existe plus : rien n'a été envoyé.",
+  draft_not_uncertain: "Cet envoi n'est pas en état incertain : rien à confirmer.",
+  not_sent: "Vous avez indiqué que l'e-mail n'est pas parti.",
+  invalid_recipient: "Une adresse de destinataire n'est pas valide.",
+  invalid_subject: "L'objet doit tenir sur une ligne.",
+  too_many_recipients: "Trop de destinataires (50 au plus).",
+  too_many_attachments: "Trop de pièces jointes (10 au plus).",
+  body_too_long: "Le message est trop long.",
+  recipient_required: "Indiquez au moins un destinataire.",
+  mail_empty: "Écrivez un objet ou un message.",
+  mail_too_large: "Les pièces jointes sont trop lourdes pour un seul e-mail.",
+  mail_send_unavailable:
+    "Aucun compte connecté ne peut envoyer d'e-mails dans cet espace : autorisez « Envoyer des e-mails » dans Réglages > Comptes connectés.",
+  attachment_unavailable: "Ce document ne peut pas être joint : son original n'est plus disponible.",
+  attachment_changed: "Une pièce jointe a changé depuis la demande : rien n'a été envoyé.",
 };
 
 export function problemMessage(code: string, fallback: string): string {

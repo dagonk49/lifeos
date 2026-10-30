@@ -42,6 +42,7 @@
 | [0015](adr/0015-notifications-adaptatives.md) | Notifications adaptatives : politique de livraison pure, suggestions regroupées, permission explicite pour les alertes critiques | Acceptée |
 | [0016](adr/0016-ecritures-externes-sous-approbation.md) | Écritures chez un fournisseur : approbation liée aux paramètres, réservation unique, rapprochement | Acceptée |
 | [0017](adr/0017-lecture-des-e-mails.md) | Lecture des e-mails : libellés choisis, texte brut, jamais une instruction | Acceptée |
+| [0018](adr/0018-envoi-des-e-mails-sous-approbation.md) | Envoi des e-mails : brouillon, aperçu exact, approbation, jamais deux fois | Acceptée |
 
 ## Points encore ouverts
 

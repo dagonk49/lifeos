@@ -12,6 +12,7 @@ Google's current documentation before going live (docs/guide-google.md).
 
 import base64
 import binascii
+import hashlib
 import json
 import re
 import time
@@ -51,6 +52,8 @@ from lifeos.modules.connectors.base import (
     RemoteEvent,
     RemoteMail,
     SendUpdates,
+    SentLookup,
+    SentMail,
     TokenSet,
 )
 from lifeos.modules.mail import sanitize
@@ -60,6 +63,14 @@ TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"  # noqa: S105  (URL, not 
 REVOCATION_ENDPOINT = "https://oauth2.googleapis.com/revoke"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+# Media upload of a message (multipart: metadata, then the raw message), for large ones.
+GMAIL_UPLOAD = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send"
+# Up to this size the raw message goes base64url-encoded in a JSON body; beyond it, the
+# upload endpoint (Gmail accepts messages of 35 MB there; to be checked by a real test).
+SIMPLE_SEND_BYTES = 4 * 1024 * 1024
+# Sent messages compared one by one by the reconciliation, at most.
+_MAX_SENT_SCAN = 100
+_MESSAGE_ID = re.compile(r"^<[^<>\s]{1,900}>$")
 # Hosts LifeOS may call for this provider.
 ALLOWED_HOSTS = frozenset({"oauth2.googleapis.com", "www.googleapis.com", "gmail.googleapis.com"})
 # Fields asked for (smaller responses, and nothing LifeOS would not use).
@@ -438,7 +449,16 @@ def parse_message(item: dict[str, Any]) -> RemoteMail | None:
         body_truncated=truncated,
         thread_id=_token(item.get("threadId")),
         attachments=_attachments(payload),
+        message_id_header=message_id_header(headers.get("message-id")),
     )
+
+
+def message_id_header(value: str | None) -> str | None:
+    """A Message-ID header ("<local@domain>") on one line, or None when malformed."""
+    if not value:
+        return None
+    cleaned = sanitize.one_line(value, 998).strip()
+    return cleaned if _MESSAGE_ID.match(cleaned) else None
 
 
 def _ids(entries: object) -> list[str]:
@@ -899,6 +919,113 @@ class GoogleConnector:
             raise AttachmentTooLargeError(len(content))
         return content
 
+    # --- Gmail (send, task 18) ------------------------------------------------------------------
+    # users.messages.send has no idempotency: a timeout or a 5xx after sending is an unknown
+    # outcome (reconciled with find_sent_mail, never resent blindly).
+
+    async def send_mail(
+        self, access_token: str, raw: bytes, *, thread_id: str | None = None
+    ) -> SentMail:
+        metadata: dict[str, Any] = {"threadId": thread_id} if thread_id else {}
+        params = {"fields": "id,threadId"}
+        if len(raw) <= SIMPLE_SEND_BYTES:
+            body = {**metadata, "raw": base64.urlsafe_b64encode(raw).decode().rstrip("=")}
+            response = await self._api_send(
+                "POST", f"{GMAIL_API}/messages/send", access_token, params=params, body=body
+            )
+        else:
+            boundary = "lifeos_upload_" + hashlib.sha256(raw).hexdigest()[:32]
+            content = (
+                (
+                    f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+                    f"{json.dumps(metadata)}\r\n--{boundary}\r\n"
+                    "Content-Type: message/rfc822\r\n\r\n"
+                ).encode()
+                + raw
+                + f"\r\n--{boundary}--\r\n".encode()
+            )
+            response = await self._api_send(
+                "POST",
+                GMAIL_UPLOAD,
+                access_token,
+                params={**params, "uploadType": "multipart"},
+                content=content,
+                content_type=f"multipart/related; boundary={boundary}",
+            )
+        if response.status_code != 200:
+            raise self._write_failure(response)
+        try:
+            result = response.json()
+        except ValueError:
+            raise OutcomeUnknownError("invalid_response") from None
+        provider_id = _token(result.get("id")) if isinstance(result, dict) else None
+        if provider_id is None:
+            raise OutcomeUnknownError("invalid_response")
+        return SentMail(provider_id=provider_id, thread_id=_token(result.get("threadId")))
+
+    async def find_sent_mail(self, access_token: str, lookup: SentLookup) -> str | None:
+        """Search by Message-ID first; then, in case Gmail rewrote it, compare the sent
+        messages since the proposal (subject and visible recipients). Too many to compare:
+        no conclusion (ConnectorError), never "not sent"."""
+        bare = lookup.message_id_header.strip("<>")
+        found = await self._api_get(
+            f"{GMAIL_API}/messages",
+            access_token,
+            {
+                "q": f"rfc822msgid:{bare}",
+                "includeSpamTrash": "true",
+                "maxResults": "5",
+                "fields": "messages(id)",
+            },
+        )
+        ids = _ids([{"message": m} for m in found.get("messages") or []])
+        if ids:
+            return ids[0]
+        since = int(lookup.since.timestamp()) - 60
+        listing = await self._api_get(
+            f"{GMAIL_API}/messages",
+            access_token,
+            {
+                "q": f"in:sent after:{since}",
+                "includeSpamTrash": "true",
+                "maxResults": str(_MAX_SENT_SCAN),
+                "fields": "nextPageToken,messages(id)",
+            },
+        )
+        if listing.get("nextPageToken"):
+            raise ConnectorUnavailableError("too_many_sent")
+        for candidate in _ids([{"message": m} for m in listing.get("messages") or []]):
+            try:
+                item = await self._api_get(
+                    f"{GMAIL_API}/messages/{quote(candidate, safe='')}",
+                    access_token,
+                    (
+                        ("format", "metadata"),
+                        ("metadataHeaders", "Message-ID"),
+                        ("metadataHeaders", "Subject"),
+                        ("metadataHeaders", "To"),
+                        ("metadataHeaders", "Cc"),
+                        ("fields", "id,payload/headers"),
+                    ),
+                )
+            except ConnectorGoneError:
+                continue
+            payload = item.get("payload")
+            headers = _headers(payload) if isinstance(payload, dict) else {}
+            if message_id_header(headers.get("message-id")) == lookup.message_id_header:
+                return candidate
+            recipients = frozenset(
+                address
+                for field in ("to", "cc")
+                for _, address in sanitize.addresses(headers.get(field))
+            )
+            if (
+                sanitize.subject(headers.get("subject")) == sanitize.subject(lookup.subject)
+                and recipients == lookup.recipients
+            ):
+                return candidate
+        return None
+
     # --- HTTP --------------------------------------------------------------------------------
 
     async def _api_send(
@@ -910,6 +1037,8 @@ class GoogleConnector:
         params: dict[str, str],
         body: dict[str, Any] | None = None,
         if_match: str | None = None,
+        content: bytes | None = None,
+        content_type: str | None = None,
     ) -> httpx.Response:
         """A write on a Google API. A failure before anything was sent (connection) is
         ConnectorUnavailableError; after sending (timeout, broken connection), the write
@@ -920,10 +1049,16 @@ class GoogleConnector:
         headers = {"Accept": "application/json", "Authorization": f"Bearer {access_token}"}
         if if_match:
             headers["If-Match"] = if_match
+        if content_type:
+            headers["Content-Type"] = content_type
         try:
             async with httpx.AsyncClient(
                 timeout=self._timeout, transport=self._transport, follow_redirects=False
             ) as client:
+                if content is not None:
+                    return await client.request(
+                        method, url, params=params, content=content, headers=headers
+                    )
                 return await client.request(method, url, params=params, json=body, headers=headers)
         except (httpx.ConnectError, httpx.ConnectTimeout):
             raise ConnectorUnavailableError("network") from None

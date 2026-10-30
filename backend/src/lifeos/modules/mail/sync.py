@@ -171,6 +171,7 @@ def _row(settings: Settings, claim: _Claim, mail: RemoteMail, generation: int) -
         "sensitivity": found.categories,
         "purge_after": received + timedelta(days=settings.mail_retention_days),
         "seen_generation": generation,
+        "message_id_header": mail.message_id_header,
     }
 
 

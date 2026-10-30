@@ -237,6 +237,7 @@ class EmailParams(BaseModel):
 @pytest.fixture
 def email_action() -> Any:
     sent: list[EmailParams] = []
+    previous = actions.REGISTRY.get("email.send")
 
     async def handler(ctx: Ctx, space_id: uuid.UUID, params: EmailParams) -> dict[str, Any]:
         sent.append(params)
@@ -246,7 +247,11 @@ def email_action() -> Any:
         "email.send", EmailParams, handler, lambda p: {"to": p.to, "subject": p.subject}
     )
     yield sent
-    actions.REGISTRY.pop("email.send", None)
+    # The real action (mail/send.py, task 18) comes back for the other tests.
+    if previous is None:
+        actions.REGISTRY.pop("email.send", None)
+    else:
+        actions.REGISTRY["email.send"] = previous
 
 
 async def _owner_ctx(

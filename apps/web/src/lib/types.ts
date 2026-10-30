@@ -1103,6 +1103,78 @@ export interface MailDetail extends MailSummary {
   synced_at: string | null;
 }
 
+// --- Sending e-mails (task 18) ---------------------------------------------------------------
+
+/** draft: being written; awaiting_approval: the owner has to decide; sending: approved, the
+ * provider is being called; unknown: maybe sent (checked, never resent); failed: nothing was
+ * sent; sent: accepted by the provider. */
+export type DraftState = "draft" | "awaiting_approval" | "sending" | "unknown" | "failed" | "sent";
+
+export interface DraftAttachment {
+  document_id: Uuid;
+  title: string | null;
+  mime: string | null;
+  size_bytes: number | null;
+  sensitivity: SensitivityCategory[];
+  local_only: boolean;
+  available: boolean;
+}
+
+export interface MailDraft {
+  id: Uuid;
+  space_id: Uuid;
+  account_id: Uuid | null;
+  from_address: string | null;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  body: string;
+  attachments: DraftAttachment[];
+  in_reply_to_id: Uuid | null;
+  reply: boolean;
+  state: DraftState;
+  approval_id: Uuid | null;
+  approval_level: "approval" | "reinforced" | null;
+  error: string | null;
+  sent_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SendAccount {
+  id: Uuid;
+  email: string | null;
+  provider: string;
+}
+
+/** Preview of an e-mail send approval: exactly the message that will leave. After the
+ * retention delay, only `redacted`, the summary line and the counts remain. */
+export interface EmailPreview {
+  redacted?: boolean;
+  from?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: string;
+  attachments?: {
+    title: string;
+    filename: string;
+    mime: string;
+    size_bytes: number;
+    sensitivity: string[];
+    local_only: boolean;
+  }[];
+  reply?: boolean;
+  new_recipients?: string[];
+  reinforced?: boolean;
+  summary_line: string;
+  notes?: string[];
+  recipients?: number;
+}
+
 // --- Bank statement imports (task 25) ------------------------------------------------------
 
 export type ImportStatus = "preview" | "committed" | "undone";

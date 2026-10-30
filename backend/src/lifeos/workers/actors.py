@@ -20,6 +20,8 @@ from lifeos.modules.guardian import operations
 from lifeos.modules.guardian.actions import expire_stale, purge_decided
 from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
+from lifeos.modules.mail import drafts as mail_drafts
+from lifeos.modules.mail import send as mail_send  # noqa: F401  (registers the send actions)
 from lifeos.modules.mail import sync as mail_sync
 from lifeos.modules.mail.service import purge_expired as purge_expired_mail
 from lifeos.modules.notifications.service import build_digests, dispatch_reminders
@@ -311,5 +313,11 @@ async def sync_mail_source(source_id: str) -> None:
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def purge_mail() -> None:
-    """Local copies of e-mails past their retention (`mail_retention_days`)."""
+    """Local copies of e-mails past their retention (`mail_retention_days`), sent drafts
+    after the same delay, and the exact content of decided send approvals after
+    `mail_approval_redact_days` (ADR 0018)."""
     await run_job("purge_mail", purge_expired_mail)
+    settings = get_settings()
+    await run_job(
+        "purge_mail_drafts", lambda session: mail_drafts.purge_and_redact(session, settings)
+    )

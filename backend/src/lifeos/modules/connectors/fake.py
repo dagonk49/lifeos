@@ -11,6 +11,10 @@ move and cancel occurrences, then resync. Pages are `page_size` events long.
 Its mailbox too (`labels`, `mails`, `attachment_data`): `add_mail`, `delete_mail` and
 `set_labels` keep a history of changes, like Gmail's, that `list_mail_changes` replays;
 `expire_history` makes the cursors given so far unusable (CursorExpiredError).
+
+Sending (task 18) appends the parsed message to `outbox` (what would have been delivered);
+`find_sent_mail` looks there, like a search of Gmail's sent messages. `rewrite_message_id`
+makes it behave like a provider that replaces the Message-ID.
 """
 
 import asyncio
@@ -18,8 +22,11 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
+from email import message_from_bytes, policy
+from email.message import EmailMessage
+from email.utils import getaddresses
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -46,6 +53,8 @@ from lifeos.modules.connectors.base import (
     RemoteEvent,
     RemoteMail,
     SendUpdates,
+    SentLookup,
+    SentMail,
     TokenSet,
 )
 
@@ -58,6 +67,67 @@ class _PendingCode:
     challenge: str
     redirect_uri: str
     scopes: frozenset[str]
+
+
+@dataclass(frozen=True)
+class OutboxMail:
+    """A message the fake provider "delivered", parsed back from its raw bytes."""
+
+    provider_id: str
+    thread_id: str | None
+    message_id_header: str
+    from_address: str
+    to: tuple[str, ...]
+    cc: tuple[str, ...]
+    bcc: tuple[str, ...]
+    subject: str
+    body: str
+    in_reply_to: str | None
+    references: str | None
+    # (file name, type, bytes)
+    attachments: tuple[tuple[str, str, bytes], ...]
+    raw: bytes
+    sent_at: datetime = field(default_factory=utcnow)
+
+
+def _addresses(message: EmailMessage, name: str) -> tuple[str, ...]:
+    values = message.get_all(name) or []
+    return tuple(address.lower() for _, address in getaddresses([str(v) for v in values]))
+
+
+def _payload(part: EmailMessage) -> bytes:
+    data = part.get_payload(decode=True)
+    return data if isinstance(data, bytes) else b""
+
+
+def parse_sent(raw: bytes, provider_id: str, thread_id: str | None) -> OutboxMail:
+    message = message_from_bytes(raw, policy=policy.default)
+    assert isinstance(message, EmailMessage)
+    body_part = message.get_body(preferencelist=("plain",))
+    attachments = tuple(
+        (
+            str(part.get_filename() or ""),
+            part.get_content_type(),
+            _payload(part),
+        )
+        for part in message.iter_attachments()
+        if isinstance(part, EmailMessage)
+    )
+    return OutboxMail(
+        provider_id=provider_id,
+        thread_id=thread_id,
+        message_id_header=str(message.get("Message-ID", "")),
+        from_address=str(message.get("From", "")),
+        to=_addresses(message, "To"),
+        cc=_addresses(message, "Cc"),
+        bcc=_addresses(message, "Bcc"),
+        subject=str(message.get("Subject", "")),
+        body=body_part.get_content() if isinstance(body_part, EmailMessage) else "",
+        in_reply_to=str(message["In-Reply-To"]) if message["In-Reply-To"] else None,
+        references=str(message["References"]) if message["References"] else None,
+        attachments=attachments,
+        raw=raw,
+    )
 
 
 def s256(verifier: str) -> str:
@@ -120,6 +190,11 @@ class FakeConnector:
         self.mail_page_size = 100
         self.history_page_size = 500
         self.mail_calls = 0
+        # Sending: what was delivered, how many send calls came in.
+        self.outbox: list[OutboxMail] = []
+        self.send_calls = 0
+        self.find_calls = 0
+        self.rewrite_message_id = False
 
     def fail_next(self, method: str, error: Exception) -> None:
         """The next call of `method` (exchange_code, refresh, revoke) raises `error`."""
@@ -462,6 +537,8 @@ class FakeConnector:
                 body_text="Bonjour,\n\nLa sortie au musée aura lieu vendredi. Merci de "
                 "rendre l'autorisation signée avant jeudi.\n\nL'équipe",
                 attachments=(RemoteAttachment("2", "autorisation.txt", "text/plain", 64),),
+                thread_id="demo-thread-school",
+                message_id_header="<sortie-vendredi@ecole.example.org>",
             ),
             {"2": "Autorisation de sortie : signature du responsable légal.\n".encode()},
         )
@@ -559,3 +636,35 @@ class FakeConnector:
         if len(data) > max_bytes:
             raise AttachmentTooLargeError(len(data))
         return data
+
+    # --- Mail sending (task 18): no idempotency, like Gmail ----------------------------------
+
+    async def send_mail(
+        self, access_token: str, raw: bytes, *, thread_id: str | None = None
+    ) -> SentMail:
+        self.send_calls += 1
+        self._maybe_fail("send_mail")
+        self.access_tokens_seen.append(access_token)
+        provider_id = f"sent-{len(self.outbox) + 1}"
+        sent = parse_sent(raw, provider_id, thread_id or f"thread-{provider_id}")
+        if self.rewrite_message_id:
+            sent = replace(sent, message_id_header=f"<{provider_id}@fake.example>")
+        self.outbox.append(sent)
+        pending = self._after.get("send_mail")
+        if pending:
+            raise pending.pop(0)
+        return SentMail(provider_id=provider_id, thread_id=sent.thread_id)
+
+    async def find_sent_mail(self, access_token: str, lookup: SentLookup) -> str | None:
+        self.find_calls += 1
+        self._maybe_fail("find_sent_mail")
+        for sent in self.outbox:
+            if sent.message_id_header == lookup.message_id_header:
+                return sent.provider_id
+            if (
+                sent.sent_at >= lookup.since
+                and sent.subject == lookup.subject
+                and frozenset(sent.to + sent.cc) == lookup.recipients
+            ):
+                return sent.provider_id
+        return None

@@ -141,6 +141,7 @@ EMAIL = {"to": "ami@example.org", "subject": "Bonjour", "body": "À bientôt"}
 def email_action() -> Iterator[list[EmailParams]]:
     """`email.send` (approval level) with a handler that records what it would send."""
     sent: list[EmailParams] = []
+    previous = actions.REGISTRY.get("email.send")
 
     async def handler(ctx: Ctx, space_id: uuid.UUID, params: EmailParams) -> dict[str, Any]:
         sent.append(params)
@@ -148,7 +149,11 @@ def email_action() -> Iterator[list[EmailParams]]:
 
     actions.register("email.send", EmailParams, handler, lambda p: {"to": p.to})
     yield sent
-    actions.REGISTRY.pop("email.send", None)
+    # The real action (mail/send.py, task 18) comes back for the other tests.
+    if previous is None:
+        actions.REGISTRY.pop("email.send", None)
+    else:
+        actions.REGISTRY["email.send"] = previous
 
 
 async def email_approval(

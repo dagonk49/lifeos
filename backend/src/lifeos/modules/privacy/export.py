@@ -64,6 +64,7 @@ EXPORTED: tuple[str, ...] = (
     "connector_sources",
     "calendar_events",
     "mail_messages",
+    "mail_drafts",
     "llm_calls",
     "passkey_credentials",
     "user_sessions",

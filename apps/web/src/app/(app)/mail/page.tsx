@@ -35,7 +35,14 @@ function MailView() {
 
   return (
     <>
-      <PageHeader title="E-mails" />
+      <PageHeader title="E-mails">
+        <Link
+          href="/mail/compose"
+          className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
+        >
+          Écrire
+        </Link>
+      </PageHeader>
       <div className="grid gap-4 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
         <Card
           title="Reçus"

@@ -116,3 +116,61 @@ test("Step 5 journey: connect an account, authorise it per space, disconnect it"
   await account.getByRole("button", { name: `Supprimer ${ACCOUNT}` }).click();
   await expect(panel.getByText(/LifeOS n'accède à aucun agenda ni aucune boîte e-mail/)).toBeVisible();
 });
+
+test("UC04: an e-mail leaves only once its exact content is approved, and only once", async ({ page }) => {
+  await addVirtualAuthenticator(page);
+  await page.goto(`/enroll#token=${enrollmentToken()}`);
+  await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E UC04");
+  await page.getByRole("button", { name: "Créer ma passkey" }).click();
+  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+
+  // An account allowed to send e-mails from the personal space.
+  await nav(page, "Réglages");
+  const panel = page.locator("#connexions");
+  const usages = panel.getByRole("group", { name: "Usages autorisés dans cet espace" });
+  await usages.getByRole("checkbox", { name: "Envoyer des e-mails" }).check();
+  await panel.getByRole("button", { name: "Connecter un compte Démo" }).click();
+  await expect(page.getByText(`${ACCOUNT} est connecté.`)).toBeVisible();
+
+  // Write it: nothing leaves when preparing, the approval shows the exact message.
+  await nav(page, "E-mails");
+  await page.getByRole("link", { name: "Écrire" }).click();
+  await expect(page.getByRole("heading", { name: "Écrire un e-mail" })).toBeVisible();
+  await page.getByLabel("À", { exact: true }).fill("lea.uc04@example.org");
+  await page.getByLabel("Cci (copie cachée)").fill("archive.uc04@example.org");
+  await page.getByLabel("Objet", { exact: true }).fill("Pique-nique de dimanche");
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Bonjour Léa,\nOn se retrouve à midi ?");
+  await page.getByRole("button", { name: "Préparer l'envoi" }).click();
+  const review = page.getByRole("region", { name: "Approbation de l'envoi" });
+  await expect(review.getByRole("list", { name: "À" }).getByText("lea.uc04@example.org")).toBeVisible();
+  await expect(review.getByRole("list", { name: "Cci" }).getByText("archive.uc04@example.org")).toBeVisible();
+  await expect(review.getByText("Pique-nique de dimanche")).toBeVisible();
+  await expect(review.getByLabel("Texte de l'e-mail")).toHaveText("Bonjour Léa,\nOn se retrouve à midi ?");
+  await expect(review.getByText("Nouveau destinataire").first()).toBeVisible();
+
+  // Approve (new recipients: with the passkey); then reload and click again: still one.
+  await review.getByRole("button", { name: "Approuver avec ma passkey" }).click();
+  await expect(review.getByText("Envoyé.")).toBeVisible();
+  await page.reload();
+  const drafts = page.getByRole("list", { name: "Brouillons et envois" });
+  await expect(drafts.getByRole("listitem")).toHaveCount(1);
+  await expect(drafts.getByText("Envoyé")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Préparer l'envoi" })).toHaveCount(0);
+
+  // A second e-mail: edited after the request, the earlier approval no longer counts.
+  await page.goto("/mail/compose");
+  await page.getByLabel("À", { exact: true }).fill("lea.uc04@example.org");
+  await page.getByLabel("Objet", { exact: true }).fill("Et le dessert ?");
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Je m'occupe du gâteau.");
+  await page.getByRole("button", { name: "Préparer l'envoi" }).click();
+  await expect(page.getByRole("region", { name: "Approbation de l'envoi" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Je m'occupe de la tarte.");
+  await page.getByRole("button", { name: "Enregistrer le brouillon" }).click();
+  await expect(page.getByRole("region", { name: "Approbation de l'envoi" })).toHaveCount(0);
+  await nav(page, "Approbations");
+  await page.getByRole("button", { name: "Historique" }).click();
+  const invalidated = page.getByRole("article").filter({ hasText: "Et le dessert ?" });
+  await expect(invalidated.getByText("Invalidée")).toBeVisible();
+  await expect(invalidated.getByText(/Le brouillon a été modifié/)).toBeVisible();
+  await expect(invalidated.getByRole("button", { name: /Approuver/ })).toHaveCount(0);
+});

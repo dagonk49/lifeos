@@ -309,6 +309,8 @@ class RemoteMail:
     body_truncated: bool = False
     thread_id: str | None = None
     attachments: tuple[RemoteAttachment, ...] = ()
+    # RFC 5322 Message-ID ("<...>"): what a reply refers to (In-Reply-To, References).
+    message_id_header: str | None = None
 
 
 @dataclass(frozen=True)
@@ -334,6 +336,26 @@ class MailChanges:
     removed: list[str]
     next_page: str | None = None
     cursor: str | None = None
+
+
+@dataclass(frozen=True)
+class SentMail:
+    """A message the provider accepted for delivery: its ids at the provider."""
+
+    provider_id: str
+    thread_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SentLookup:
+    """What `find_sent_mail` compares, besides the Message-ID: a provider that rewrote the
+    Message-ID still shows the same subject and the same visible recipients."""
+
+    message_id_header: str
+    since: datetime
+    subject: str
+    # To and Cc, lower case (Bcc is not reliably kept in the sender's copy).
+    recipients: frozenset[str]
 
 
 # System labels never synced: their messages are not the owner's mail.
@@ -377,6 +399,26 @@ class MailAdapter(Protocol):
     ) -> bytes:
         """The attachment's bytes. Raises AttachmentTooLargeError beyond `max_bytes`,
         ConnectorGoneError when the message or the part no longer exists."""
+        ...
+
+    # Sending (task 18), only behind an approval (guardian/operations.py). The provider has
+    # no idempotency for sending: the message carries a Message-ID derived from the
+    # approval, and `find_sent_mail` looks for it before anything is sent again.
+
+    async def send_mail(
+        self, access_token: str, raw: bytes, *, thread_id: str | None = None
+    ) -> SentMail:
+        """Sends the RFC 5322 message `raw` as it is (its Bcc header included: the provider
+        delivers to those addresses and removes the header from the copies it delivers).
+        A timeout or a server error after sending raises OutcomeUnknownError: reconcile,
+        never resend blindly. Other failures mean nothing was sent."""
+        ...
+
+    async def find_sent_mail(self, access_token: str, lookup: SentLookup) -> str | None:
+        """The provider id of a message sent since `lookup.since` with this Message-ID (or
+        the same subject and visible recipients), None when there is none. Needs the read
+        capability (mail.read). Raises ConnectorError when it cannot conclude (too many
+        sent messages to compare, provider unavailable)."""
         ...
 
 

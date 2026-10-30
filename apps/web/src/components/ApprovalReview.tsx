@@ -1,14 +1,15 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { CALENDAR_ACTIONS, CalendarApprovalPreview } from "@/components/CalendarApprovalPreview";
+import { EMAIL_ACTIONS, EmailApprovalPreview } from "@/components/EmailApprovalPreview";
 import { Alert, Badge, Button } from "@/components/ui";
 import { api, errorMessage, problemMessage, withReauth } from "@/lib/api";
 import { formatDate, formatDateTime, KIND_LABELS } from "@/lib/format";
 import { loginWithPasskey } from "@/lib/passkeys";
-import type { Approval, CalendarPreview } from "@/lib/types";
+import type { Approval, CalendarPreview, EmailPreview } from "@/lib/types";
 
 interface ProposalParams {
   entry_id: string;
@@ -26,6 +27,18 @@ const STATUS: Record<Approval["status"], string> = {
   invalidated: "Plus valable",
 };
 
+// An e-mail: what the owner wants to know is whether it left.
+const EMAIL_STATUS: Partial<Record<Approval["status"], string>> = {
+  approved: "Envoi en cours",
+  executed: "Envoyé",
+  invalidated: "Invalidée",
+};
+
+function statusLabel(approval: Approval, isEmail: boolean): string {
+  if (isEmail && approval.status === "failed" && approval.error === "outcome_unknown") return "État incertain";
+  return (isEmail ? EMAIL_STATUS[approval.status] : undefined) ?? STATUS[approval.status];
+}
+
 /**
  * Shows exactly what will be executed. For journal proposals, the owner can untick items:
  * the approved parameters are then the edited list, nothing else.
@@ -38,6 +51,7 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
   // consolidation): the owner keeps only what is right.
   const isProposals = PROPOSAL_ACTIONS.has(approval.action);
   const isCalendar = CALENDAR_ACTIONS.has(approval.action);
+  const isEmail = EMAIL_ACTIONS.has(approval.action);
   // Reinforced (a shared event...): a recent passkey login is asked for, then it retries once.
   const reinforced = approval.level === "reinforced";
   const params = approval.params as unknown as ProposalParams;
@@ -51,8 +65,12 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
     void queryClient.invalidateQueries({ queryKey: ["facts"] });
     void queryClient.invalidateQueries({ queryKey: ["journal"] });
     void queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    void queryClient.invalidateQueries({ queryKey: ["mail-drafts"] });
     onDone?.();
   };
+  // Set on the first click, before React re-renders the disabled button: a double click
+  // never sends two approvals (the server would refuse the second anyway).
+  const decided = useRef(false);
   const approve = useMutation({
     mutationFn: () => {
       const send = () =>
@@ -71,14 +89,23 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
       return reinforced ? withReauth(send, loginWithPasskey) : send();
     },
     onSuccess: refresh,
+    onError: () => {
+      decided.current = false;
+    },
   });
+  const approveOnce = () => {
+    if (decided.current) return;
+    decided.current = true;
+    approve.mutate();
+  };
   const reject = useMutation({
     mutationFn: () => api<Approval>(`/v1/approvals/${approval.id}/reject`, { method: "POST" }),
     onSuccess: refresh,
   });
   const pending = approval.status === "pending";
-  // One decision at a time: no double click, no approve-and-reject.
-  const busy = approve.isPending || reject.isPending;
+  // One decision at a time, and only one: no double click, no approve-and-reject, no
+  // second approval while the list refreshes.
+  const busy = approve.isPending || reject.isPending || approve.isSuccess || reject.isSuccess;
 
   return (
     <article className="flex flex-col gap-3 rounded-md border border-stone-200 p-3 dark:border-stone-800">
@@ -91,7 +118,7 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
           </p>
         </div>
         <Badge tone={pending ? "amber" : approval.status === "executed" ? "teal" : "neutral"}>
-          {STATUS[approval.status]}
+          {statusLabel(approval, isEmail)}
         </Badge>
       </header>
 
@@ -146,6 +173,8 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
         </div>
       ) : isCalendar ? (
         <CalendarApprovalPreview preview={approval.preview as unknown as CalendarPreview} />
+      ) : isEmail ? (
+        <EmailApprovalPreview preview={approval.preview as unknown as EmailPreview} />
       ) : (
         <pre
           role="region"
@@ -157,7 +186,13 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
         </pre>
       )}
 
-      {approval.error && (
+      {isEmail && approval.status === "executed" && <Alert tone="success">Envoyé.</Alert>}
+      {isEmail && approval.error === "outcome_unknown" ? (
+        <Alert tone="warning">
+          État incertain — vérifiez vos e-mails envoyés. LifeOS vérifie de son côté et ne renvoie rien
+          automatiquement ; vous pouvez aussi l&apos;indiquer sur le brouillon.
+        </Alert>
+      ) : approval.error && (
         <Alert
           tone={approval.status === "invalidated" || approval.error === "outcome_unknown" ? "warning" : "error"}
         >
@@ -170,7 +205,7 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
       )}
       {pending && (
         <div className="flex gap-2">
-          <Button onClick={() => approve.mutate()} disabled={busy}>
+          <Button onClick={approveOnce} disabled={busy}>
             {reinforced ? "Approuver avec ma passkey" : "Approuver"}
           </Button>
           <Button variant="secondary" onClick={() => reject.mutate()} disabled={busy}>

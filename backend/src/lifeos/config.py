@@ -178,6 +178,11 @@ class Settings(BaseSettings):
     # deleted `mail_retention_days` after their reception.
     mail_sync_minutes: int = Field(default=15, ge=5, le=24 * 60)
     mail_retention_days: int = Field(default=90, ge=1, le=365)
+    # Mail sending (task 18, ADR 0018): total size of the attachments of one e-mail, and
+    # how long the exact content of a decided send approval is kept (then redacted, only
+    # its digest and counts remain). Sent drafts go after `mail_retention_days`.
+    mail_max_send_bytes: int = Field(default=10 * 1024 * 1024, ge=1024 * 1024, le=25 * 1024 * 1024)
+    mail_approval_redact_days: int = Field(default=30, ge=1, le=90)
     connectors_timeout_seconds: float = Field(default=15.0, gt=0)
 
     @model_validator(mode="after")
