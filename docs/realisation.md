@@ -13,7 +13,7 @@ appréciation **à valider par le propriétaire**.
 | Couche | Proposé | Retenu | Décision |
 |---|---|---|---|
 | Client web | TypeScript, React, Next.js | Next.js (App Router), React, TypeScript strict, TanStack Query | — |
-| Client mobile | React Native + Expo | **aucun** : client web dans le navigateur du téléphone ; décision à prendre (périmètre Android) | [ADR 0001](adr/0001-monorepo-monolithe-modulaire.md) |
+| Client mobile | React Native + Expo | client web **installé** sur l'écran d'accueil (notifications, partage vers LifeOS sur Android, page hors connexion sans données) ; pas d'application native | [ADR 0022](adr/0022-client-mobile-web-dabord.md) |
 | Design system | Tailwind CSS + shadcn/ui | Tailwind CSS et composants maison (`apps/web/src/components/ui.tsx`) | — |
 | API et orchestration | Python 3, FastAPI, Pydantic | Python 3.13, FastAPI, Pydantic, SQLAlchemy asynchrone, Alembic | [ADR 0001](adr/0001-monorepo-monolithe-modulaire.md) |
 | Base principale | PostgreSQL | PostgreSQL (image pgvector) | [ADR 0005](adr/0005-deploiement-compose-traefik.md) |
@@ -133,5 +133,5 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | Authentik ou Keycloak | ni l'un ni l'autre : passkeys intégrées ([ADR 0002](adr/0002-authentification-integree-passkeys.md)) |
 | Matériel (transcription, embeddings) | embeddings sur CPU, transcription sur CPU ou GTX 1050 Ti ([ADR 0006](adr/0006-embeddings-locaux.md), [0009](adr/0009-voix-locale.md)) |
 | Horaires des bilans, catégories sensibles, rétentions, sauvegardes | [politique-de-donnees.md](politique-de-donnees.md) ; restent **à valider** : journal d'audit (1 an), appels LLM (sans limite à ce jour) |
-| Périmètre Android | **ouvert** |
+| Périmètre Android | application web installée d'abord, pas de client natif ([ADR 0022](adr/0022-client-mobile-web-dabord.md)) ; restent **à confirmer** par le propriétaire : téléphone cible, besoins natifs (alertes qui traversent « Ne pas déranger », widget, partage depuis iOS) |
 | Budget d'inférence et seuils d'arrêt | plafonds quotidiens et arrêt d'urgence ([ADR 0007](adr/0007-couts-gemini-niveau-gratuit.md), [0010](adr/0010-reservation-des-quotas-llm.md)) |

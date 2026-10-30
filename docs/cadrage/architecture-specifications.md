@@ -22,7 +22,7 @@ Statut : document de cadrage — les technologies proposées restent à confirme
 | Couche               | Technologie recommandée                                     | Justification / alternative                                                                           |
 |----------------------|-------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | Client web           | TypeScript, React, Next.js                                  | Écosystème mature ; alternative : Vue/Nuxt.                                                           |
-| Client mobile        | React Native + Expo, TypeScript                             | Partage de logique ; Android prioritaire ; fonctionnalités système via modules natifs si nécessaire.  |
+| Client mobile        | Client web installé sur l’écran d’accueil (ADR 0022) ; React Native + Expo seulement si un besoin natif est confirmé | Pas d’application native à ce jour : notifications Web Push, partage vers LifeOS (Android), dictée, photo et passkeys dans le navigateur ; déclencheur d’un client natif dans l’ADR 0022. |
 | Design system        | Tailwind CSS + shadcn/ui (web) ; composants RN dédiés       | Interface cohérente et accessible ; ne pas forcer les composants web sur mobile.                      |
 | API et orchestration | Python 3, FastAPI, Pydantic                                 | Intégrations IA, validation des schémas ; alternative : NestJS/TypeScript.                            |
 | Base principale      | PostgreSQL                                                  | Transactions, relations, intégrité, JSONB et recherche textuelle.                                     |
@@ -201,7 +201,7 @@ Spécifier OpenAPI, erreurs typées, pagination, identifiants idempotents pour �
 
 - Définir les horaires de bilans, catégories sensibles, durées de rétention documentaire et politique de sauvegarde.
 
-- Préciser le périmètre Android (notification, micro, partage de fichiers, widget) et les autorisations réellement disponibles.
+- ~~Préciser le périmètre Android (notification, micro, partage de fichiers, widget) et les autorisations réellement disponibles.~~ Tranché par l’ADR 0022 : application web installée d’abord ; restent à confirmer sur le téléphone du propriétaire les besoins que le web ne couvre pas (alertes qui traversent « Ne pas déranger », widget, partage depuis iOS).
 
 - Établir un budget d’inférence mensuel et des seuils d’arrêt automatiques.
 

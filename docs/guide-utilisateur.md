@@ -78,10 +78,9 @@ l'en-tête et la navigation. Raccourcis :
 - **Mémoire** : les flèches ← → passent d'un onglet à l'autre, Début et Fin vont au premier
   et au dernier.
 
-Sur le **téléphone**, utilisez le site dans le navigateur (pas d'application à installer) :
+Sur le **téléphone**, utilisez le site dans le navigateur, ou mieux, installez-le (voir
+ci-dessous) :
 
-- ajoutez-le à l'écran d'accueil (Chrome : menu ⋮ → « Ajouter à l'écran d'accueil » ;
-  Safari : Partager → « Sur l'écran d'accueil ») pour l'ouvrir comme une application ;
 - l'en-tête défile avec la page ; dans **Assistant**, « Afficher les conversations » déplie la
   liste au-dessus de la conversation ouverte ;
 - la **dictée** demande l'accès au micro la première fois : le site doit être ouvert en HTTPS
@@ -91,6 +90,35 @@ Sur le **téléphone**, utilisez le site dans le navigateur (pas d'application �
 
 Le thème clair ou sombre suit le réglage de l'appareil. Détails, contrôles et résultats par
 appareil : [accessibilite.md](accessibilite.md).
+
+## Installer LifeOS sur le téléphone
+
+Il n'y a pas d'application à télécharger dans un magasin : LifeOS s'installe depuis le
+navigateur et s'ouvre ensuite depuis son icône, comme une application
+([ADR 0022](adr/0022-client-mobile-web-dabord.md)).
+
+- **Android** (Chrome ou Edge) : **Réglages → Installer LifeOS sur le téléphone →
+  Installer LifeOS**, ou menu ⋮ → « Installer l'application » (« Ajouter à l'écran
+  d'accueil »).
+- **iPhone et iPad** (Safari, iOS 16.4 ou plus récent) : bouton Partager → « Sur l'écran
+  d'accueil ». Ouvrez ensuite LifeOS depuis l'icône et reconnectez-vous avec votre passkey
+  (l'application installée a sa propre connexion). C'est obligatoire pour recevoir les
+  notifications.
+
+Une fois installé :
+
+- **Notifications** : activez-les depuis l'application installée (Réglages →
+  « Notifications sur le téléphone »).
+- **Partager → LifeOS** (Android) : depuis la galerie ou un fichier, partagez une photo de
+  ticket ou un PDF vers LifeOS. La page **Documents** s'ouvre avec le fichier choisi ;
+  choisissez « Document » ou « Ticket de caisse » et l'espace, puis **Envoyer**. Rien n'est
+  envoyé avant votre clic ; si vous quittez la page, partagez le fichier à nouveau. Plusieurs
+  fichiers partagés d'un coup s'envoient un par un. Sur iPhone, utilisez le bouton
+  « Fichier » de la page Documents.
+- **Raccourcis** (Android, appui long sur l'icône) : nouvelle tâche, assistant, envoi d'un
+  document.
+- **Hors connexion** : rien n'est conservé sur le téléphone. Sans réseau ou sans le VPN,
+  LifeOS affiche « LifeOS n'est pas joignable » et un bouton **Réessayer**.
 
 ## Pages
 
@@ -207,7 +235,8 @@ et tâches rattachées. La progression est calculée localement.
 ### Documents
 
 - **Envoyer un document** : PDF, photo (JPEG, PNG, WebP, HEIC) ou texte. Choisissez
-  « Document » ou « Ticket de caisse ».
+  « Document » ou « Ticket de caisse ». Depuis le téléphone, un fichier partagé vers LifeOS
+  arrive ici, déjà choisi ([Installer LifeOS sur le téléphone](#installer-lifeos-sur-le-téléphone)).
 - La lecture se fait en arrière-plan (quelques secondes, plus pour un PDF scanné). Le statut
   passe de « Lecture en cours » à « Prêt ».
 - **Texte extrait** : corrigez-le si la lecture est incertaine (la confiance est affichée).
@@ -307,6 +336,8 @@ demandent votre passkey au moment d'approuver.
 
 ### Réglages
 
+- **Installer LifeOS sur le téléphone** : le bouton d'installation (Chrome, Edge) ou les
+  étapes (Safari), voir [ci-dessus](#installer-lifeos-sur-le-téléphone).
 - **Appareils et passkeys** : vos appareils, vos sessions, leur révocation une à une ou
   **Déconnecter les autres sessions**.
 - **Notifications sur le téléphone** (si l'administrateur les a activées) : rappels et
@@ -502,8 +533,10 @@ indisponible.
 - Un e-mail envoyé par LifeOS est en **texte brut** (pas de mise en forme).
 - Les e-mails copiés ne sont pas dans la **Recherche** (ils se consultent dans la page
   **E-mails**).
-- Pas d'**application mobile native** : utilisez le site dans le navigateur du téléphone,
-  ou ajoutez-le à l'écran d'accueil (nécessaire sur iPhone pour les notifications).
+- Pas d'**application mobile native** : installez le site sur l'écran d'accueil
+  ([Installer LifeOS sur le téléphone](#installer-lifeos-sur-le-téléphone)). Pas de lecture
+  hors connexion, de widget, de partage depuis iPhone, ni d'alerte qui traverse « Ne pas
+  déranger ».
 - Pas de **tâches récurrentes** ([ADR 0013](adr/0013-taches-recurrentes.md)), pas de
   connexion bancaire (import de relevés CSV seulement), pas d'autre fournisseur que Google
   pour l'agenda et les e-mails.

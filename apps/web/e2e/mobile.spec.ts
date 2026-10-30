@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 
-import { deleteTasksTitled, enrol, nav, openPage, PAGES } from "./a11y-helpers";
+import { audit, formatIssues } from "./a11y-audit";
+import { deleteTasksTitled, enrol, nav, openPage, pageAt, PAGES } from "./a11y-helpers";
 import { expect, test } from "./fixtures";
 
 /**
@@ -84,4 +85,124 @@ test("touch journeys: sign in, add a task, write and dictate a message, scan a r
   } finally {
     await deleteTasksTitled(page, task);
   }
+});
+
+// --- The installed web app is the mobile client (ADR 0022) ---------------------------------
+
+/** Waits until the service worker of /sw.js (registered on every page) controls the page. */
+async function waitForWorker(page: Page): Promise<void> {
+  await page.waitForFunction(() => navigator.serviceWorker.controller?.scriptURL.endsWith("/sw.js") === true);
+}
+
+// A 1 × 1 PNG: the « photo » shared from the gallery.
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("the manifest offers the share sheet and quick shortcuts; /partage without a worker drops the files", async ({
+  request,
+}) => {
+  const manifest = (await (await request.get("/manifest.webmanifest")).json()) as {
+    id: string;
+    share_target: { action: string; method: string; enctype: string; params: { files: { name: string; accept: string[] }[] } };
+    shortcuts: { url: string }[];
+  };
+  expect(manifest.id).toBe("/");
+  expect(manifest.share_target).toMatchObject({ action: "/partage", method: "POST", enctype: "multipart/form-data" });
+  expect(manifest.share_target.params.files[0]?.name).toBe("file");
+  expect(manifest.share_target.params.files[0]?.accept).toEqual(expect.arrayContaining(["image/jpeg", "application/pdf"]));
+  expect(manifest.shortcuts.map((s) => s.url)).toEqual(["/tasks", "/chat", "/documents"]);
+
+  // No worker yet (first visit): the server keeps nothing and asks to pick the file again.
+  const shared = await request.post("/partage", {
+    multipart: { file: { name: "ticket.png", mimeType: "image/png", buffer: PNG } },
+    maxRedirects: 0,
+  });
+  expect(shared.status()).toBe(303);
+  expect(shared.headers()["location"]).toBe("/documents?partage=indisponible");
+});
+
+test("offline, a navigation shows a fixed page without data, accessible, then « Réessayer » reloads", async ({
+  page,
+  context,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await enrol(page, `Téléphone hors connexion ${testInfo.project.name}`);
+  await waitForWorker(page);
+  await context.setOffline(true);
+  try {
+    await page.goto("/tasks");
+    await expect(page).toHaveTitle("Hors connexion · LifeOS");
+    await expect(page.getByRole("heading", { level: 1, name: "LifeOS n’est pas joignable" })).toBeVisible();
+    // Built by the worker: no script, nothing read from the API or kept on the phone.
+    await expect(page.locator("script")).toHaveCount(0);
+    expect(await page.evaluate(() => caches.keys())).toEqual([]);
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      const issues = await audit(page);
+      expect.soft(issues, `page hors connexion (${scheme})\n${formatIssues(issues)}`).toEqual([]);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
+  } finally {
+    await context.setOffline(false);
+  }
+  await page.getByRole("link", { name: "Réessayer" }).tap();
+  await expect(page).toHaveTitle(pageAt("/tasks").title);
+});
+
+test("a photo shared from the phone opens the upload form; nothing is sent before the owner", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await enrol(page, `Téléphone partage ${testInfo.project.name}`);
+  await waitForWorker(page);
+  // What Android does on « Partager → LifeOS »: a multipart POST navigation to the share
+  // target of the manifest, answered by the service worker.
+  await page.evaluate(() => {
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/partage";
+    form.enctype = "multipart/form-data";
+    const input = document.createElement("input");
+    input.type = "file";
+    input.name = "file";
+    input.id = "e2e-share";
+    form.append(input);
+    document.body.append(form);
+  });
+  await page.setInputFiles("#e2e-share", { name: "ticket-partage.png", mimeType: "image/png", buffer: PNG });
+  const uploads: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname === "/v1/documents") uploads.push(r.url());
+  });
+  await page.evaluate(() => (document.getElementById("e2e-share")?.closest("form") as HTMLFormElement).submit());
+
+  // The query parameter is dropped once the files are taken: a reload does not ask again.
+  await expect(page).toHaveURL(/\/documents$/);
+  await expect(page).toHaveTitle(pageAt("/documents").title);
+  await expect(
+    page.getByText("Fichier partagé : choisissez son type (document ou ticket de caisse) et son espace, puis envoyez-le."),
+  ).toBeVisible();
+  await expect(page.getByText("ticket-partage.png")).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Ticket de caisse" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Envoyer", exact: true })).toBeEnabled();
+  const issues = await audit(page);
+  expect.soft(issues, `/documents après un partage\n${formatIssues(issues)}`).toEqual([]);
+  expect(uploads).toEqual([]);
+
+  // The worker handed the files over once: asking again gets nothing.
+  await page.goto("/documents?partage=1");
+  await expect(page.getByText(/^Le fichier partagé n'a pas pu être repris\./)).toBeVisible({ timeout: 15_000 });
+});
+
+test("the settings explain how to install LifeOS on the phone", async ({ page }, testInfo) => {
+  await enrol(page, `Téléphone installation ${testInfo.project.name}`);
+  await openPage(page, pageAt("/settings"));
+  const section = page.locator("#installer");
+  await expect(section.getByRole("heading", { name: "Installer LifeOS sur le téléphone" })).toBeVisible();
+  // Chrome offers its own dialog when the app is installable; otherwise, the menu steps.
+  await expect(
+    section.getByRole("button", { name: "Installer LifeOS" }).or(section.getByText(/Dans le menu du navigateur/)),
+  ).toBeVisible();
 });

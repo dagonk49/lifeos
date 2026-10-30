@@ -90,6 +90,10 @@ dans le tableau du §4 (« OK », « KO » avec un mot d'explication, ou « — 
    mkcert installée sur le téléphone si l'accès est limité au réseau local) : enrôlement et
    connexion par passkey, autorisation du micro et dictée, « Écouter » avec une voix
    française locale, photo de ticket par l'appareil photo.
+9. **Application installée** (ADR 0022, protocole complet dans l'ADR) : installer LifeOS sur
+   l'écran d'accueil, refaire le point 8 depuis l'icône ; partager une photo vers LifeOS
+   (Android) ; notification de test application fermée, écran verrouillé, « Ne pas
+   déranger » actif ; page « LifeOS n'est pas joignable » sans réseau ou sans VPN.
 
 ## 4. Résultats sur les appareils
 
@@ -100,6 +104,12 @@ vide tant que les tests n'ont pas été faits sur les vrais appareils.
 |---|---|---|---|---|---|---|---|---|---|
 | Téléphone cible : _modèle, Android/iOS x, navigateur y_ | | | | | | | | | |
 | Ordinateur : _système, navigateur_ | | | | | | | | | |
+
+Application installée (point 9) :
+
+| Appareil et navigateur | Date | Installation | Passkey en mode installé | Partage vers LifeOS | Push, app fermée | Push, écran verrouillé | Push, « Ne pas déranger » | Appui → page | Hors réseau / hors VPN |
+|---|---|---|---|---|---|---|---|---|---|
+| Téléphone cible : _modèle, Android/iOS x, navigateur y_ | | | | | | | | | |
 
 Résultats automatiques : voir le dernier passage de la CI (job `e2e`, projets `chromium` et
 `mobile-chromium`).

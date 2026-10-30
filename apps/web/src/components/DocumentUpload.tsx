@@ -20,11 +20,20 @@ import {
 import { useSpace } from "@/lib/space";
 import type { DocumentDetail } from "@/lib/types";
 
-/** Upload card: the file is encrypted on the server, then read locally in the background. */
-export function DocumentUpload({ onUploaded }: { onUploaded: (document: DocumentDetail) => void }) {
+/**
+ * Upload card: the file is encrypted on the server, then read locally in the background.
+ * `initialFile`: a file shared to LifeOS from the phone (lib/share.ts), chosen in advance.
+ */
+export function DocumentUpload({
+  onUploaded,
+  initialFile = null,
+}: {
+  onUploaded: (document: DocumentDetail) => void;
+  initialFile?: File | null;
+}) {
   const queryClient = useQueryClient();
   const { spaces, selected, writeSpaceId, spaceName } = useSpace();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile);
   const [purpose, setPurpose] = useState<UploadPurpose>("document");
   const [title, setTitle] = useState("");
   const [keepOriginal, setKeepOriginal] = useState(false);

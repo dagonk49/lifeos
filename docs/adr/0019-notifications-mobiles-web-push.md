@@ -1,6 +1,6 @@
 # ADR 0019 — Notifications sur le téléphone par Web Push (VAPID), contenu générique par défaut
 
-- Statut : acceptée
+- Statut : acceptée ; amendée par l'ADR 0022 (le service worker est enregistré sur toutes les pages et sert aussi le partage et la page hors connexion, toujours sans rien stocker)
 - Date : 2026-10-28
 
 ## Contexte
@@ -74,6 +74,9 @@ Options considérées :
    actif, n'en crée jamais un). Il ne met **rien en cache** : les pages portent un nonce
    CSP par requête et sont servies `no-store`. La CSP ajoute `worker-src 'self'` (sans
    lui, `'strict-dynamic'` bloquerait l'enregistrement) et `manifest-src 'self'`.
+   Amendement (ADR 0022) : le worker est enregistré sur toutes les pages et gère aussi les
+   navigations (passées au réseau, page d'information fixe si le réseau manque) et le
+   partage vers LifeOS (fichiers gardés en mémoire) ; il ne stocke toujours rien.
 8. **Application installable** : manifeste `/manifest.webmanifest` et icônes PNG générées
    par le serveur (192, 512, masquable, Apple). Sur iPhone et iPad, Web Push n'est remis
    qu'à LifeOS **ajouté à l'écran d'accueil** (iOS 16.4 et plus récent).

@@ -51,6 +51,12 @@ d'événement en ligne (`onerror="…"`). `'unsafe-eval'` n'est ajouté qu'en d�
   sans le nonce bloquerait tous les scripts. Pour la même raison, aucun reverse proxy en
   amont ne doit en ajouter (voir `docs/exploitation.md` §3).
 - Le proxy ignore `/v1` (l'API, qui pose ses propres en-têtes) et `/_next/static`.
+- Le service worker (`src/lib/serviceWorker.ts`, servi par `src/app/sw.js/route.ts`,
+  ADR 0019 et 0022) ne met **rien** en cache ni en base (ni Cache Storage, ni IndexedDB) :
+  il passe les navigations au réseau telles quelles (nonce et `no-store` intacts), ne
+  construit qu'une page d'information fixe, sans script, quand le réseau manque, et garde les
+  fichiers partagés en mémoire jusqu'à la page Documents. Les autres requêtes ne passent pas
+  par lui.
 
 ## Accessibilité : conventions
 

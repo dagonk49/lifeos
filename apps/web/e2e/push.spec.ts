@@ -40,7 +40,8 @@ test("the service worker and the manifest are served within the policy, never ca
   expect(worker.status()).toBe(200);
   expect(worker.headers()["content-type"]).toContain("text/javascript");
   expect(worker.headers()["cache-control"]).toBe("no-cache");
-  expect(await worker.text()).not.toMatch(/caches\.|addEventListener\("fetch"/);
+  // Never a cache nor a database: pages carry a per-request nonce, data stays on the server.
+  expect(await worker.text()).not.toMatch(/caches|indexedDB|importScripts/);
   const manifest = await request.get("/manifest.webmanifest");
   expect(manifest.headers()["content-type"]).toContain("application/manifest+json");
   const body = (await manifest.json()) as { display: string; icons: { src: string }[] };

@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AgentAccessPanel } from "@/components/AgentAccessPanel";
 import { ConnectorsPanel } from "@/components/ConnectorsPanel";
 import { DataExport } from "@/components/DataExport";
+import { InstallSection } from "@/components/InstallSection";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
 import { PushDevicesSection } from "@/components/PushDevicesSection";
 import { SessionList } from "@/components/SessionList";
@@ -491,6 +492,10 @@ export default function SettingsPage() {
         <SpacesSection />
         <PreferencesSection />
         <NotificationPreferences className="lg:col-span-2" />
+        {/* The installed web app is the mobile client (ADR 0022). */}
+        <div id="installer" className="scroll-mt-4 lg:col-span-2">
+          <InstallSection />
+        </div>
         {/* Web Push on this phone and the devices that receive it (ADR 0019). */}
         <div id="notifications-telephone" className="scroll-mt-4 lg:col-span-2">
           <PushDevicesSection />
