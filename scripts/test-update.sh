@@ -149,8 +149,10 @@ commit() { git -C "$repo" -c user.name=test -c user.email=test@example.org commi
 commit -m "v1.0.0"
 git -C "$repo" tag v1.0.0
 v1="$(head_commit)"
-head="$(sed -n 's/^revision[^=]*= *"\([^"]*\)".*/\1/p' "$repo"/backend/migrations/versions/*.py \
-  | sort | tail -1)"
+# The head is the revision no other migration revises (ids are not in chain order).
+head="$(comm -23 \
+  <(sed -n 's/^revision[^=]*= *"\([^"]*\)".*/\1/p' "$repo"/backend/migrations/versions/*.py | sort) \
+  <(sed -n 's/^down_revision[^=]*= *"\([^"]*\)".*/\1/p' "$repo"/backend/migrations/versions/*.py | sort))"
 migration 9001 "$head" update_probe \
   'op.execute("CREATE TABLE update_probe (id integer PRIMARY KEY, note text)")' \
   'op.execute("DROP TABLE update_probe")'
