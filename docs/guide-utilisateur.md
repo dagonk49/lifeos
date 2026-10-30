@@ -69,16 +69,36 @@ la fiche de récupération.
 
 ### Accueil
 
-Briefing du jour, calculé sur votre serveur (il fonctionne sans assistant IA) :
+Briefing du jour, calculé sur votre serveur sans appel à l'IA (il reste disponible quand le
+cloud ne répond pas) :
 
-- **priorités du jour** : tâches en retard et du jour, nombre de tâches sans échéance ;
-- **agenda du jour** (agendas suivis) et conflits d'agenda des 14 prochains jours ;
-- échéances de la semaine ;
-- journal du jour ;
-- **à valider** : approbations en attente, notifications non lues ;
-- état de la mémoire ;
-- **budget du mois** (catégories proches de leur budget) ;
-- consommation de l'assistant IA.
+- **priorités** : tâches en retard et du jour ; une tâche bloquée dit ce qu'elle attend, et
+  une tâche née du journal ou de l'assistant porte un lien vers sa source ;
+- **agenda du jour** : les événements des agendas suivis de l'espace choisi, les échéances
+  de vos tâches, les jalons de vos objectifs et les paiements récurrents prévus. Le temps
+  pris dans vos autres espaces apparaît seulement comme « Occupé (autre espace) », sans
+  titre ni détail. Sans agenda suivi, un lien « Connecter un agenda » mène aux réglages ;
+- **conflits** : les événements qui se chevauchent dans les 14 prochains jours ;
+- **cette semaine** : ce que chaque jour contient (nombre d'événements, tâches, jalons,
+  paiements), puis « Voir le détail de la semaine » ;
+- **suggestions** : celles de votre dernier bilan de chaque espace (35 jours au plus), les
+  suggestions regroupées pas encore lues, et les catégories proches de leur budget. Chacune
+  dit **pourquoi** et donne sa **source** (par ex. « Bilan hebdomadaire du 19/10/2026 »,
+  lien vers le bilan) avec sa date ;
+- journal du jour, approbations et notifications non lues (de l'espace choisi), état de la
+  mémoire, **budget du mois**, consommation de l'assistant IA.
+
+Le pied de chaque carte dit d'où viennent ses chiffres : « Calculé localement le … », ou le
+nombre d'agendas suivis et l'heure de leur dernière lecture.
+
+- **Jour / Semaine** : la vue Semaine montre sept jours côte à côte (empilés sur un
+  téléphone), avec « Semaine précédente », « Cette semaine » et « Semaine suivante ». La vue
+  choisie est retenue.
+- **Personnaliser** : affichez ou masquez chaque carte, changez son ordre avec « Monter » et
+  « Descendre » (au clavier comme à la souris), choisissez si la semaine commence le lundi
+  ou aujourd'hui, puis « Enregistrer la disposition ». « Rétablir l'ordre par défaut »
+  remet toutes les cartes. La disposition est enregistrée sur votre serveur : la même sur
+  tous vos appareils. Une nouvelle carte ajoutée par une mise à jour apparaît à la fin.
 
 Chaque carte indique l'heure à laquelle elle a été calculée.
 

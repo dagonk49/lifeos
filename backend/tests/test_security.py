@@ -436,6 +436,7 @@ FOREIGN_SPACE_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/v1/search?q=secret&space_id={space}", None),
     ("GET", "/v1/agents?space_id={space}", None),
     ("GET", "/v1/dashboard?space_id={space}", None),
+    ("GET", "/v1/dashboard/week?space_id={space}", None),
     ("POST", "/v1/tasks", {"space_id": "{space}", "title": "Intrusion"}),
     ("POST", "/v1/goals", {"space_id": "{space}", "title": "Intrusion"}),
     ("POST", "/v1/memory/facts", {"space_id": "{space}", "statement": "Intrusion"}),

@@ -56,6 +56,7 @@ EXPORTED: tuple[str, ...] = (
     "reviews",
     "notifications",
     "notification_preferences",
+    "dashboard_preferences",
     "approvals",
     "agent_permissions",
     "connector_accounts",

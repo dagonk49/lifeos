@@ -348,6 +348,83 @@ export interface Dashboard {
     daily_request_caps: Record<LLMTier, number>;
     cost_month_usd: string;
   };
+  /** Task 23 (optional additions). */
+  agenda_today?: AgendaItem[];
+  week?: DashboardWeek | null;
+  suggestions?: DashboardSuggestion[];
+  sources?: Partial<Record<CardId, CardSource>>;
+  layout?: DashboardLayout | null;
+}
+
+export type CardId =
+  | "priorities"
+  | "agenda"
+  | "week"
+  | "suggestions"
+  | "journal"
+  | "approvals"
+  | "memory"
+  | "budget"
+  | "assistant";
+
+/** One line of the home agenda; "busy" is the time of another space (nothing else). */
+export interface AgendaItem {
+  kind: "event" | "busy" | "task" | "milestone" | "payment";
+  title: string;
+  /** Local day it is listed under (YYYY-MM-DD). */
+  day: string;
+  /** Instants with the offset of the owner's zone; null for an all-day item. */
+  start: string | null;
+  end: string | null;
+  all_day: boolean;
+  space_id: Uuid | null;
+  source_type: string | null;
+  source_id: Uuid | null;
+  source_label: string | null;
+  href: string | null;
+  synced_at: string | null;
+  detail: string | null;
+  tentative: boolean;
+  blocked: boolean;
+}
+
+export interface DashboardWeek {
+  start: string;
+  end: string;
+  timezone: string;
+  days: { date: string; items: AgendaItem[] }[];
+  calendars: number;
+  synced_at: string | null;
+}
+
+export interface DashboardSuggestion {
+  text: string;
+  why: string | null;
+  source_type: "review" | "notification" | "budget";
+  source_id: Uuid;
+  source_label: string;
+  date: string;
+  href: string;
+  space_id: Uuid | null;
+}
+
+/** What a card's figures rest on. */
+export interface CardSource {
+  origin: "local" | "calendar" | "review";
+  as_of: string | null;
+  count?: number | null;
+}
+
+export interface LayoutCard {
+  id: CardId;
+  visible: boolean;
+}
+
+export interface DashboardLayout {
+  cards: LayoutCard[];
+  default_view: "day" | "week";
+  week_start: "monday" | "today";
+  updated_at: string | null;
 }
 
 export type LLMTier = "fast" | "deep";

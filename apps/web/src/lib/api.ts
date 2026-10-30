@@ -264,6 +264,9 @@ const MESSAGES: Record<string, string> = {
   notification_preferences_invalid:
     "Ces réglages de notifications sont invalides : vérifiez les créneaux, les heures de regroupement et le maximum par jour.",
   notification_not_found: "Cette notification n'existe plus.",
+  // Home page (task 23)
+  dashboard_layout_invalid:
+    "Cette disposition de l'accueil est invalide (carte inconnue ou en double) : rechargez la page puis recommencez.",
   // E-mails (task 17)
   mail_not_found: "Cet e-mail est introuvable dans cet espace (supprimé, ou libellé plus suivi).",
   mail_sensitive:

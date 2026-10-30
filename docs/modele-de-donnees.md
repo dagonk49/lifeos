@@ -215,6 +215,13 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   (1 à 100), `windows jsonb` (`[{start, end}]` en `HH:MM`, `important`), `digest_times jsonb`
   (`["HH:MM"]`, `suggestion`), `updated_at`. Sans ligne : valeurs par défaut (`important`
   immédiat sans maximum ; `suggestion` regroupées à 18:00, 3 par jour).
+- **`dashboard_preferences`** (tâche 23, migration 0021) : clé primaire `user_id` (cascade),
+  `cards jsonb` (`[{id, visible}]` dans l'ordre d'affichage ; identifiants `priorities`,
+  `agenda`, `week`, `suggestions`, `journal`, `approvals`, `memory`, `budget`, `assistant`),
+  `default_view` (`day` \| `week`, défaut `day`), `week_start` (`monday` \| `today`, défaut
+  `monday`), `updated_at`. Sans ligne : toutes les cartes dans cet ordre. À la lecture, les
+  identifiants inconnus sont ignorés et les cartes absentes ajoutées à la fin. Exportée
+  (`/v1/privacy/export`), effacée avec le propriétaire.
 - Tâche débloquée (tâche 22) : quand une tâche passe à `done` ou `cancelled`, chaque tâche
   ouverte qui n'attendait plus qu'elle reçoit une notification `important`. Son titre est
   « Débloquée : <titre> » ; elle porte `source_type = 'task'`, `source_id` = la tâche

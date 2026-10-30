@@ -10,6 +10,7 @@ from lifeos.modules.connectors.models import (
     ConnectorSource,
     OAuthState,
 )
+from lifeos.modules.dashboard.models import DashboardPreference
 from lifeos.modules.documents.models import Document
 from lifeos.modules.finance.models import (
     CategoryRule,
@@ -54,6 +55,7 @@ __all__ = [
     "ConnectorGrant",
     "ConnectorSource",
     "Conversation",
+    "DashboardPreference",
     "Document",
     "Embedding",
     "EnrollmentToken",

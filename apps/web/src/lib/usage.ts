@@ -4,6 +4,7 @@
 
 import { agentLabel, resourceList } from "./agents";
 import { problemMessage } from "./api";
+import { sourceHref } from "./dashboard";
 import { formatDate, formatTime } from "./format";
 import type { AgentInfo, AgentPermission, Dashboard, IndexStatus, LLMTier, LLMUsage, SearchHit } from "./types";
 
@@ -408,19 +409,7 @@ export function searchHitLabel(type: string): string {
   return HIT_LABELS[type as SearchHit["type"]] ?? type;
 }
 
-const HIT_LINKS: Record<SearchHit["type"], string> = {
-  task: "/tasks",
-  journal: "/journal",
-  fact: "/memory",
-  memory: "/memory",
-  message: "/chat",
-  goal: "/goals",
-  document: "/documents",
-};
-
-/** Where "Ouvrir" leads; goals open directly on their detail. */
+/** Where "Ouvrir" leads; goals and documents open directly on their detail. */
 export function searchHitHref(hit: Pick<SearchHit, "type" | "id">): string {
-  if (hit.type === "goal") return `/goals?id=${encodeURIComponent(hit.id)}`;
-  if (hit.type === "document") return `/documents?id=${encodeURIComponent(hit.id)}`;
-  return HIT_LINKS[hit.type] ?? "/";
+  return sourceHref(hit.type, hit.id) ?? "/";
 }

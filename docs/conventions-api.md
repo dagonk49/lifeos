@@ -453,6 +453,50 @@ leurs métadonnées (T26) ne sont pas incluses.
 - Pour un envoi push (tâche 19) : `notifications.service.due(now)` donne les conditions
   d'une notification à envoyer (livrée, hors synthèse, pas une suggestion en attente).
 
+## Accueil (tâche 23)
+
+Tout est calculé localement à chaque lecture (jamais par le LLM), en un nombre de requêtes
+borné qui ne dépend pas du volume (pas de requête par élément).
+
+- `GET /v1/dashboard?space_id=` garde ses champs et ajoute (optionnels) :
+  - `agenda_today` : `AgendaItem[]` du jour local ;
+  - `week` : `{start, end, timezone, days: [{date, items}], calendars, synced_at}`, la
+    semaine en cours (du lundi, ou d'aujourd'hui selon la disposition) ;
+  - `suggestions` : `[{text, why, source_type, source_id, source_label, date, href,
+    space_id}]`, 8 au plus. `source_type` = `review` (3 suggestions au plus du dernier bilan
+    généré de chaque espace, 35 jours au plus, `href` `/reviews?review=<id>`, `date` =
+    génération), `notification` (suggestion regroupée dans une synthèse livrée et non lue,
+    sauf si son bilan est déjà listé) ou `budget` (catégorie à 80 % de son budget ou plus,
+    `date` = calcul) ;
+  - `sources` : par carte (`priorities`, `agenda`, `week`, `suggestions`, `journal`,
+    `approvals`, `memory`, `budget`, `assistant`), `{origin, as_of, count}` : `local`
+    (calculé ici à `as_of`), `calendar` (`count` agendas suivis, lecture la plus ancienne
+    `as_of`), `review` (dernier bilan utilisé généré à `as_of`) ;
+  - `layout` : la disposition (ci-dessous).
+- `unread_notifications` suit maintenant l'espace choisi : notifications sans espace ou de
+  cet espace, livrées (`deliver_after` passé), hors éléments de synthèse.
+- `AgendaItem` : `kind` (`event` \| `busy` \| `task` \| `milestone` \| `payment`), `title`,
+  `day` (jour local où il est listé ; une occurrence sur plusieurs jours apparaît chaque
+  jour), `start`/`end` (instants avec le décalage du fuseau du propriétaire, `null` toute la
+  journée), `all_day`, `space_id`, `source_type` (`calendar_event`, `task`, `goal`,
+  `finance_recurring`), `source_id`, `source_label` (nom de l'agenda, titre de l'objectif…),
+  `href`, `synced_at` (dernière lecture de l'agenda), `detail` (lieu, montant « prévu » ou
+  « estimé », ce qu'attend une tâche bloquée), `tentative`, `blocked`. Une occurrence d'un
+  autre espace du propriétaire est `busy`, titre « Occupé (autre espace) », sans espace, ni
+  source, ni détail ; une plage libre d'un autre espace n'apparaît pas.
+- `GET /v1/dashboard/week?start=YYYY-MM-DD&space_id=` : la même structure pour les sept
+  jours locaux à partir de `start` (défaut : la semaine en cours). `start` hors 1900–2200 :
+  `422 invalid_window`. Espace étranger : `404 space_not_found`.
+- `GET /v1/dashboard/layout` : `{cards: [{id, visible}], default_view: day|week,
+  week_start: monday|today, updated_at}` (`updated_at` `null` tant que les valeurs par
+  défaut s'appliquent : toutes les cartes, dans l'ordre ci-dessus).
+- `PUT /v1/dashboard/layout` `{cards, default_view, week_start}` : `cards` dans l'ordre
+  voulu (30 au plus). Les cartes omises sont ajoutées à la fin, visibles, dans l'ordre par
+  défaut ; il en va de même à la lecture pour une carte apparue après l'enregistrement.
+  Audit `dashboard.layout.update` (`cards`, `hidden`, `default_view`, `week_start`).
+- Erreur `422 dashboard_layout_invalid`, extensions `field` (par ex. `cards[2].id`) et
+  `reason` (`unknown` \| `duplicate`).
+
 ## Finances : import de relevés CSV (tâche 25)
 
 Rien n'est écrit dans le budget avant `commit` : le fichier est lu en mémoire (jamais
@@ -540,7 +584,7 @@ conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu**
 | `/v1/approvals` | 2 | prévisualisation, accepter / refuser |
 | `/v1/guardian` | 2 | permissions d'agents, journal d'audit, appels LLM |
 | `/v1/notifications` | 2, V1 | liste, lecture, synthèses de suggestions, préférences par catégorie (activation, maximum par jour, créneaux, heures de regroupement) |
-| `/v1/dashboard` | 2 | briefing du jour |
+| `/v1/dashboard` | 2, V1 | briefing du jour, agenda et semaine, suggestions sourcées, disposition des cartes (tâche 23) |
 | `/v1/goals` | 3 | objectifs, jalons, points d'étape, tâches rattachées, objectifs d'épargne |
 | `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |

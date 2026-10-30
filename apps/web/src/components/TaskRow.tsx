@@ -1,10 +1,12 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 
 import { TaskDependencies } from "@/components/TaskDependencies";
 import { Badge, Button } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { sourceHref, taskSourceLabel } from "@/lib/dashboard";
 import { formatDateTime, PRIORITY_LABELS } from "@/lib/format";
 import { useSpace } from "@/lib/space";
 import { blockedHint } from "@/lib/tasks";
@@ -41,6 +43,9 @@ export function TaskRow({
     },
   });
   const overdue = !done && task.due_at !== null && new Date(task.due_at) < new Date();
+  // Where it was created (journal, assistant): a link back to it.
+  const origin = taskSourceLabel(task.source_type);
+  const originHref = origin ? sourceHref(task.source_type, task.source_id) : null;
 
   return (
     <li className="flex items-start gap-3 py-2">
@@ -73,7 +78,14 @@ export function TaskRow({
               {tag}
             </Badge>
           ))}
-          {task.source_type === "journal_entry" && <Badge tone="violet">Journal</Badge>}
+          {origin &&
+            (originHref ? (
+              <Link href={originHref} aria-label={`Source : ${origin}`} className="no-underline">
+                <Badge tone="violet">{origin}</Badge>
+              </Link>
+            ) : (
+              <Badge tone="violet">{origin}</Badge>
+            ))}
           {!selected && <Badge>{spaceName(task.space_id)}</Badge>}
         </div>
         {blocked && (

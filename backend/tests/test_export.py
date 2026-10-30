@@ -30,6 +30,7 @@ from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.calendar.models import CalendarEvent
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.connectors.models import ConnectorAccount, ConnectorGrant, ConnectorSource
+from lifeos.modules.dashboard.models import DashboardPreference
 from lifeos.modules.documents.models import Document
 from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.finance.models import (
@@ -276,6 +277,14 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
             category="suggestion",
             max_per_day=2,
             digest_times=["18:00"],
+            updated_at=NOW,
+        )
+    )
+    add(
+        DashboardPreference(
+            user_id=user_id,
+            cards=[{"id": "budget", "visible": False}],
+            default_view="week",
             updated_at=NOW,
         )
     )
