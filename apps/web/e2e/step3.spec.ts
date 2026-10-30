@@ -45,7 +45,7 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E étape 3");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // Goals (F06): a measurable goal, a check-in, progress computed locally.
   await nav(page, "Objectifs");

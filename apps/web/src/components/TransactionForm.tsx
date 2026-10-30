@@ -325,7 +325,7 @@ export function TransactionForm({
           </p>
         )}
         {space !== null && categories.data && choices.length === 0 && (
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-muted">
             Aucune catégorie de {form.direction === "expense" ? "dépenses" : "revenus"} dans cet espace : créez-en dans
             « Catégories ».
           </p>

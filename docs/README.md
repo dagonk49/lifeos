@@ -5,6 +5,7 @@
 | [installation.md](installation.md) | **Installation pas à pas** sur la VM (Docker, domaine, script, Gemini, comptes Google, certificat, GPU, sauvegardes, alertes, mises à jour) |
 | [guide-utilisateur.md](guide-utilisateur.md) | **Guide d'utilisation** : pages, réglages, comptes connectés, notifications, export, appareil perdu ou volé, ce que l'assistant voit et ne voit jamais, ce que la version ne fait pas encore |
 | [depannage.md](depannage.md) | **Dépannage** : par où commencer, site injoignable, tâches de fond et synchronisations arrêtées, documents et dictées en attente, page blanche, passkeys, assistant IA, disque plein, signaler un problème sans donnée personnelle |
+| [accessibilite.md](accessibilite.md) | **Accessibilité et mobile** : contrôles automatiques (WCAG 2.2 AA, clavier, téléphone), règles de l'interface, protocole manuel (lecteurs d'écran, zoom, thème sombre) et résultats sur les vrais appareils |
 | [cadrage/cahier-des-charges.md](cadrage/cahier-des-charges.md) | Cahier des charges v1.0 (source : document de cadrage du 11/10/2026) |
 | [cadrage/architecture-specifications.md](cadrage/architecture-specifications.md) | Architecture et spécifications techniques v1.0 (source) |
 | [realisation.md](realisation.md) | **État de réalisation** par rapport au cadrage : technologies retenues, API, étapes, couverture des exigences (F01–F10, UC01–UC05, §8, §9) |

@@ -33,6 +33,15 @@ const backendEnv = {
   LIFEOS_LOG_LEVEL: "WARNING",
 };
 
+const chromiumOptions = {
+  // A fake microphone (a tone) for dictation, granted without a prompt.
+  permissions: ["microphone"],
+  launchOptions: {
+    args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+    ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
+  },
+};
+
 export default defineConfig({
   testDir: "e2e",
   timeout: 60_000,
@@ -50,17 +59,17 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        // A fake microphone (a tone) for dictation, granted without a prompt.
-        permissions: ["microphone"],
-        launchOptions: {
-          args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
-          ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
-            ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
-            : {}),
-        },
-      },
+      // The phone journeys only run on the phone.
+      testIgnore: /mobile\.spec\.ts$/,
+      use: { ...devices["Desktop Chrome"], ...chromiumOptions },
+    },
+    {
+      // A phone (Chromium: the CDP virtual authenticator does not exist in WebKit, so iOS
+      // is covered by the manual protocol of docs/accessibilite.md). Touch screen, coarse
+      // pointer, 412 px wide; mobile.spec.ts also checks 360 and 375 px.
+      name: "mobile-chromium",
+      testMatch: /(mobile|a11y)\.spec\.ts$/,
+      use: { ...devices["Pixel 7"], ...chromiumOptions },
     },
   ],
   webServer: [

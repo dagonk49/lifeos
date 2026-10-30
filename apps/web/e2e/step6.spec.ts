@@ -51,7 +51,7 @@ test("Task 23 journey: home cards hidden and kept, week view with today's task",
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E accueil");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // A task due today at noon: in the current week whatever the week start.
   await nav(page, "Tâches");

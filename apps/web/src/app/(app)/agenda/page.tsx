@@ -27,6 +27,10 @@ export default function AgendaPage() {
           <Button size="sm" variant="secondary" onClick={() => setMonday(addDays(monday, 7))}>
             Semaine suivante
           </Button>
+          {/* The shown week, announced when the buttons change it. */}
+          <p role="status" className="sr-only">
+            {weekLabel(monday)}
+          </p>
         </div>
       </PageHeader>
       <Card

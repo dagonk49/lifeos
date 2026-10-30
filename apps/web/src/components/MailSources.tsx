@@ -116,7 +116,7 @@ export function MailSources({ account }: { account: ConnectorAccount }) {
               />
             ))}
           {labels.data.every((label) => label.source_id) && (
-            <li className="text-xs text-stone-500">Tous les libellés de ce compte sont déjà suivis.</li>
+            <li className="text-xs text-muted">Tous les libellés de ce compte sont déjà suivis.</li>
           )}
         </ul>
       )}

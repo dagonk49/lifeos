@@ -49,7 +49,7 @@ test("MVP journey: enrol, organise, converse, remember, search, sign in again", 
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
   await expect(
-    page.getByRole("heading", { name: /^Aujourd'hui/ }),
+    page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ }),
   ).toBeVisible();
   await expect(
     page.getByText("Pas encore d'entrée aujourd'hui."),
@@ -154,7 +154,7 @@ test("MVP journey: enrol, organise, converse, remember, search, sign in again", 
     .getByRole("button", { name: "Se connecter avec une passkey" })
     .click();
   await expect(
-    page.getByRole("heading", { name: /^Aujourd'hui/ }),
+    page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ }),
   ).toBeVisible();
   await expect(page.getByText(/1 fait\(s\) actif\(s\)/)).toBeVisible();
 });

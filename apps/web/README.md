@@ -52,6 +52,29 @@ d'événement en ligne (`onerror="…"`). `'unsafe-eval'` n'est ajouté qu'en d�
   amont ne doit en ajouter (voir `docs/exploitation.md` §3).
 - Le proxy ignore `/v1` (l'API, qui pose ses propres en-têtes) et `/_next/static`.
 
+## Accessibilité : conventions
+
+Cible WCAG 2.2 AA ; protocole et résultats dans `docs/accessibilite.md`.
+
+- `Field` (`src/components/ui.tsx`) donne à chaque champ une étiquette **visible** ; son
+  `hint` devient la description du champ (`aria-describedby`, ajouté au contrôle enfant).
+  Le placeholder ne sert qu'à un exemple de format, jamais d'étiquette.
+- `Tabs` pour des onglets (rôles, `aria-controls`, tabindex itinérant, flèches, Début, Fin).
+- `PageHeader` pose aussi le titre du document « Page · LifeOS » (`documentTitle` quand le
+  `h1` contient une date) : l'annonceur de route de Next.js le lit à chaque navigation.
+- Texte secondaire : `text-muted` (stone-500, stone-400 en sombre), jamais `text-stone-500`
+  seul (3,6:1 sur une carte sombre). Toute couleur de texte a sa variante `dark:`. Les
+  jetons sont vérifiés par `src/lib/contrast.test.ts`.
+- Une action de ligne porte l'élément dans son nom : `aria-label={`Supprimer « ${titre} »`}`
+  (le texte visible reste contenu dans ce nom).
+- Jamais d'information par la seule couleur : un libellé (badge « En retard ») ou un texte
+  `sr-only` l'accompagne ; un visuel décoratif est `aria-hidden`.
+- Petites cases à cocher dans `CheckboxTarget` (zone de 24 × 24 px) ; une zone défilante
+  sans élément focalisable reçoit `tabIndex={0}` et un nom (`role="region"`).
+- Un panneau (notifications, contrôle avant l'envoi) se ferme par Échap et rend le focus à
+  ce qui l'a ouvert ; le lien « Aller au contenu » vise `main#contenu`.
+- Animations : `motion-reduce:` pour respecter la préférence du système.
+
 ## Développement
 
 ```bash
@@ -83,3 +106,10 @@ fonctionnels. Tous les parcours échouent à la moindre violation de CSP (`e2e/f
 Prérequis : PostgreSQL avec la base `lifeos_e2e` (extensions `vector` et `unaccent`) et Redis
 locaux.
 Pour utiliser un Chromium déjà installé : `PLAYWRIGHT_CHROMIUM_PATH=/chemin/vers/chrome`.
+
+Deux projets Playwright : `chromium` (ordinateur) et `mobile-chromium` (Pixel 7 : écran
+tactile, pointeur grossier). `e2e/a11y.spec.ts` passe toutes les pages au contrôleur WCAG
+2.2 AA de `e2e/a11y-audit.ts`, en clair puis en sombre, dans les deux projets ;
+`e2e/keyboard.spec.ts` déroule un parcours au clavier seul ; `e2e/mobile.spec.ts` (téléphone
+seulement) vérifie l'absence de défilement horizontal à 360 et 375 px et les parcours au
+toucher. Pour ne lancer qu'eux : `pnpm e2e a11y.spec.ts keyboard.spec.ts mobile.spec.ts`.

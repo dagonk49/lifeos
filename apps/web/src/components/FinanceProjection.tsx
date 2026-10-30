@@ -41,9 +41,9 @@ function Amounts({ month, direction, currency }: { month: ProjectionMonth; direc
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-medium text-stone-500">{income ? "Revenus" : "Dépenses"}</span>
+      <span className="text-xs font-medium text-muted">{income ? "Revenus" : "Dépenses"}</span>
       {parts.length === 0 ? (
-        <span className="text-stone-500">aucun</span>
+        <span className="text-muted">aucun</span>
       ) : (
         parts.map(([basis, text]) => (
           <span key={basis} className="flex flex-wrap items-center gap-1.5 tabular-nums">
@@ -62,11 +62,11 @@ function MonthRow({ month, currency }: { month: ProjectionMonth; currency: strin
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="font-semibold capitalize">
           {label}
-          {month.state === "current" && <span className="ml-2 text-xs font-normal text-stone-500">(mois en cours)</span>}
+          {month.state === "current" && <span className="ml-2 text-xs font-normal text-muted">(mois en cours)</span>}
         </h3>
         <span className="tabular-nums">
           Solde estimé <strong>{formatMoney(month.balance, currency, "always")}</strong>{" "}
-          <span className="text-stone-500">({rangeText(month.balance_low, month.balance_high, currency)})</span>
+          <span className="text-muted">({rangeText(month.balance_low, month.balance_high, currency)})</span>
         </span>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -81,7 +81,7 @@ function MonthRow({ month, currency }: { month: ProjectionMonth; currency: strin
               <li key={`${item.source}-${item.recurring_id ?? item.category_id ?? index}-${item.direction}`} className="flex flex-wrap items-center gap-1.5">
                 <BasisBadge basis={item.basis} />
                 <span className="break-words">{item.label}</span>
-                <span className="text-xs text-stone-500">{item.direction === "income" ? "revenu" : "dépense"}</span>
+                <span className="text-xs text-muted">{item.direction === "income" ? "revenu" : "dépense"}</span>
                 <span className="ml-auto tabular-nums">
                   {item.basis === "estimated" ? rangeText(item.low, item.high, currency) || formatMoney(item.amount, currency) : formatMoney(item.amount, currency)}
                 </span>

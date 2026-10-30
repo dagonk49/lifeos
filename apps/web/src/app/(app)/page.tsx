@@ -47,7 +47,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <PageHeader title={`Aujourd'hui, ${formatDate(d.today)}`}>
+      <PageHeader title={`Aujourd'hui, ${formatDate(d.today)}`} documentTitle="Accueil">
         <div role="group" aria-label="Vue de l'accueil" className="flex gap-1">
           <Button size="sm" variant={current === "day" ? "primary" : "secondary"} aria-pressed={current === "day"} onClick={() => choose("day")}>
             Jour

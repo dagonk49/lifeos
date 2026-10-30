@@ -172,7 +172,7 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
   if (!reading) {
     return document.status === "ready" ? (
       <Section title="Lecture du ticket">
-        <p className="text-sm text-stone-500">Aucune information n&apos;a pu être lue sur ce ticket.</p>
+        <p className="text-sm text-muted">Aucune information n&apos;a pu être lue sur ce ticket.</p>
       </Section>
     ) : null;
   }
@@ -186,11 +186,11 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
         {rows.map(([label, value, line]) => (
           <div key={label} className="contents">
-            <dt className="text-stone-500">{label}</dt>
+            <dt className="text-muted">{label}</dt>
             <dd className="min-w-0">
-              {value ? <span className="font-medium">{value}</span> : <span className="text-stone-500">Non trouvé</span>}
+              {value ? <span className="font-medium">{value}</span> : <span className="text-muted">Non trouvé</span>}
               {line && (
-                <span className="block text-xs break-words text-stone-500">
+                <span className="block text-xs break-words text-muted">
                   Ligne lue : « <span className="font-mono">{line}</span> »
                 </span>
               )}
@@ -199,13 +199,13 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
         ))}
         {reading.cardPayment && (
           <div className="contents">
-            <dt className="text-stone-500">Paiement</dt>
+            <dt className="text-muted">Paiement</dt>
             <dd>Par carte</dd>
           </div>
         )}
         {reading.confidence !== null && (
           <div className="contents">
-            <dt className="text-stone-500">Confiance</dt>
+            <dt className="text-muted">Confiance</dt>
             <dd>{formatConfidence(reading.confidence)}</dd>
           </div>
         )}
@@ -226,7 +226,7 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
           <Link href={financesReceiptHref(document.id)} className={LINK_PRIMARY}>
             Ajouter aux finances
           </Link>
-          <span className="text-xs text-stone-500">Vous vérifiez et corrigez les valeurs avant tout enregistrement.</span>
+          <span className="text-xs text-muted">Vous vérifiez et corrigez les valeurs avant tout enregistrement.</span>
         </div>
       )}
     </Section>
@@ -259,7 +259,7 @@ function OriginalControl({ document }: { document: DocumentDetail }) {
           <label htmlFor={inputId} className="font-medium">
             Conserver l&apos;original sans limite
           </label>
-          <p id={hintId} className="mt-0.5 text-xs text-stone-500">
+          <p id={hintId} className="mt-0.5 text-xs text-muted">
             {retentionHint(document)}
           </p>
         </div>
@@ -330,7 +330,7 @@ function LocalOnlyControl({ document }: { document: DocumentDetail }) {
           <label htmlFor={inputId} className="font-medium">
             Toujours garder en local
           </label>
-          <p id={hintId} className="mt-0.5 text-xs text-stone-500">
+          <p id={hintId} className="mt-0.5 text-xs text-muted">
             {hint}
           </p>
         </div>
@@ -402,7 +402,7 @@ function TextEditor({ document }: { document: DocumentDetail }) {
         />
       </Field>
       {document.text_corrected_at && (
-        <p className="text-xs text-stone-500">Corrigé le {formatDateTime(document.text_corrected_at)}</p>
+        <p className="text-xs text-muted">Corrigé le {formatDateTime(document.text_corrected_at)}</p>
       )}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" disabled={!changed || patch.isPending}>
@@ -592,7 +592,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         {facts.map(([label, value]) => (
           <div key={label} className="contents">
-            <dt className="text-stone-500">{label}</dt>
+            <dt className="text-muted">{label}</dt>
             <dd className="min-w-0">{value}</dd>
           </div>
         ))}

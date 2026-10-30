@@ -87,7 +87,7 @@ function CapabilityBox({
         {note && (
           <>
             {" "}
-            <span className="text-xs text-stone-500">({note})</span>
+            <span className="text-xs text-muted">({note})</span>
           </>
         )}
       </span>
@@ -174,7 +174,7 @@ function SpaceAccess({
         })}
       </div>
       {granted.length === 0 && !change.isPending && (
-        <p className="text-xs text-stone-500">Aucun usage dans cet espace.</p>
+        <p className="text-xs text-muted">Aucun usage dans cet espace.</p>
       )}
       {change.isPending && <Spinner label="Mise à jour des accès…" />}
       {change.error && <Alert tone="error">{errorMessage(change.error)}</Alert>}
@@ -333,7 +333,7 @@ function AccountItem({
             <span className="font-medium break-all">{account.email ?? `Compte ${label}`}</span>
             <Badge tone={STATUS_TONES[account.status]}>{STATUS_LABELS[account.status]}</Badge>
           </p>
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-muted">
             {label} ·{" "}
             {account.status === "revoked"
               ? `déconnecté le ${formatDateTime(account.revoked_at)}`
@@ -481,7 +481,7 @@ function ConnectForm({ providers, navigate }: { providers: ConnectorProvider[]; 
           ))}
         </div>
       </fieldset>
-      <p className="mt-1 text-xs text-stone-500">
+      <p className="mt-1 text-xs text-muted">
         Vous serez redirigé vers {label} pour accepter ces accès. Ce que vous y décochez reste coupé : LifeOS
         n&apos;utilise que ce qui est réellement accordé.
       </p>
@@ -547,7 +547,7 @@ export function ConnectorsPanel({
       {providers.data && providers.data.length > 0 ? (
         <ConnectForm providers={providers.data} navigate={navigate} />
       ) : providers.isSuccess ? (
-        <p className="mt-3 text-xs text-stone-500">
+        <p className="mt-3 text-xs text-muted">
           La connexion de comptes n&apos;est pas activée sur ce serveur : l&apos;administrateur l&apos;active en
           suivant le guide d&apos;installation (section « Comptes connectés »).
         </p>

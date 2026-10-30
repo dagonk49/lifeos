@@ -107,7 +107,7 @@ export function CalendarSources({ account }: { account: ConnectorAccount }) {
               />
             ))}
           {calendars.data.every((c) => c.source_id) && (
-            <li className="text-xs text-stone-500">Tous les agendas de ce compte sont déjà suivis.</li>
+            <li className="text-xs text-muted">Tous les agendas de ce compte sont déjà suivis.</li>
           )}
         </ul>
       )}
@@ -135,7 +135,7 @@ function FollowRow({
       <span>
         {calendar.name}
         {calendar.primary && " (principal)"}
-        {calendar.read_only && <span className="text-xs text-stone-500"> · lecture seule</span>}
+        {calendar.read_only && <span className="text-xs text-muted"> · lecture seule</span>}
       </span>
       <Select
         aria-label={`Espace pour l'agenda ${calendar.name}`}

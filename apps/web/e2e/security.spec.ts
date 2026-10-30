@@ -172,7 +172,7 @@ test("passkeys, navigation and assistant work under the policy, without any viol
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E sécurité");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // Every page, through the router then fully reloaded (server rendering and hydration).
   for (const [label, path] of NAV) {
@@ -208,7 +208,7 @@ test("passkeys, navigation and assistant work under the policy, without any viol
   await page.getByRole("button", { name: "Déconnexion" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.getByRole("button", { name: "Se connecter avec une passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // The 404 page, rendered per request as well.
   const missing = await page.goto("/page-inexistante");
@@ -233,14 +233,14 @@ test("a lost phone's session is signed out from the computer and goes back to th
     await phone.goto(`/enroll#token=${enrollmentToken()}`);
     await phone.getByLabel("Nom de l'appareil").fill("Téléphone E2E sécurité");
     await phone.getByRole("button", { name: "Créer ma passkey" }).click();
-    await expect(phone.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+    await expect(phone.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
     // The computer, signed in just now: a recent login, no passkey confirmation needed.
     await addVirtualAuthenticator(page);
     await page.goto(`/enroll#token=${enrollmentToken()}`);
     await page.getByLabel("Nom de l'appareil").fill("Ordinateur E2E sécurité");
     await page.getByRole("button", { name: "Créer ma passkey" }).click();
-    await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
     await navigation(page).getByRole("link", { name: "Réglages" }).click();
     await expect(page.getByRole("button", { name: `Révoquer la session ${PHONE_UA}` })).toBeVisible();
 
@@ -255,7 +255,7 @@ test("a lost phone's session is signed out from the computer and goes back to th
     await expect(phone).toHaveURL(/\/login$/);
     // The owner signs in again on the phone with its passkey (the allowed journey).
     await phone.getByRole("button", { name: "Se connecter avec une passkey" }).click();
-    await expect(phone.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+    await expect(phone.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
     // The computer's own session was kept.
     await page.reload();

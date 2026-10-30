@@ -57,7 +57,7 @@ export function SessionList() {
             <li key={s.id} className="flex items-center justify-between gap-2 py-2">
               <span className="min-w-0">
                 <span className="line-clamp-1">{s.user_agent ?? "Appareil inconnu"}</span>
-                <span className="block text-xs text-stone-500">
+                <span className="block text-xs text-muted">
                   Dernière activité {formatDateTime(s.last_seen_at)} {s.ip && `· ${s.ip}`}
                 </span>
               </span>
@@ -88,7 +88,7 @@ export function SessionList() {
           >
             Déconnecter les autres sessions
           </Button>
-          <span className="text-xs text-stone-500">
+          <span className="text-xs text-muted">
             Un appareil perdu, une session inconnue : seule cette session reste ouverte. Confirmation
             par passkey si votre connexion date de plus de 10 minutes.
           </span>

@@ -183,9 +183,9 @@ function MappingStep({ current, onMapped }: { current: Import; onMapped: (update
   return (
     <section aria-label="Colonnes du fichier" className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold">2. Colonnes</h3>
-      <div className="overflow-x-auto">
+      <div role="region" aria-label="Aperçu du fichier" tabIndex={0} className="overflow-x-auto">
         <table className="min-w-full text-left text-xs">
-          <caption className="mb-1 text-left text-stone-500">
+          <caption className="mb-1 text-left text-muted">
             Premières lignes telles que lues ({ENCODING_LABELS[current.encoding]}, séparateur « {current.delimiter === "\t" ? "tabulation" : current.delimiter} »)
           </caption>
           <thead>
@@ -312,7 +312,7 @@ function RowLine({ row, checked, onToggle }: { row: ImportRow; checked: boolean;
         <span className="mt-1 inline-block w-3.5" aria-hidden />
       )}
       <label htmlFor={selectable ? id : undefined} className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="text-xs text-stone-500">Ligne {row.line_no}</span>
+        <span className="text-xs text-muted">Ligne {row.line_no}</span>
         <Badge tone={ROW_STATUS_TONES[row.status]}>{ROW_STATUS_LABELS[row.status]}</Badge>
         {row.tx_date && <span>{formatDate(row.tx_date)}</span>}
         {/* Bank labels are untrusted text: shown as plain text, never as markup. */}
@@ -405,7 +405,7 @@ function ReviewStep({ current, onCommitted, onDiscarded }: { current: Import; on
         </ul>
       )}
       {rows.data?.next_cursor && (
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           Seules les {items.length} premières lignes sont affichées ; les suivantes suivent le choix par défaut (nouvelles
           opérations importées, doublons possibles écartés).
         </p>
@@ -592,7 +592,7 @@ export function ImportHistory({ spaceId, onOpen }: { spaceId: string; onOpen: (i
           <li key={item.id} className="flex flex-wrap items-center justify-between gap-2">
             <span className="min-w-0">
               <span className="font-medium break-words">{item.filename ?? "Relevé"}</span>{" "}
-              <span className="text-stone-500">
+              <span className="text-muted">
                 · {formatDate(item.created_at.slice(0, 10))} · {IMPORT_STATUS_LABELS[item.status]}
                 {item.status === "committed" ? ` · ${countLabel(item.imported_count, "opération", "opérations")}` : ""}
                 {item.totals ? ` · ${formatMoney(item.totals.expenses)} de dépenses` : ""}

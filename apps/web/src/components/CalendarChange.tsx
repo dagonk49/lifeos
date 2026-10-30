@@ -218,7 +218,7 @@ export function NewEventForm({ spaceId, today }: { spaceId: string; today: strin
   }
   if (calendars.data && calendars.data.length === 0) {
     return (
-      <p className="text-sm text-stone-500">
+      <p className="text-sm text-muted">
         Aucun agenda de cet espace ne peut être modifié. Autorisez « Modifier l&apos;agenda » dans Réglages &gt; Comptes
         connectés.
       </p>

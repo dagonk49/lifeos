@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 import { TaskDependencies } from "@/components/TaskDependencies";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, CheckboxTarget } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { sourceHref, taskSourceLabel } from "@/lib/dashboard";
 import { formatDateTime, PRIORITY_LABELS } from "@/lib/format";
@@ -49,19 +49,23 @@ export function TaskRow({
 
   return (
     <li className="flex items-start gap-3 py-2">
-      <input
-        type="checkbox"
-        className="mt-1 size-4 shrink-0 accent-teal-700 disabled:cursor-not-allowed"
-        checked={done}
-        disabled={blocked || toggle.isPending}
-        onChange={() => toggle.mutate()}
-        aria-label={done ? `Rouvrir « ${task.title} »` : `Terminer « ${task.title} »`}
-        aria-describedby={blocked ? hintId : undefined}
-      />
+      <CheckboxTarget>
+        <input
+          type="checkbox"
+          className="size-4 accent-teal-700 disabled:cursor-not-allowed"
+          checked={done}
+          disabled={blocked || toggle.isPending}
+          onChange={() => toggle.mutate()}
+          aria-label={done ? `Rouvrir « ${task.title} »` : `Terminer « ${task.title} »`}
+          aria-describedby={blocked ? hintId : undefined}
+        />
+      </CheckboxTarget>
       <div className="min-w-0 flex-1">
-        <p className={done ? "text-stone-500 line-through" : ""}>{task.title}</p>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+        <p className={done ? "text-muted line-through" : ""}>{task.title}</p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
           {blocked && <Badge tone="amber">Bloquée</Badge>}
+          {/* Overdue in words, not only in red (WCAG 1.4.1). */}
+          {overdue && <Badge tone="red">En retard</Badge>}
           {task.due_at && (
             <span className={overdue ? "font-medium text-red-700 dark:text-red-400" : ""}>
               Échéance {formatDateTime(task.due_at)}
@@ -93,7 +97,7 @@ export function TaskRow({
             {blockedHint(task.blocked_by)}
           </p>
         )}
-        {task.notes && <p className="mt-1 whitespace-pre-wrap text-sm text-stone-600">{task.notes}</p>}
+        {task.notes && <p className="mt-1 whitespace-pre-wrap text-sm text-stone-600 dark:text-stone-400">{task.notes}</p>}
         {toggle.error && (
           <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-400">
             {errorMessage(toggle.error)}

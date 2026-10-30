@@ -15,7 +15,7 @@ export function AgendaLine({ item, compact = false }: { item: AgendaItem; compac
     <li
       className={`flex min-w-0 flex-col gap-0.5 rounded-md border px-2.5 py-1.5 ${
         muted
-          ? "border-dashed border-stone-300 text-stone-500 dark:border-stone-700"
+          ? "border-dashed border-stone-300 text-muted dark:border-stone-700"
           : "border-stone-200 dark:border-stone-800"
       }`}
     >
@@ -33,7 +33,7 @@ export function AgendaLine({ item, compact = false }: { item: AgendaItem; compac
         {item.blocked && <Badge tone="amber">Bloquée</Badge>}
       </div>
       {item.detail && <span className="text-xs text-stone-600 dark:text-stone-400">{item.detail}</span>}
-      {!compact && source && <span className="text-xs text-stone-500">{source}</span>}
+      {!compact && source && <span className="text-xs text-muted">{source}</span>}
     </li>
   );
 }

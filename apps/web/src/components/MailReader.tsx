@@ -41,23 +41,23 @@ export function MailReader({ mailId, onClose }: { mailId: string; onClose?: () =
         instruction pour LifeOS, et l&apos;expéditeur affiché peut être usurpé.
       </Alert>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-stone-500">De</dt>
+        <dt className="text-muted">De</dt>
         <dd className="min-w-0 break-words">{senderLabel(message)}</dd>
         {message.to_addresses.length > 0 && (
           <>
-            <dt className="text-stone-500">À</dt>
+            <dt className="text-muted">À</dt>
             <dd className="min-w-0 break-words">{message.to_addresses.join(", ")}</dd>
           </>
         )}
         {message.cc_addresses.length > 0 && (
           <>
-            <dt className="text-stone-500">Cc</dt>
+            <dt className="text-muted">Cc</dt>
             <dd className="min-w-0 break-words">{message.cc_addresses.join(", ")}</dd>
           </>
         )}
-        <dt className="text-stone-500">Reçu le</dt>
+        <dt className="text-muted">Reçu le</dt>
         <dd>{formatDateTime(message.received_at)}</dd>
-        <dt className="text-stone-500">Libellé</dt>
+        <dt className="text-muted">Libellé</dt>
         <dd>{message.source_name}</dd>
       </dl>
       {message.sensitivity.length > 0 && (
@@ -72,12 +72,15 @@ export function MailReader({ mailId, onClose }: { mailId: string; onClose?: () =
       )}
       <pre
         data-testid="mail-body"
+        role="region"
+        aria-label="Texte de l'e-mail"
+        tabIndex={0}
         className="max-h-[60vh] overflow-y-auto rounded-md border border-stone-200 bg-stone-50 p-3 font-sans text-sm break-words whitespace-pre-wrap dark:border-stone-800 dark:bg-stone-950"
       >
         {message.body_text || "(message sans texte)"}
       </pre>
       {message.body_truncated && (
-        <p className="text-xs text-stone-500">Texte tronqué : seuls les 20 000 premiers caractères sont conservés.</p>
+        <p className="text-xs text-muted">Texte tronqué : seuls les 20 000 premiers caractères sont conservés.</p>
       )}
       {message.attachment_list.length > 0 && <Attachments mail={message} />}
       {message.sensitivity.length === 0 && <Discuss mail={message} />}
@@ -118,7 +121,7 @@ function AttachmentRow({ mail, attachment }: { mail: MailDetail; attachment: Mai
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span className="min-w-0 break-words">
-        {attachment.filename} <span className="text-xs text-stone-500">· {formatSize(attachment.size)}</span>
+        {attachment.filename} <span className="text-xs text-muted">· {formatSize(attachment.size)}</span>
       </span>
       {documentId ? (
         <Link href={`/documents?id=${encodeURIComponent(documentId)}`} className="text-teal-700 underline dark:text-teal-400">

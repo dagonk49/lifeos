@@ -48,7 +48,7 @@ function FactPanel({
       ) : (
         <p className="break-words">{fact.statement}</p>
       )}
-      <div className="flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
         <Badge tone="violet">{KIND_LABELS[fact.kind] ?? fact.kind}</Badge>
         <Badge tone={ORIGIN_TONES[fact.origin]}>{ORIGIN_LABELS[fact.origin] ?? fact.origin}</Badge>
         {factDateParts(fact).map((part) => (
@@ -171,10 +171,10 @@ export function MemoryReviewItemCard({
           >
             Garder les deux
           </Button>
-          <span className="text-xs text-stone-500">Ils ne seront plus signalés ensemble.</span>
+          <span className="text-xs text-muted">Ils ne seront plus signalés ensemble.</span>
         </div>
       )}
-      {busy && <p className="mt-2 text-xs text-stone-500">Mise à jour…</p>}
+      {busy && <p className="mt-2 text-xs text-muted">Mise à jour…</p>}
       {action.error && (
         <div className="mt-2">
           <Alert tone="error">{errorMessage(action.error)}</Alert>

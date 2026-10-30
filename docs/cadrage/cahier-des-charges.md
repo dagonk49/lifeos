@@ -174,7 +174,7 @@ L’utilisateur recherche un souvenir, corrige ou supprime ses données ; la sup
 | Performance      | Navigation courante fluide ; tâches simples sans appel cloud ; temps IA indiqué à l’utilisateur.   |
 | Fiabilité        | Actions idempotentes lorsque possible ; reprise sur erreur et absence de doubles écritures.        |
 | Observabilité    | Logs structurés sans données personnelles brutes ; métriques, alertes et traçabilité.              |
-| Accessibilité    | Navigation clavier, lecteurs d’écran, contrastes et sous-titres/transcriptions.                    |
+| Accessibilité    | Navigation clavier, lecteurs d’écran, contrastes et sous-titres/transcriptions. Mesures et protocole : [accessibilite.md](../accessibilite.md). |
 | Interopérabilité | API versionnée, exports standards JSON/CSV/ICS selon les données.                                  |
 | Réversibilité    | Migration de fournisseur IA et de connecteurs sans perdre la mémoire structurée.                   |
 

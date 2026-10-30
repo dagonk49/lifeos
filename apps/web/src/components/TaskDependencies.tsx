@@ -48,7 +48,7 @@ export function TaskDependencies({ task, candidates }: { task: Task; candidates:
         size="sm"
         className="-ml-2.5"
         aria-expanded={open}
-        aria-controls={panelId}
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
         Dépendances{task.depends_on.length > 0 ? ` (${task.depends_on.length})` : ""}
@@ -73,10 +73,10 @@ export function TaskDependencies({ task, candidates }: { task: Task; candidates:
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-stone-500">N&apos;attend aucune tâche ouverte.</p>
+            <p className="text-sm text-muted">N&apos;attend aucune tâche ouverte.</p>
           )}
           {finished > 0 && (
-            <p className="text-xs text-stone-500">
+            <p className="text-xs text-muted">
               {finished === 1 ? "1 tâche attendue est terminée." : `${finished} tâches attendues sont terminées.`}
             </p>
           )}

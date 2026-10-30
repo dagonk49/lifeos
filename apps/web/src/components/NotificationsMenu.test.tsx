@@ -82,3 +82,60 @@ describe("NotificationsMenu", () => {
     });
   });
 });
+
+function renderMenu(calls: { url: string; method: string }[], list: NotificationItem[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({ url, method });
+      if (method === "POST") return new Response(null, { status: 204 });
+      return json(200, list);
+    }),
+  );
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <button type="button">Ailleurs</button>
+      <NotificationsMenu />
+    </QueryClientProvider>,
+  );
+}
+
+describe("NotificationsMenu disclosure", () => {
+  it("is a disclosure: Escape closes the panel and gives the focus back", async () => {
+    renderMenu([], [item({})]);
+    await screen.findByText("1");
+    const trigger = screen.getByRole("button", { name: "Notifications, 1 en attente" });
+    expect(trigger.getAttribute("aria-haspopup")).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const panel = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+    expect(panel?.hidden).toBe(true);
+
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const read = await screen.findByRole("button", { name: "Marquer « Rappel : Arroser » comme lu" });
+    read.focus();
+    fireEvent.keyDown(read, { key: "Escape" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(panel?.hidden).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes on a click outside", async () => {
+    renderMenu([], [item({})]);
+    fireEvent.click(await screen.findByRole("button", { name: /^Notifications/ }));
+    expect(await screen.findByRole("group", { name: "Notifications" })).toBeTruthy();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Ailleurs" }));
+    expect(screen.getByRole("button", { name: /^Notifications/ }).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("names each action after its notification and marks everything as read", async () => {
+    const calls: { url: string; method: string }[] = [];
+    renderMenu(calls, [item({}), item({ id: "n2", title: "Rappel : Appeler" })]);
+    fireEvent.click(await screen.findByRole("button", { name: /^Notifications/ }));
+    expect(await screen.findByRole("button", { name: "Marquer « Rappel : Appeler » comme lu" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ignorer « Rappel : Appeler »" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tout marquer comme lu" }));
+    await waitFor(() => expect(calls).toContainEqual({ url: "/v1/notifications/read-all", method: "POST" }));
+  });
+});

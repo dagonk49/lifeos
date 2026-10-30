@@ -23,7 +23,7 @@ export function SuggestionsList({ items }: { items: readonly DashboardSuggestion
         <li key={`${item.source_type}-${item.source_id}-${index}`} className="flex flex-col gap-0.5">
           <span className="font-medium">{item.text}</span>
           {item.why && <span className="text-stone-700 dark:text-stone-300">Pourquoi : {item.why}</span>}
-          <span className="text-xs text-stone-500">
+          <span className="text-xs text-muted">
             Source :{" "}
             <Link className="text-teal-700 underline dark:text-teal-400" href={item.href}>
               {item.source_label}

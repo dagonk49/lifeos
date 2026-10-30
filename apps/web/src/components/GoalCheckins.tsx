@@ -81,14 +81,14 @@ export function GoalCheckins({ goal }: { goal: GoalDetail }) {
         {(invalid || add.error) && <Alert tone="error">{invalid ?? errorMessage(add.error)}</Alert>}
       </form>
 
-      <h4 className="mt-4 text-xs font-semibold tracking-wide text-stone-500 uppercase">Historique</h4>
+      <h4 className="mt-4 text-xs font-semibold tracking-wide text-muted uppercase">Historique</h4>
       {goal.checkins.length === 0 ? (
         <Empty>Aucun point d&apos;étape pour l&apos;instant.</Empty>
       ) : (
         <ol className="mt-1 flex flex-col gap-2 border-l-2 border-stone-200 pl-3 text-sm dark:border-stone-700">
           {goal.checkins.map((c) => (
             <li key={c.id}>
-              <p className="text-xs text-stone-500">
+              <p className="text-xs text-muted">
                 <time dateTime={c.created_at}>{formatDateTime(c.created_at)}</time>
               </p>
               {c.value !== null && (

@@ -65,6 +65,33 @@ qui est compromis, révoquez aussi cette passkey et changez le mot de passe du c
 Serveur perdu (VM, disque) : voir le [plan de reprise](restauration.md), qui ne demande que
 la fiche de récupération.
 
+## Clavier et téléphone
+
+Tout se fait au clavier. Le premier appui sur Tab affiche **Aller au contenu**, qui saute
+l'en-tête et la navigation. Raccourcis :
+
+- **Assistant** : sur un ordinateur, Entrée envoie le message et Maj+Entrée va à la ligne.
+  Sur un écran tactile, Entrée va à la ligne et c'est le bouton **Envoyer** qui envoie (une
+  phrase sous le champ le rappelle).
+- **Échap** ferme le panneau des notifications (le focus revient au bouton) et annule le
+  contrôle « Avant l'envoi » (le message reste tel quel).
+- **Mémoire** : les flèches ← → passent d'un onglet à l'autre, Début et Fin vont au premier
+  et au dernier.
+
+Sur le **téléphone**, utilisez le site dans le navigateur (pas d'application à installer) :
+
+- ajoutez-le à l'écran d'accueil (Chrome : menu ⋮ → « Ajouter à l'écran d'accueil » ;
+  Safari : Partager → « Sur l'écran d'accueil ») pour l'ouvrir comme une application ;
+- l'en-tête défile avec la page ; dans **Assistant**, « Afficher les conversations » déplie la
+  liste au-dessus de la conversation ouverte ;
+- la **dictée** demande l'accès au micro la première fois : le site doit être ouvert en HTTPS
+  sur votre domaine (ou, sur le réseau local seulement, avec l'autorité de certification
+  installée sur le téléphone, voir [installation.md](installation.md)) ;
+- **Scanner un ticket** (Finances) ouvre directement l'appareil photo arrière.
+
+Le thème clair ou sombre suit le réglage de l'appareil. Détails, contrôles et résultats par
+appareil : [accessibilite.md](accessibilite.md).
+
 ## Pages
 
 ### Accueil

@@ -156,7 +156,7 @@ function UsageDetails({ usage }: { usage: LLMUsage }) {
                   {modelLabel(usage.models[quota.tier])}
                 </code>
               </p>
-              <p className="text-xs text-stone-500">{tierDescription(quota.tier)}</p>
+              <p className="text-xs text-muted">{tierDescription(quota.tier)}</p>
               {paid ? (
                 <p className="text-xs text-stone-600 dark:text-stone-400">
                   {formatCount(quota.used)} requête{quota.used >= 2 ? "s" : ""} aujourd&apos;hui
@@ -175,7 +175,7 @@ function UsageDetails({ usage }: { usage: LLMUsage }) {
             </li>
           ))}
         </ul>
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           {reset && `${reset} (heure locale). `}
           {paid
             ? "En mode payant, ce sont les budgets en dollars qui limitent les appels."

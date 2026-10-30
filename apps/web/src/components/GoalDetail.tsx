@@ -180,7 +180,7 @@ export function GoalDetailPanel({ goalId, onClose }: { goalId: string; onClose: 
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
             {facts.map(([label, value]) => (
               <div key={label} className="contents">
-                <dt className="text-stone-500">{label}</dt>
+                <dt className="text-muted">{label}</dt>
                 <dd className="min-w-0">{value}</dd>
               </div>
             ))}

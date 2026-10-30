@@ -69,10 +69,10 @@ function MailView() {
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium">{senderLabel(mail)}</span>
-                      <span className="shrink-0 text-xs text-stone-500">{formatDateTime(mail.received_at)}</span>
+                      <span className="shrink-0 text-xs text-muted">{formatDateTime(mail.received_at)}</span>
                     </span>
                     <span className="truncate">{subjectLabel(mail.subject)}</span>
-                    <span className="truncate text-xs text-stone-500">{mail.snippet}</span>
+                    <span className="truncate text-xs text-muted">{mail.snippet}</span>
                     <span className="flex flex-wrap gap-1">
                       {!selected && <Badge>{spaceName(mail.space_id)}</Badge>}
                       {mail.attachments > 0 && (

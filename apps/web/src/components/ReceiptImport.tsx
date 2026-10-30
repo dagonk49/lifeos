@@ -123,11 +123,11 @@ function UploadStep({ defaultSpaceId, onUploaded }: { defaultSpaceId?: string | 
 function ReadValue({ label, value, line }: { label: string; value: string | null; line: string | null }) {
   return (
     <div className="contents">
-      <dt className="text-stone-500">{label}</dt>
+      <dt className="text-muted">{label}</dt>
       <dd className="min-w-0">
-        {value ? <span className="font-medium">{value}</span> : <span className="italic text-stone-500">non trouvé</span>}
+        {value ? <span className="font-medium">{value}</span> : <span className="italic text-muted">non trouvé</span>}
         {line && (
-          <span className="block text-xs break-words text-stone-500">
+          <span className="block text-xs break-words text-muted">
             Ligne lue : <span className="font-mono">« {line} »</span>
           </span>
         )}
@@ -189,13 +189,13 @@ function Review({ proposal, today, onRecorded, onShowTransaction, onClose }: Cal
         />
         {proposal.vat_rates.length > 0 && (
           <div className="contents">
-            <dt className="text-stone-500">TVA</dt>
+            <dt className="text-muted">TVA</dt>
             <dd>{proposal.vat_rates.map((rate) => `${rate} %`).join(", ")}</dd>
           </div>
         )}
         {proposal.card_payment && (
           <div className="contents">
-            <dt className="text-stone-500">Paiement</dt>
+            <dt className="text-muted">Paiement</dt>
             <dd>Carte bancaire</dd>
           </div>
         )}

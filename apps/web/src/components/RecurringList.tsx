@@ -187,7 +187,7 @@ function RecurringRow({ item, spaceId, today }: { item: RecurringItem; spaceId: 
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium break-words">{item.label}</span>
         <Badge tone={BASIS_TONES[basis]}>{BASIS_LABELS[basis]}</Badge>
-        <span className="text-stone-500">
+        <span className="text-muted">
           {DIRECTION_LABELS[item.direction]} · {CADENCE_LABELS[item.cadence]}
           {item.next_date ? ` · prochaine le ${formatDate(item.next_date)}` : " · terminée"}
         </span>

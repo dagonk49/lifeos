@@ -68,7 +68,7 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E étape 4");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // UC02: a receipt is read locally (worker), checked, then added to the budget.
   await nav(page, "Documents");

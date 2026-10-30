@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import { Providers } from "./providers";
 
+// No `title` here: each page sets its own (PageHeader, login, enroll), and a title from the
+// metadata would come first in <head> and win over the page's.
 export const metadata: Metadata = {
-  title: "LifeOS",
   description: "Assistant personnel et coach, local-first.",
   robots: { index: false, follow: false },
 };

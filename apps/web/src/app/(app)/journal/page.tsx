@@ -54,7 +54,9 @@ function EntryCard({ entry }: { entry: JournalEntry }) {
     >
       {editing ? (
         <div className="flex flex-col gap-2">
-          <Textarea aria-label="Contenu" value={content} onChange={(e) => setContent(e.target.value)} rows={6} />
+          <Field label="Contenu">
+            <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={6} />
+          </Field>
           <div className="flex gap-2">
             <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
               Enregistrer
@@ -181,7 +183,7 @@ export default function JournalPage() {
             </Button>
             {create.error && <Alert tone="error">{errorMessage(create.error)}</Alert>}
             {dictated && (
-              <p className="text-xs text-stone-500">
+              <p className="text-xs text-muted">
                 Après l'enregistrement, « Extraire tâches et faits » propose les tâches et
                 accomplissements dictés : rien n'est ajouté sans votre validation.
               </p>

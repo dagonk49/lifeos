@@ -109,7 +109,7 @@ export function DocumentUpload({ onUploaded }: { onUploaded: (document: Document
             ))}
           </div>
           {purpose === "receipt" && (
-            <span className="text-xs text-stone-500">
+            <span className="text-xs text-muted">
               Le montant, la date et le commerçant sont lus localement ; vous les vérifiez avant tout ajout aux finances.
             </span>
           )}
@@ -151,7 +151,7 @@ export function DocumentUpload({ onUploaded }: { onUploaded: (document: Document
             <label htmlFor={keepId} className="font-medium">
               Conserver l&apos;original sans limite
             </label>
-            <p id={keepHintId} className="mt-0.5 text-xs text-stone-500">
+            <p id={keepHintId} className="mt-0.5 text-xs text-muted">
               Par défaut, l&apos;original chiffré est supprimé à la fin de la durée de conservation (
               {DEFAULT_RETENTION_DAYS} jours, sauf autre réglage du serveur) ; le texte extrait reste disponible. La date
               exacte s&apos;affiche après l&apos;envoi.

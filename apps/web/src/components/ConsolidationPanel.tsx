@@ -75,7 +75,7 @@ export function ConsolidationPanel({ conversation }: { conversation: Conversatio
           Retenir l&apos;essentiel
         </Button>
       </div>
-      <p id={helpId} className="text-xs text-stone-500">
+      <p id={helpId} className="text-xs text-muted">
         {HELP}
         {awaitingDecision && " Validez ou refusez d'abord les propositions ci-dessous."}
       </p>

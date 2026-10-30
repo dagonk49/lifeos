@@ -150,7 +150,7 @@ function CategoryForm({ draft, onChange }: { draft: Draft; onChange: (draft: Dra
       {important ? (
         <div className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-stone-700 dark:text-stone-300">Créneaux de livraison</span>
-          <span className="text-xs text-stone-500">
+          <span className="text-xs text-muted">
             Aucun créneau : immédiat, hors plages de tranquillité. Sinon, au prochain créneau.
           </span>
           <ul className="flex flex-col gap-2">
@@ -288,7 +288,7 @@ export function NotificationPreferences({ className }: { className?: string }) {
                 Enregistrer les notifications
               </Button>
               {saved && (
-                <span role="status" className="text-sm text-teal-700">
+                <span role="status" className="text-sm text-teal-700 dark:text-teal-400">
                   Enregistré
                 </span>
               )}

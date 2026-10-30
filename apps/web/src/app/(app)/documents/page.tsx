@@ -35,7 +35,7 @@ function DocumentsView() {
         {selectedId ? (
           <DocumentDetailPanel key={selectedId} documentId={selectedId} onClose={closeDocument} />
         ) : (
-          <div className="hidden rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500 lg:block dark:border-stone-700">
+          <div className="hidden rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-muted lg:block dark:border-stone-700">
             Sélectionnez un document pour voir son texte, le corriger ou télécharger l&apos;original.
           </div>
         )}

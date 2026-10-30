@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Alert, Button, Card } from "@/components/ui";
+import { Alert, Button, Card, documentTitle } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { loginWithPasskey } from "@/lib/passkeys";
 
@@ -27,6 +27,7 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-4">
+      <title>{documentTitle("Connexion")}</title>
       <h1 className="text-center text-2xl font-semibold">LifeOS</h1>
       <Card>
         <div className="flex flex-col gap-3">
@@ -39,7 +40,7 @@ export default function LoginPage() {
           {error && <Alert tone="error">{error}</Alert>}
         </div>
       </Card>
-      <p className="text-center text-xs text-stone-500">
+      <p className="text-center text-xs text-muted">
         Nouvel appareil ou accès perdu : demandez un lien d&apos;enrôlement sur le serveur
         (<code>lifeos-admin enrollment-token</code>).
       </p>

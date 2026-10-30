@@ -91,6 +91,27 @@ describe("TaskRow", () => {
     expect(screen.getByText("maison")).toBeTruthy();
   });
 
+  it("says an overdue task is late in words, not only in red", () => {
+    renderRow({ ...FREE, due_at: "2020-01-01T08:00:00Z" });
+    expect(screen.getByText("En retard")).toBeTruthy();
+    cleanup();
+    renderRow({ ...FREE, due_at: "2999-01-01T08:00:00Z" });
+    expect(screen.queryByText("En retard")).toBeNull();
+    cleanup();
+    renderRow({ ...FREE, status: "done", due_at: "2020-01-01T08:00:00Z" });
+    expect(screen.queryByText("En retard")).toBeNull();
+  });
+
+  it("gives the checkbox a 24 px tap area that toggles it", async () => {
+    const calls = mockApi(() => [200, { ...FREE, status: "done" }]);
+    renderRow(FREE);
+    const checkbox = screen.getByRole("checkbox", { name: "Terminer « Payer l'acompte »" });
+    const target = checkbox.closest("label");
+    expect(target?.className).toContain("size-6");
+    fireEvent.click(target as HTMLLabelElement);
+    await waitFor(() => expect(calls[0]).toMatchObject({ method: "PATCH", body: { status: "done" } }));
+  });
+
   it("lets a free task be finished", async () => {
     const calls = mockApi(() => [200, { ...FREE, status: "done" }]);
     renderRow(FREE);

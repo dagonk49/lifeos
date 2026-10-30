@@ -35,12 +35,12 @@ export function useMe() {
 function SpaceSwitcher() {
   const { spaces, selected, setSelected } = useSpace();
   return (
-    <label className="flex items-center gap-2 text-sm">
+    <label className="flex min-w-0 items-center gap-2 text-sm">
       <span className="sr-only">Espace</span>
       <Select
         value={selected ?? ""}
         onChange={(e) => setSelected(e.target.value || null)}
-        className="w-auto py-1"
+        className="w-auto max-w-full py-1"
         aria-label="Espace"
       >
         <option value="">Tous les espaces</option>
@@ -93,13 +93,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <SpaceProvider spaces={me.data.spaces}>
       <div className="min-h-screen">
-        <header className="sticky top-0 z-20 border-b border-stone-200 bg-white/90 backdrop-blur dark:border-stone-800 dark:bg-stone-950/90">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2">
+        {/* First focusable element of every page (WCAG 2.4.1). */}
+        <a
+          href="#contenu"
+          className="sr-only rounded-md bg-white text-sm focus:px-3 focus:py-2 font-medium text-teal-800 shadow focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 dark:bg-stone-900 dark:text-teal-300"
+        >
+          Aller au contenu
+        </a>
+        {/* Sticky from the sm breakpoint only: on a phone it would take a fifth of the screen
+            (and could hide the focused element, WCAG 2.4.11), so it scrolls away. */}
+        <header className="z-20 border-b border-stone-200 bg-white/90 backdrop-blur sm:sticky sm:top-0 dark:border-stone-800 dark:bg-stone-950/90">
+          {/* Wraps on a phone: LifeOS and the space on one row, Notifications and Déconnexion
+              on the next, in the same order as on a wide screen (focus order unchanged). */}
+          <div className="relative mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
             <Link href="/" className="font-semibold text-teal-800 dark:text-teal-300">
               LifeOS
             </Link>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 justify-end">
               <SpaceSwitcher />
+            </div>
+            <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
               <NotificationsMenu />
               <Button variant="ghost" size="sm" onClick={logout} disabled={loggingOut}>
                 Déconnexion
@@ -130,7 +143,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </ul>
           </nav>
         </header>
-        <main className="mx-auto max-w-6xl p-4">{children}</main>
+        {/* tabIndex -1: the skip link moves the focus here, not only the scroll. */}
+        <main id="contenu" tabIndex={-1} className="mx-auto max-w-6xl p-4 focus:outline-none">
+          {children}
+        </main>
       </div>
     </SpaceProvider>
   );

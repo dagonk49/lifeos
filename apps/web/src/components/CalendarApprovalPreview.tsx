@@ -27,29 +27,29 @@ export function CalendarApprovalPreview({ preview }: { preview: CalendarPreview 
         {preview.shared && <Badge tone="amber">Événement partagé — confirmation par passkey</Badge>}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-        <dt className="text-stone-500">Événement</dt>
+        <dt className="text-muted">Événement</dt>
         <dd className="break-words font-medium">{preview.summary || "(sans titre)"}</dd>
-        <dt className="text-stone-500">Agenda</dt>
+        <dt className="text-muted">Agenda</dt>
         <dd className="break-words">{preview.calendar}</dd>
         {preview.before && (
           <>
-            <dt className="text-stone-500">{preview.operation === "cancel" ? "Prévu" : "Avant"}</dt>
+            <dt className="text-muted">{preview.operation === "cancel" ? "Prévu" : "Avant"}</dt>
             <dd className={preview.operation === "cancel" ? "line-through" : undefined}>{preview.before}</dd>
           </>
         )}
         {preview.after && (
           <>
-            <dt className="text-stone-500">{preview.operation === "create" ? "Quand" : "Après"}</dt>
+            <dt className="text-muted">{preview.operation === "create" ? "Quand" : "Après"}</dt>
             <dd className="font-medium">{preview.after}</dd>
           </>
         )}
         {preview.location && (
           <>
-            <dt className="text-stone-500">Lieu</dt>
+            <dt className="text-muted">Lieu</dt>
             <dd className="break-words">{preview.location}</dd>
           </>
         )}
-        <dt className="text-stone-500">Participants</dt>
+        <dt className="text-muted">Participants</dt>
         <dd>
           {preview.attendees.length === 0 ? (
             "Aucun autre participant"
@@ -65,7 +65,7 @@ export function CalendarApprovalPreview({ preview }: { preview: CalendarPreview 
         </dd>
         {preview.attendees.length > 0 && (
           <>
-            <dt className="text-stone-500">Prévenir</dt>
+            <dt className="text-muted">Prévenir</dt>
             <dd>{preview.notify ? "Oui, par e-mail du fournisseur" : "Non, personne n'est prévenu"}</dd>
           </>
         )}

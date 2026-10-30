@@ -44,7 +44,7 @@ function MatchBadge({ match }: { match: SearchHit["match"] }) {
 function IndexProgress({ status }: { status: IndexStatus | undefined }) {
   if (!status?.semantic) return null;
   return (
-    <p className="text-xs text-stone-500">
+    <p className="text-xs text-muted">
       {indexProgressLabel(status)}
       {indexInProgress(status) && " · indexation en cours, les éléments récents seront bientôt trouvés par le sens"}
     </p>
@@ -104,15 +104,17 @@ export default function SearchPage() {
             setQuery(draft.trim());
           }}
         >
-          <div className="flex gap-2">
-            <Input
-              aria-label="Rechercher"
-              placeholder="Rechercher dans tâches, journal, mémoire, objectifs, conversations…"
-              value={draft}
-              minLength={2}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <Button type="submit">Rechercher</Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+            <Field
+              label="Rechercher"
+              hint="Dans les tâches, le journal, la mémoire, les objectifs et les conversations."
+              className="flex-1"
+            >
+              <Input value={draft} minLength={2} onChange={(e) => setDraft(e.target.value)} />
+            </Field>
+            <Button type="submit" className="sm:mt-6">
+              Rechercher
+            </Button>
           </div>
           <fieldset className="flex flex-wrap gap-3 text-sm">
             <legend className="sr-only">Types</legend>
@@ -160,7 +162,7 @@ export default function SearchPage() {
             {results.data.hits.map((hit) => (
               <li key={`${hit.type}-${hit.id}`}>
                 <Card>
-                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                     <Badge tone="teal">{searchHitLabel(hit.type)}</Badge>
                     <MatchBadge match={hit.match} />
                     <span>{formatDate(hit.date)}</span>

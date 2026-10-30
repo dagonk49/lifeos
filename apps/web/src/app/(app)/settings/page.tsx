@@ -203,7 +203,7 @@ function PreferencesSection() {
             Enregistrer
           </Button>
           {saved && (
-            <span role="status" className="text-sm text-teal-700">
+            <span role="status" className="text-sm text-teal-700 dark:text-teal-400">
               Enregistré
             </span>
           )}
@@ -249,7 +249,7 @@ function DevicesSection() {
             <span>
               {p.label}{" "}
               {p.backup_state && <Badge tone="blue">Synchronisée</Badge>}
-              <span className="block text-xs text-stone-500">
+              <span className="block text-xs text-muted">
                 Créée le {formatDateTime(p.created_at)}
                 {p.last_used_at &&
                   ` · utilisée le ${formatDateTime(p.last_used_at)}`}
@@ -266,18 +266,15 @@ function DevicesSection() {
         ))}
       </ul>
       <form
-        className="mt-2 flex gap-2"
+        className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end"
         onSubmit={(e) => {
           e.preventDefault();
           addPasskey.mutate();
         }}
       >
-        <Input
-          aria-label="Nom du nouvel appareil"
-          placeholder="Nom de l'appareil"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-        />
+        <Field label="Nom du nouvel appareil" className="flex-1">
+          <Input value={label} onChange={(e) => setLabel(e.target.value)} />
+        </Field>
         <Button
           type="submit"
           variant="secondary"
@@ -372,7 +369,7 @@ function PermissionsSection() {
                 <strong>{p.agent}</strong> ·{" "}
                 {p.access === "write" ? "lecture/écriture" : "lecture"}{" "}
                 {p.resource} · {spaceName(p.space_id)}
-                <span className="block text-xs text-stone-500">
+                <span className="block text-xs text-muted">
                   {p.purpose}
                   {p.expires_at &&
                     ` · jusqu'au ${formatDateTime(p.expires_at)}`}
@@ -462,17 +459,21 @@ function AuditSection() {
       {audit.isPending ? (
         <Spinner />
       ) : (
-        <ul className="max-h-80 divide-y divide-stone-100 overflow-y-auto text-xs dark:divide-stone-800">
+        <ul
+          aria-label="Derniers événements"
+          tabIndex={0}
+          className="max-h-80 divide-y divide-stone-100 overflow-y-auto text-xs dark:divide-stone-800"
+        >
           {audit.data?.items.map((e) => (
             <li key={e.id} className="flex flex-wrap items-center gap-2 py-1.5">
-              <span className="text-stone-500">
+              <span className="text-muted">
                 {formatDateTime(e.occurred_at)}
               </span>
               <code>{e.action}</code>
               <Badge tone={e.outcome === "success" ? "neutral" : "red"}>
                 {e.outcome}
               </Badge>
-              <span className="text-stone-500">{e.actor_type}</span>
+              <span className="text-muted">{e.actor_type}</span>
             </li>
           ))}
         </ul>

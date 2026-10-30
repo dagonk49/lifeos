@@ -50,7 +50,7 @@ export function UsageMeter({
       >
         <div className={cx("h-2 rounded", FILL[level])} style={{ width: `${percent}%` }} />
       </div>
-      {hint && <p className="mt-0.5 text-xs text-stone-500">{hint}</p>}
+      {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
     </div>
   );
 }

@@ -85,10 +85,10 @@ export function WeekView({
               >
                 <h3 className="mb-1 text-sm font-medium first-letter:uppercase">
                   {dayLabel(day.date)}
-                  {day.date === today && <span className="text-xs font-normal text-stone-500"> · aujourd&apos;hui</span>}
+                  {day.date === today && <span className="text-xs font-normal text-muted"> · aujourd&apos;hui</span>}
                 </h3>
                 {day.items.length === 0 ? (
-                  <p className="text-xs text-stone-500">Rien de prévu.</p>
+                  <p className="text-xs text-muted">Rien de prévu.</p>
                 ) : (
                   <ul className="flex flex-col gap-1 text-sm">
                     {day.items.map((item, index) => (
@@ -113,9 +113,9 @@ export function WeekSummary({ week, today }: { week: DashboardWeek; today: strin
       {week.days.map((day) => {
         const named = day.date > today ? day.items.filter((i: AgendaItem) => i.kind !== "event" && i.kind !== "busy") : [];
         return (
-          <li key={day.date} className={day.date < today ? "text-stone-500" : ""}>
+          <li key={day.date} className={day.date < today ? "text-muted" : ""}>
             <span className="font-medium first-letter:uppercase">{dayLabel(day.date)}</span>
-            {day.date === today && <span className="text-xs text-stone-500"> · aujourd&apos;hui</span>} :{" "}
+            {day.date === today && <span className="text-xs text-muted"> · aujourd&apos;hui</span>} :{" "}
             {daySummary(day.items)}
             {named.length > 0 && (
               <ul className="ml-4 list-disc text-xs text-stone-600 dark:text-stone-400">

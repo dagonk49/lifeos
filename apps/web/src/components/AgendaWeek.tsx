@@ -25,10 +25,10 @@ function EventItem({ event, day, editable }: { event: CalendarEvent; day: string
         {event.status === "tentative" && <Badge tone="amber">Provisoire</Badge>}
         {answer && <Badge tone="amber">{answer}</Badge>}
         {!event.busy && <Badge>Disponible</Badge>}
-        {event.recurring && <span className="text-xs text-stone-500">· récurrent</span>}
+        {event.recurring && <span className="text-xs text-muted">· récurrent</span>}
       </div>
       {event.location && <span className="text-xs text-stone-600 dark:text-stone-400">{event.location}</span>}
-      <span className="text-xs text-stone-500">
+      <span className="text-xs text-muted">
         Source : {event.source_name}
         {event.synced_at ? ` · lu le ${formatDateTime(event.synced_at)}` : ""}
       </span>
@@ -82,7 +82,7 @@ export function AgendaDays({
           <section key={day} aria-label={dayLabel(day)}>
             <h3 className="mb-1 text-sm font-medium first-letter:uppercase">{dayLabel(day)}</h3>
             {list.length === 0 ? (
-              <p className="text-xs text-stone-500">Rien de prévu.</p>
+              <p className="text-xs text-muted">Rien de prévu.</p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {list.map((event) => (

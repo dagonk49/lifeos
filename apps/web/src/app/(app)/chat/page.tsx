@@ -2,7 +2,7 @@
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { AgentPermissionCard, type AgentPermissionNeed } from "@/components/AgentPermissionCard";
 import { AgentSelector } from "@/components/AgentSelector";
@@ -13,7 +13,7 @@ import { EraseConfirm } from "@/components/EraseConfirm";
 import { SendReviewPanel } from "@/components/SendReview";
 import { SpeakButton } from "@/components/SpeakButton";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
-import { Alert, Badge, Button, Card, Empty, PageHeader, Spinner, Textarea, cx } from "@/components/ui";
+import { Alert, Badge, Button, Card, Empty, Field, PageHeader, Spinner, Textarea, cx } from "@/components/ui";
 import { CORE_AGENT, agentLabel, agentsKey, missingPermissions, suggestedAgent, type AgentChoice } from "@/lib/agents";
 import { api, errorMessage, isApiError, problemMessage } from "@/lib/api";
 import {
@@ -22,6 +22,7 @@ import {
   attachmentsReading,
   sendableAttachments,
 } from "@/lib/attachments";
+import { COMPOSER_HINTS, enterSends, useCoarsePointer } from "@/lib/composer";
 import { formatDate, formatTime } from "@/lib/format";
 import { buildReview, withoutAttachment, type SendReview } from "@/lib/privacy";
 import { spaceParam, useSpace } from "@/lib/space";
@@ -84,7 +85,7 @@ function MessageBubble({
           ))}
         </ul>
       )}
-      <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
         {!mine && message.agent && (
           <Badge tone="violet">
             <span className="sr-only">Agent : </span>
@@ -135,7 +136,12 @@ export default function ChatPage() {
   const [uploading, setUploading] = useState(false);
   // The control before sending, when something is masked or left out (the message waits).
   const [review, setReview] = useState<{ vars: SendVars; review: SendReview } | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLOListElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const coarsePointer = useCoarsePointer();
+  // On a phone the conversation list is folded away while a conversation is open.
+  const [showList, setShowList] = useState(false);
+  const listId = useId();
 
   const conversations = useQuery({
     queryKey: ["conversations", selected],
@@ -171,7 +177,10 @@ export default function ChatPage() {
   const readingAttachments = attachmentsReading(attachmentStates);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
+    // The list scrolls itself to its last message (a sentinel element would be an invalid
+    // child of the <ol>).
+    const node = list.current;
+    if (node) node.scrollTop = node.scrollHeight;
   }, [detail.data?.messages.length]);
 
   useEffect(() => {
@@ -319,8 +328,21 @@ export default function ChatPage() {
           Nouvelle conversation
         </Button>
       </PageHeader>
+      {/* On a phone the list folds away above the conversation (master-detail, as in
+          Objectifs and Documents): the composer stays within reach. */}
+      <Button
+        variant="secondary"
+        size="sm"
+        className="mb-3 md:hidden"
+        aria-expanded={showList}
+        aria-controls={listId}
+        onClick={() => setShowList((v) => !v)}
+      >
+        {showList ? "Masquer les conversations" : "Afficher les conversations"}
+      </Button>
       <div className="grid gap-4 md:grid-cols-[16rem_1fr]">
-        <Card title="Conversations" className="max-h-[70vh] overflow-y-auto">
+        <Card title="Conversations" className={cx("max-h-[70vh] overflow-y-auto md:block", !showList && "hidden")}>
+          <div id={listId}>
           {conversations.isPending ? (
             <Spinner />
           ) : (conversations.data?.items.length ?? 0) === 0 ? (
@@ -332,17 +354,18 @@ export default function ChatPage() {
                   <button
                     onClick={() => {
                       if (c.id !== current) openConversation(c.id, c.space_id);
+                      setShowList(false);
                     }}
                     aria-current={c.id === current ? "true" : undefined}
                     className={cx(
                       "w-full rounded px-2 py-1.5 text-left text-sm",
                       c.id === current
-                        ? "bg-teal-100 dark:bg-teal-900/50"
+                        ? "bg-teal-50 font-medium ring-1 ring-teal-200 dark:bg-teal-900/50 dark:ring-teal-800"
                         : "hover:bg-stone-100 dark:hover:bg-stone-800",
                     )}
                   >
                     <span className="line-clamp-1">{c.title}</span>
-                    <span className="text-xs text-stone-500">
+                    <span className="text-xs text-muted">
                       {formatDate(c.last_message_at ?? c.created_at)}
                       {!selected && ` · ${spaceName(c.space_id)}`}
                     </span>
@@ -351,13 +374,20 @@ export default function ChatPage() {
               ))}
             </ul>
           )}
+          </div>
         </Card>
 
         <Card
           title={detail.data?.title ?? "Nouvelle conversation"}
           actions={
             current && (
-              <Button variant="ghost" size="sm" onClick={() => setErasing(current)} disabled={erasing === current}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setErasing(current)}
+                disabled={erasing === current}
+                aria-label={`Supprimer la conversation « ${detail.data?.title ?? ""} »`}
+              >
                 Supprimer
               </Button>
             )
@@ -386,11 +416,15 @@ export default function ChatPage() {
             {current && detail.data?.id === current && detail.data.messages.length > 0 && (
               <ConsolidationPanel key={detail.data.id} conversation={detail.data} />
             )}
-            <ol aria-label="Messages" className="flex max-h-[50vh] flex-1 flex-col gap-3 overflow-y-auto pr-1" aria-live="polite">
+            <ol
+              ref={list}
+              aria-label="Messages"
+              className="flex max-h-[50vh] flex-1 flex-col gap-3 overflow-y-auto pr-1"
+              aria-live="polite"
+            >
               {detail.data?.messages.map((m) => (
                 <MessageBubble key={m.id} message={m} conversationId={detail.data.id} agents={agents.data} />
               ))}
-              <div ref={bottom} />
             </ol>
             {send.isPending && <Spinner label={`L'assistant réfléchit… ${elapsed} s`} />}
             {degraded && (
@@ -463,23 +497,25 @@ export default function ChatPage() {
                   setDraft((current) => appendTranscript(current, text, { multiline: false }));
                 }}
               />
-              <Textarea
-                aria-label="Votre message"
-                placeholder="Écrivez à LifeOS…"
-                value={draft}
-                maxLength={8000}
-                onChange={(e) => {
-                  // The control was for the message as it was: a changed message is checked again.
-                  setReview(null);
-                  setDraft(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submit();
-                  }
-                }}
-              />
+              <Field label="Votre message" hint={coarsePointer ? COMPOSER_HINTS.coarse : COMPOSER_HINTS.fine}>
+                <Textarea
+                  ref={composer}
+                  value={draft}
+                  maxLength={8000}
+                  onChange={(e) => {
+                    // The control was for the message as it was: a changed message is checked again.
+                    setReview(null);
+                    setDraft(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    const keys = { key: e.key, shiftKey: e.shiftKey, isComposing: e.nativeEvent.isComposing };
+                    if (enterSends(keys, coarsePointer)) {
+                      e.preventDefault();
+                      submit();
+                    }
+                  }}
+                />
+              </Field>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <AgentSelector
                   agents={agents.data}
@@ -520,7 +556,11 @@ export default function ChatPage() {
                     send.mutate(review.vars);
                     setReview(null);
                   }}
-                  onCancel={() => setReview(null)}
+                  onCancel={() => {
+                    // Back to the message, unchanged (WCAG 2.4.3: the focus is not lost).
+                    setReview(null);
+                    composer.current?.focus();
+                  }}
                   onRemove={removeFromReview}
                 />
               )}

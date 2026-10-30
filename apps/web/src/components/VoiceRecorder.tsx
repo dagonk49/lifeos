@@ -247,7 +247,7 @@ export function VoiceRecorder({
         )}
       </div>
       {phase === "idle" && !error && !notice && (
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           Transcrit sur votre serveur LifeOS, jamais dans le cloud ; l'enregistrement est supprimé
           ensuite.
         </p>

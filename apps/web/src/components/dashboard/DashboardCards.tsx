@@ -55,7 +55,7 @@ function AssistantSummary({ assistant }: { assistant: Dashboard["assistant"] }) 
     <div className="flex flex-col gap-2 text-sm">
       <p>
         Fournisseur : <Badge tone={assistant.enabled ? "teal" : "neutral"}>{assistant.provider}</Badge>{" "}
-        {assistant.cloud_enabled_spaces.length === 0 && <span className="text-stone-500">· aucun espace autorisé</span>}
+        {assistant.cloud_enabled_spaces.length === 0 && <span className="text-muted">· aucun espace autorisé</span>}
       </p>
       {assistant.paused && (
         <p className="text-amber-800 dark:text-amber-200">Arrêt d&apos;urgence actif : aucun appel cloud n&apos;est effectué.</p>

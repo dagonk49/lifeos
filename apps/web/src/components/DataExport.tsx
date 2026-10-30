@@ -49,7 +49,7 @@ export function DataExport() {
         />
         <span>
           Inclure les originaux déchiffrés de mes documents
-          <span className="block text-xs text-stone-500">
+          <span className="block text-xs text-muted">
             Les fichiers originaux, tels que vous les avez envoyés.
           </span>
         </span>
@@ -76,7 +76,7 @@ export function DataExport() {
           JSON seul
         </Button>
       </div>
-      <p className="text-xs text-stone-500">
+      <p className="text-xs text-muted">
         Confirmation par passkey si vous ne vous êtes pas connecté récemment ;
         chaque export est inscrit au journal d&apos;audit.
       </p>
@@ -91,7 +91,7 @@ export function DataExport() {
         journal, vos conversations et le texte de vos documents. Gardez-les sur
         un support chiffré, hors d&apos;un dossier synchronisé dans le cloud.
       </Alert>
-      <p className="text-xs text-stone-500">
+      <p className="text-xs text-muted">
         Chaque original peut aussi se télécharger seul depuis la page Documents.
         Les jetons des comptes connectés et les clés des passkeys ne sont jamais
         exportés.

@@ -85,7 +85,7 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-medium">{approval.description}</h3>
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-muted">
             Demandée par {approval.requested_by} le {formatDateTime(approval.created_at)}
             {pending && ` · expire le ${formatDateTime(approval.expires_at)}`}
           </p>
@@ -115,7 +115,7 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
                   />
                   <span>
                     {t.title}
-                    {t.due_date && <span className="text-stone-500"> · échéance {formatDate(t.due_date)}</span>}
+                    {t.due_date && <span className="text-muted"> · échéance {formatDate(t.due_date)}</span>}
                   </span>
                 </label>
               ))}
@@ -141,13 +141,18 @@ export function ApprovalReview({ approval, onDone }: { approval: Approval; onDon
             </fieldset>
           )}
           {params.tasks.length + params.facts.length === 0 && (
-            <p className="text-stone-500">L&apos;assistant n&apos;a rien trouvé à proposer.</p>
+            <p className="text-muted">L&apos;assistant n&apos;a rien trouvé à proposer.</p>
           )}
         </div>
       ) : isCalendar ? (
         <CalendarApprovalPreview preview={approval.preview as unknown as CalendarPreview} />
       ) : (
-        <pre className="overflow-x-auto rounded bg-stone-100 p-2 text-xs dark:bg-stone-800">
+        <pre
+          role="region"
+          aria-label="Détail de la demande"
+          tabIndex={0}
+          className="overflow-x-auto rounded bg-stone-100 p-2 text-xs dark:bg-stone-800"
+        >
           {JSON.stringify(approval.preview, null, 2)}
         </pre>
       )}

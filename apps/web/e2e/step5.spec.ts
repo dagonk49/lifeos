@@ -45,7 +45,7 @@ test("Step 5 journey: connect an account, authorise it per space, disconnect it"
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E étape 5");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // Connect: the fake provider ("Démo") agrees at once and sends the browser back with a code.
   await nav(page, "Réglages");

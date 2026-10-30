@@ -139,9 +139,9 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-      - name: End-to-end tests (passkeys, tasks, assistant, journal, memory, search, documents, finances, dictation)
+      - name: End-to-end tests, desktop and phone projects (passkeys, journeys, accessibility, keyboard, mobile)
         working-directory: apps/web
-        run: pnpm e2e
+        run: pnpm e2e --project=chromium --project=mobile-chromium
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
