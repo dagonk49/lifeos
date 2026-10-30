@@ -14,20 +14,20 @@ Nothing is stored and no content is logged. The HTTP contract is described in
 
 import csv
 import io
-import multiprocessing
 import os
-import resource
 import shutil
+import signal
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
-from multiprocessing.connection import Connection
+from dataclasses import dataclass, replace
 from typing import Any
 
 import pypdfium2 as pdfium
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
+
+from lifeos import isolation
 
 register_heif_opener()
 
@@ -36,6 +36,10 @@ ALLOWED_MIMES = ("application/pdf", "image/png", "image/jpeg", "image/webp", "im
 PIL_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP", "image/heic": "HEIF"}
 # Decompression bomb guard, checked on the header before any pixel is decoded.
 MAX_PIXELS = 50_000_000
+# A progressive JPEG is decoded scan by scan, each one going over the whole picture: a few
+# kilobytes of tiny scans make a CPU bomb. Real pictures have about ten (libjpeg-turbo
+# advises refusing more than a few hundred); markers of an embedded thumbnail count too.
+MAX_JPEG_SCANS = 500
 # Stored and OCRed pictures are at most this large (a 12 Mpx phone photo is 4032 px).
 MAX_IMAGE_SIDE = 4096
 OCR_DPI = 300
@@ -73,6 +77,10 @@ class ExtractFailure(Exception):  # noqa: N818  (mirrors UnreadableDocument on t
         super().__init__(code)
         self.code = code
         self.status = status
+        # Peak memory of the isolated extraction (MiB), when known: logged, never content.
+        self.peak_mb: int | None = None
+        # The signal that ended the child (crash or kill), when that is what happened.
+        self.signal: int | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,8 @@ class Result:
     confidence: float | None = None
     sanitized: bytes | None = None
     sanitized_mime: str | None = None
+    # Peak memory of the isolated extraction (MiB), set by `run_isolated`.
+    peak_mb: int | None = None
 
 
 # --- OCR -----------------------------------------------------------------------------------
@@ -200,6 +210,10 @@ def _fit(image: Image.Image, max_side: int) -> Image.Image:
 
 
 def _decode_image(data: bytes, mime: str) -> Image.Image:
+    # Start-of-scan markers (0xFFDA cannot occur inside entropy-coded data, where 0xFF bytes
+    # are stuffed).
+    if mime == "image/jpeg" and data.count(b"\xff\xda") > MAX_JPEG_SCANS:
+        raise ExtractFailure("unreadable")
     try:
         image = Image.open(io.BytesIO(data), formats=[PIL_FORMATS[mime]])
         if mime == "image/jpeg" and max(image.size) > MAX_IMAGE_SIDE:
@@ -364,31 +378,24 @@ def extract(
 
 
 # --- Isolation -----------------------------------------------------------------------------
-# Each extraction runs in a child process with a memory limit: the decoders (PDFium,
-# libheif, libjpeg...) parse untrusted files, and the limit (not only the pixel checks above,
-# which cannot see everything, e.g. a PDF soft mask) keeps one file from exhausting the
-# service. The fork server preloads this module: a child starts in milliseconds.
-_context = multiprocessing.get_context("forkserver")
-_context.set_forkserver_preload([__name__])
+# Each extraction runs in a confined child process (`lifeos.isolation`): the decoders (PDFium,
+# libheif, libjpeg...) parse untrusted files, and the memory limit (not only the pixel checks
+# above, which cannot see everything, e.g. a PDF soft mask) keeps one file from exhausting
+# the service, which also holds the embedding model. The fork server preloads this module: a
+# child starts in milliseconds.
+isolation.preload(__name__)
 
 
-def _child(
-    conn: Connection, data: bytes, mime: str, purpose: str, max_pages: int, memory: int
-) -> None:
-    # Data segment and private mappings: what the decoders allocate. (The address space
-    # limit would break PDFium, which reserves large virtual ranges up front.)
-    resource.setrlimit(resource.RLIMIT_DATA, (memory, memory))
-    message: tuple[Any, ...]
+def _extract_message(data: bytes, mime: str, purpose: str, max_pages: int) -> tuple[Any, ...]:
+    """Runs in the child: the outcome as a picklable message."""
     try:
-        message = ("ok", extract(data, mime, purpose=purpose, max_pages=max_pages))
+        return ("ok", extract(data, mime, purpose=purpose, max_pages=max_pages))
     except ExtractFailure as exc:
-        message = ("fail", exc.code, exc.status)
+        return ("fail", exc.code, exc.status)
     except MemoryError:
-        message = ("fail", "too_large", 422)
-    except Exception as exc:  # a decoder bug on this file: not worth retrying
-        message = ("fail", "unreadable", 422, type(exc).__name__)
-    conn.send(message)
-    conn.close()
+        return ("fail", "too_large", 422)
+    except Exception:  # a decoder bug on this file: not worth retrying
+        return ("fail", "unreadable", 422)
 
 
 def run_isolated(
@@ -400,29 +407,38 @@ def run_isolated(
     memory_mb: int = DEFAULT_MEMORY_MB,
     timeout_s: float = DEADLINE_S + 30,
 ) -> Result:
-    """`extract` in a child process limited to `memory_mb`. Blocking: run it in a thread."""
-    receiver, sender = _context.Pipe(duplex=False)
-    process = _context.Process(
-        target=_child,
-        args=(sender, data, mime, purpose, max_pages, memory_mb * 1024 * 1024),
-        daemon=True,
-    )
-    process.start()
-    sender.close()
+    """`extract` in a child process limited to `memory_mb`. Blocking: run it in a thread.
+
+    Out of its memory, or crashed by the file, the child fails it with `too_large` (422:
+    final). Killed (SIGKILL), it fails with `extraction_crashed` and status 500: the API
+    retries a few times before giving up (`MAX_FAILURES`), and never drops the original for
+    it. The kernel's OOM killer picks this child first when the container runs short,
+    perhaps during a peak of the embedding model: the same file then reads fine a little
+    later.
+
+    Failures carry the child's peak memory (`peak_mb`) when it answered."""
     try:
-        if not receiver.poll(timeout_s):
-            raise ExtractFailure("too_slow")
-        try:
-            message = receiver.recv()
-        except EOFError as exc:  # killed (memory) or crashed without an answer
+        answer = isolation.run(
+            _extract_message,
+            (data, mime, purpose, max_pages),
+            memory_mb=memory_mb,
+            timeout_s=timeout_s,
+        )
+    except isolation.ChildTimeoutError as exc:  # stuck in a decoder: killed
+        raise ExtractFailure("too_slow") from exc
+    except isolation.ChildDiedError as exc:
+        if exc.signal != signal.SIGKILL:
+            # Out of its own memory (a native decoder aborts when its allocation fails under
+            # the limit) or crashed by this file: final.
             raise ExtractFailure("too_large") from exc
-    finally:
-        receiver.close()
-        process.join(timeout=2)
-        if process.is_alive():
-            process.kill()
-            process.join()
+        # SIGKILL: the OOM killer (or an operator), not the file.
+        crashed = ExtractFailure("extraction_crashed", status=500)
+        crashed.signal = exc.signal
+        raise crashed from exc
+    message = answer.value
     if message[0] == "ok":
         result: Result = message[1]
-        return result
-    raise ExtractFailure(message[1], status=message[2])
+        return replace(result, peak_mb=answer.peak_mb)
+    failure = ExtractFailure(message[1], status=message[2])
+    failure.peak_mb = answer.peak_mb
+    raise failure

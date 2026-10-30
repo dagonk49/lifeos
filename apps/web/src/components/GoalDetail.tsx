@@ -10,10 +10,11 @@ import { GoalMilestones } from "@/components/GoalMilestones";
 import { GoalTasks } from "@/components/GoalTasks";
 import { Alert, Badge, Button, Spinner } from "@/components/ui";
 import { api, errorMessage, isApiError } from "@/lib/api";
+import { financeKeys } from "@/lib/finance";
 import { formatDate, formatDateTime, todayLocal } from "@/lib/format";
 import {
   CADENCE_LABELS,
-  formatDecimal,
+  formatGoalValue,
   GOAL_KIND_LABELS,
   goalKeys,
   statusActions,
@@ -70,7 +71,10 @@ export function GoalDetailPanel({ goalId, onClose }: { goalId: string; onClose: 
         void queryClient.invalidateQueries({ queryKey: goalKeys.detail(goalId) });
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: goalKeys.lists }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: financeKeys.projections });
+      return queryClient.invalidateQueries({ queryKey: goalKeys.lists });
+    },
   });
 
   const remove = useMutation({
@@ -114,9 +118,9 @@ export function GoalDetailPanel({ goalId, onClose }: { goalId: string; onClose: 
   const setStatus = (status: GoalStatus) => patch.mutate({ body: { status }, version: goal.version });
   const facts: [string, ReactNode][] = [];
   if (measurable) {
-    if (goal.start_value) facts.push(["Départ", formatDecimal(goal.start_value, goal.metric_unit)]);
-    facts.push(["Valeur actuelle", formatDecimal(goal.current_value, goal.metric_unit) || "Pas encore mesurée"]);
-    facts.push(["Cible", formatDecimal(goal.target_value, goal.metric_unit)]);
+    if (goal.start_value) facts.push(["Départ", formatGoalValue(goal, goal.start_value)]);
+    facts.push(["Valeur actuelle", formatGoalValue(goal, goal.current_value) || "Pas encore mesurée"]);
+    facts.push(["Cible", formatGoalValue(goal, goal.target_value)]);
   }
   if (goal.start_date) facts.push(["Début", formatDate(goal.start_date)]);
   if (goal.due_date) facts.push(["Échéance", <GoalDue key="due" goal={goal} today={today} />]);
@@ -176,7 +180,7 @@ export function GoalDetailPanel({ goalId, onClose }: { goalId: string; onClose: 
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
             {facts.map(([label, value]) => (
               <div key={label} className="contents">
-                <dt className="text-stone-500">{label}</dt>
+                <dt className="text-muted">{label}</dt>
                 <dd className="min-w-0">{value}</dd>
               </div>
             ))}

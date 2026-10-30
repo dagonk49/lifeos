@@ -10,34 +10,63 @@ from lifeos.config import get_settings
 from lifeos.core.idempotency import purge_expired_keys
 from lifeos.logging import configure_logging, get_logger
 from lifeos.modules.audit.service import purge_older_than
+from lifeos.modules.calendar import actions as calendar_actions  # noqa: F401  (registers the actions)
+from lifeos.modules.calendar import sync as calendar_sync
 from lifeos.modules.chat.service import purge_expired_messages
+from lifeos.modules.connectors.service import purge_oauth_states
 from lifeos.modules.documents import processing as documents
-from lifeos.modules.guardian.actions import expire_stale
+from lifeos.modules.finance.imports import purge_expired_imports
+from lifeos.modules.guardian import operations
+from lifeos.modules.guardian.actions import expire_stale, purge_decided
+from lifeos.modules.guardian.gateway import release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
-from lifeos.modules.notifications.service import dispatch_reminders
+from lifeos.modules.mail import drafts as mail_drafts
+from lifeos.modules.mail import send as mail_send  # noqa: F401  (registers the send actions)
+from lifeos.modules.mail import sync as mail_sync
+from lifeos.modules.mail.service import purge_expired as purge_expired_mail
+from lifeos.modules.notifications.devices import purge_push, send_pending_pushes
+from lifeos.modules.notifications.service import build_digests, dispatch_reminders
+from lifeos.modules.notifications.service import purge_old as purge_old_notifications
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
 from lifeos.modules.reviews.service import run_scheduled
 from lifeos.modules.voice import processing as voice
 from lifeos.modules.voice.service import purge_dictations
 from lifeos.workers.broker import broker  # noqa: F401  (must be set before actors)
 from lifeos.workers.jobs import (
+    connectors,
     database,
     document_store,
     embedder,
     extractor,
     llm,
+    push_sender,
     run_job,
     run_task,
     transcriber,
 )
+from lifeos.workers.metrics import HEARTBEAT_QUEUE, beat
 
 configure_logging(get_settings())
 log = get_logger("lifeos.actors")
 
 
+# Supervision (docs/exploitation.md §5): sent every minute by the scheduler. A heartbeat
+# older than two minutes is dropped (AgeLimit): after a stop, the backlog of heartbeats is
+# not replayed.
+@dramatiq.actor(queue_name=HEARTBEAT_QUEUE, max_retries=0, max_age=120_000, time_limit=10_000)
+def heartbeat() -> None:
+    beat()
+
+
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def purge_auth_artifacts() -> None:
     await run_job("purge_auth_artifacts", purge_expired)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_connector_states() -> None:
+    """Consents in progress (OAuth states) expired or used more than a day ago."""
+    await run_job("purge_connector_states", purge_oauth_states)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
@@ -62,13 +91,63 @@ async def purge_idempotency_keys() -> None:
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_finance_imports() -> None:
+    """CSV import previews never validated (their rows hold bank labels), task 25."""
+    await run_job("purge_finance_imports", purge_expired_imports)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
 async def expire_approvals() -> None:
     await run_job("expire_approvals", expire_stale)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_decided_items() -> None:
+    """Approvals decided and notifications read more than 90 days ago (their texts may
+    quote the owner's data)."""
+    await run_job("purge_approvals", purge_decided)
+    await run_job("purge_notifications", purge_old_notifications)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def release_llm_reservations() -> None:
+    """LLM quota reservations whose process died during the call (ADR 0010)."""
+    ttl = get_settings().llm_reservation_ttl
+
+    async def job(session: AsyncSession) -> int:
+        return await release_stale_reservations(session, ttl=ttl)
+
+    await run_job("release_llm_reservations", job)
 
 
 @dramatiq.actor(queue_name="realtime", max_retries=5, time_limit=60_000)
 async def send_reminders() -> None:
     await run_job("send_reminders", dispatch_reminders)
+
+
+@dramatiq.actor(queue_name="realtime", max_retries=5, time_limit=60_000)
+async def build_suggestion_digests() -> None:
+    """Due suggestions grouped into one digest per owner (F09); a push sender only sees
+    the digest."""
+    await run_job("build_suggestion_digests", build_digests)
+
+
+# Also sent by the API after a test push is asked (lifeos.workers.queue.enqueue): keep the
+# name stable.
+@dramatiq.actor(queue_name="realtime", max_retries=0, time_limit=5 * 60_000)
+async def send_push() -> None:
+    """Due notifications pushed to the owner's devices (ADR 0019); retries are rows with
+    their own backoff, not message retries."""
+    sender = push_sender()
+    if sender is None:
+        return
+    await run_task("send_push", lambda: send_pending_pushes(database(), get_settings(), sender))
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_push_records() -> None:
+    """Push deliveries older than 30 days and devices revoked 30 days ago."""
+    await run_job("purge_push", purge_push)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=2, time_limit=15 * 60_000)
@@ -131,6 +210,13 @@ async def process_pending_documents() -> None:
     )
 
 
+@dramatiq.actor(queue_name="documents", max_retries=1, time_limit=30 * 60_000)
+async def reclassify_documents() -> None:
+    """Documents classified with older rules: classified again, locally (categories are
+    only added). Nothing to do once every document is up to date."""
+    await run_task("reclassify_documents", lambda: documents.reclassify_documents(database()))
+
+
 @dramatiq.actor(queue_name="maintenance", max_retries=3, time_limit=30 * 60_000)
 async def purge_document_originals() -> None:
     """Encrypted originals past their retention date, then unreferenced files."""
@@ -171,3 +257,87 @@ async def purge_old_dictations() -> None:
         return await purge_dictations(session, store)
 
     await run_job("purge_dictations", purge)
+
+
+# --- Connected accounts (task 14) ----------------------------------------------------------
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=0, time_limit=30 * 60_000)
+async def sync_calendars() -> None:
+    """Every mapped calendar not read for `calendar_sync_minutes` (scheduler)."""
+    if not connectors():
+        return
+    await run_task(
+        "sync_calendars",
+        lambda: calendar_sync.sync_due(database(), get_settings(), connectors()),
+    )
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=0, time_limit=10 * 60_000)
+async def reconcile_external_operations() -> None:
+    """Approved writes whose outcome is unknown (timeout after sending), or whose request
+    died after claiming them: checked with the provider, never resent (ADR 0016). Also
+    sent by the API right after an unknown outcome."""
+    if not connectors():
+        return
+    await run_task(
+        "reconcile_external_operations",
+        lambda: operations.reconcile_due(database(), get_settings(), connectors()),
+    )
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=1, time_limit=15 * 60_000)
+async def sync_calendar_source(source_id: str) -> None:
+    """One calendar now (sent by the API after mapping it, or on « Synchroniser »)."""
+    try:
+        target = uuid.UUID(source_id)
+    except ValueError:
+        log.warning("invalid_source_id")
+        return
+    if not connectors():
+        return
+    await run_task(
+        "sync_calendar_source",
+        lambda: calendar_sync.sync_source(database(), get_settings(), connectors(), target),
+    )
+
+
+# --- Mail (task 17) ---------------------------------------------------------------------------
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=0, time_limit=30 * 60_000)
+async def sync_mail() -> None:
+    """Every mapped mail label not read for `mail_sync_minutes` (scheduler)."""
+    if not connectors():
+        return
+    await run_task(
+        "sync_mail", lambda: mail_sync.sync_due(database(), get_settings(), connectors())
+    )
+
+
+@dramatiq.actor(queue_name="connectors", max_retries=1, time_limit=15 * 60_000)
+async def sync_mail_source(source_id: str) -> None:
+    """One label now (sent by the API after mapping it, or on « Synchroniser »)."""
+    try:
+        target = uuid.UUID(source_id)
+    except ValueError:
+        log.warning("invalid_source_id")
+        return
+    if not connectors():
+        return
+    await run_task(
+        "sync_mail_source",
+        lambda: mail_sync.sync_source(database(), get_settings(), connectors(), target),
+    )
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_mail() -> None:
+    """Local copies of e-mails past their retention (`mail_retention_days`), sent drafts
+    after the same delay, and the exact content of decided send approvals after
+    `mail_approval_redact_days` (ADR 0018)."""
+    await run_job("purge_mail", purge_expired_mail)
+    settings = get_settings()
+    await run_job(
+        "purge_mail_drafts", lambda session: mail_drafts.purge_and_redact(session, settings)
+    )

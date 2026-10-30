@@ -257,7 +257,8 @@ async def test_memory_consult_correct_export_delete(
     assert "attachment" in export.headers["content-disposition"]
     data = export.json()
     assert {f["statement"] for f in data["facts"]} == {"Je préfère le thé", "Je préfère le café"}
-    assert data["memories"][0]["revisions"][0]["revision"] == 1
+    [revision] = data["memory_revisions"]
+    assert revision["memory_id"] == memory["id"] and revision["revision"] == 1
 
     protected = await client.delete(f"/v1/memory/memories/{memory['id']}")
     assert protected.status_code == 409

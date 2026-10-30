@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, documentTitle } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { registerPasskey } from "@/lib/passkeys";
 
@@ -47,6 +47,7 @@ export default function EnrollPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-4">
+      <title>{documentTitle("Enregistrer cet appareil")}</title>
       <h1 className="text-center text-2xl font-semibold">Enregistrer cet appareil</h1>
       <Card>
         {token === undefined ? null : token === null ? (

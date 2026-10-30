@@ -59,7 +59,7 @@ function DocumentRow({
           <h3 className="min-w-0 font-semibold break-words">{document.title}</h3>
           <DocumentStatusBadge status={document.status} />
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <Badge>{KIND_LABELS[document.kind] ?? document.kind}</Badge>
           {showPurpose && document.purpose !== "document" && (
             <Badge>{PURPOSE_LABELS[document.purpose] ?? document.purpose}</Badge>
@@ -70,8 +70,9 @@ function DocumentRow({
               {SENSITIVITY_LABELS[category] ?? category}
             </Badge>
           ))}
+          {document.local_only && <Badge tone="violet">Gardé en local</Badge>}
         </div>
-        <p className="mt-1.5 text-xs text-stone-500">
+        <p className="mt-1.5 text-xs text-muted">
           {formatDate(document.created_at)} · {formatFileSize(document.size_bytes)} · {originalLabel(document)}
         </p>
       </Link>

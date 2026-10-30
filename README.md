@@ -4,13 +4,15 @@ Assistant personnel et coach, local-first : la mémoire et les décisions d'auto
 sur un serveur personnel ; un LLM cloud (Gemini) n'est sollicité que ponctuellement, avec un
 contexte minimal filtré localement.
 
-**Version 1.0.0** — première version livrable (étapes 0 à 4) : voir le
-[journal des versions](CHANGELOG.md).
+**Version 1.0.0** — première version livrable (étapes 0 à 4) ; les étapes 5 et 6 sont en
+cours (section « Non publié » du [journal des versions](CHANGELOG.md)).
 
 - **Installer** : [docs/installation.md](docs/installation.md) (VM Debian/Proxmox, script
   `infra/scripts/install.sh`)
 - **Utiliser** : [docs/guide-utilisateur.md](docs/guide-utilisateur.md)
-- Cahier des charges et architecture : [docs/cadrage/](docs/cadrage/)
+- **Dépanner** : [docs/depannage.md](docs/depannage.md)
+- Cahier des charges et architecture : [docs/cadrage/](docs/cadrage/) ; ce qui en est
+  réalisé : [docs/realisation.md](docs/realisation.md)
 - Décisions d'architecture, modèle de données, politiques : [docs/](docs/README.md)
 
 ## État d'avancement
@@ -22,8 +24,8 @@ contexte minimal filtré localement.
 | 2 — MVP | client web, chat, tâches, journal, mémoire, recherche, Guardian | fait |
 | 3 — Intelligence | recherche hybride (embeddings locaux), qualité de la mémoire, bilans, objectifs, agents spécialisés, maîtrise des coûts Gemini | fait |
 | 4 — Multimodal | documents chiffrés et OCR local, tickets de caisse et finances, dictée et lecture vocale, pièces jointes, filtrage local des documents sensibles | fait |
-| 5 — Connecteurs | calendrier et e-mail (OAuth), approbations d'envoi, notifications mobiles | reporté |
-| 6 — Stabilisation | tests de sécurité complets, CSP à nonces, exercices de restauration, documentation utilisateur avancée | reporté |
+| 5 — Connecteurs | calendrier et e-mail (OAuth), approbations d'envoi, notifications mobiles | en cours : comptes Google connectés, lecture de l'agenda, modifications d'agenda sous approbation, lecture de Gmail, envoi d'e-mails sous approbation, notifications adaptatives dans l'application et sur le téléphone (Web Push) |
+| 6 — Stabilisation | tests de sécurité complets, CSP à nonces, exercices de restauration, documentation utilisateur avancée | en cours : recette de sécurité, CSP à nonces, sauvegardes hors site et restauration scriptée, alertes, mises à jour avec retour arrière, export complet, guides d'exploitation et de dépannage ; reste : exercice de restauration réel, recette sur la machine cible, accessibilité |
 
 ## Structure
 
@@ -55,7 +57,7 @@ ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à 
   données sensibles, budget mensuel ; si l'IA est indisponible, tout le reste fonctionne.
 - Journal : l'assistant **propose** tâches et faits, rien n'est enregistré sans votre accord.
 - Mémoire : faits avec origine (déclaré / confirmé / extrait / inféré) et historique de
-  correction, souvenirs protégés, export JSON complet, effacement.
+  correction, souvenirs protégés, export complet, effacement.
 - Conversations brutes purgées à 90 jours sauf « Conserver ».
 - Guardian : politique d'autonomie hors LLM, approbations aux paramètres exacts, permissions
   d'agents limitées et révocables, journal d'audit sans contenu.
@@ -92,6 +94,10 @@ ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à 
   - opérations en montants exacts ;
   - classement appris de vos corrections ;
   - budget du mois calculé localement ;
+  - import de relevés CSV de la banque : aperçu, choix des colonnes, doublons signalés,
+    rien d'enregistré avant validation, annulation possible ;
+  - échéances récurrentes, objectifs d'épargne et projection des prochains mois, chaque
+    montant marqué connu, prévu ou estimé, avec ses hypothèses ;
   - agent Finances à la demande.
   - Aucune connexion bancaire, aucun paiement.
 - **Voix** : dictée dans le journal (UC01) et dans le chat.
@@ -100,6 +106,34 @@ ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à 
   - « Écouter » lit les réponses avec les voix de l'appareil.
 - **Pièces jointes du chat** : seul le texte extrait d'un document non sensible accompagne le
   message.
+
+## Ce qu'ajoutent les étapes 5 et 6 (en cours, non publié)
+
+- **Comptes Google connectés** (OAuth, jetons chiffrés, usages autorisés espace par espace) :
+  - **agenda** lu toutes les 15 minutes, page Agenda, conflits et créneaux libres calculés
+    localement ;
+  - **modifications d'agenda** (créer, déplacer, annuler) seulement après approbation de
+    l'aperçu exact, jamais en double ;
+  - **e-mails** des libellés choisis copiés en texte brut, jamais traités comme des
+    instructions, supprimés après 90 jours ;
+  - **envoi d'e-mails** seulement après approbation du message exact (passkey pour un
+    nouveau destinataire), jamais deux fois.
+- **Accueil** : agenda du jour, vue Semaine, suggestions avec leur source, cartes
+  personnalisables.
+- **Tâches** : dépendances, état bloqué, étiquettes.
+- **Notifications adaptatives** : créneaux, maximum par jour, suggestions regroupées,
+  alertes critiques pendant la tranquillité sur autorisation ; aussi sur le **téléphone**
+  (Web Push, texte générique par défaut).
+- **Finances** : import de relevés CSV, échéances récurrentes, projections explicables.
+- **Accessibilité** : contrôles WCAG 2.2 AA, clavier et téléphone à chaque CI.
+- **Export complet** : archive ZIP (JSON, CSV, ICS, Markdown, originaux sur demande).
+- **Exploitation** : sauvegardes hors site, restauration scriptée, alertes sur le téléphone,
+  mises à jour avec retour arrière, derrière un reverse proxy existant.
+- **Sécurité** : CSP à nonce, recette de sécurité, fichiers hostiles lus dans un processus
+  confiné.
+
+Pas encore : application mobile
+native ([guide d'utilisation](docs/guide-utilisateur.md#ce-que-cette-version-ne-fait-pas-encore)).
 
 ## Licence
 

@@ -25,6 +25,7 @@ from lifeos.modules.documents.sniff import Detected
 from lifeos.modules.documents.storage import DocumentStore, StorageError
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.privacy import erasure
 from lifeos.modules.voice.schemas import DictationOut
 
 log = get_logger(__name__)
@@ -119,15 +120,14 @@ async def delete_dictation(ctx: Ctx, store: DocumentStore, dictation_id: uuid.UU
     document = await get_dictation(ctx, dictation_id, for_update=True)
     await authorize(ctx, "document.delete", document.space_id)
     storage_key = document.storage_key
-    await ctx.db.delete(document)
-    await ctx.db.flush()
+    erased = await erasure.erase(ctx.db, document)
     if storage_key is not None:
         # A failure leaves an orphan file, removed by the daily sweep.
         try:
             await asyncio.to_thread(store.delete, storage_key)
         except (StorageError, OSError) as exc:
             log.error("dictation_file_delete_failed", error=type(exc).__name__)
-    await _audit(ctx, "dictation.delete", document)
+    await _audit(ctx, "dictation.delete", document, **erased)
 
 
 async def purge_dictations(

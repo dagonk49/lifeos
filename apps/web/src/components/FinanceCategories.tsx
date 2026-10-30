@@ -97,7 +97,7 @@ function CategoryRow({
           {category.name} {category.archived && <Badge>archivée</Badge>}
         </p>
         {expense && (
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-muted">
             {category.monthly_budget !== null
               ? `Budget : ${formatMoney(category.monthly_budget)} par mois`
               : "Sans budget"}
@@ -234,7 +234,7 @@ export function FinanceCategories({ spaceId }: { spaceId: string }) {
           <Button onClick={() => defaults.mutate()} disabled={defaults.isPending}>
             {defaults.isPending ? "Création…" : "Créer les catégories par défaut"}
           </Button>
-          <p className="text-center text-xs text-stone-500">
+          <p className="text-center text-xs text-muted">
             Alimentation, Logement, Transports, Santé, Loisirs… et Salaire pour les revenus.
           </p>
         </div>

@@ -15,10 +15,21 @@
 
 - Cookie de session `lifeos_session` (`HttpOnly`, `Secure`, `SameSite=Strict`).
 - Toute requête `POST`, `PUT`, `PATCH`, `DELETE` doit porter un en-tête `Origin` égal à
-  l'origine publique configurée (`LIFEOS_PUBLIC_ORIGIN`), sinon `403 origin_mismatch`.
-- `401 unauthenticated` : session absente, expirée ou révoquée.
+  l'origine publique configurée (`LIFEOS_PUBLIC_ORIGIN`), sinon `403 origin_mismatch`. Le
+  refus est journalisé, compté et audité (`http.origin_mismatch`, un événement par minute,
+  sans l'origine écrite par le client).
+- `401 unauthenticated` : session absente, expirée, inactive ou révoquée, ou compte
+  désactivé. La réutilisation d'une session connue mais refusée est auditée
+  (`auth.session.rejected`, une fois par session et par heure) ; un jeton inconnu ne l'est
+  pas.
+- Une session utilisée depuis un autre navigateur ou système que celui de sa connexion (les
+  numéros de version mis à part) reste valide, mais l'événement est audité
+  (`auth.session.ua_changed`, une fois par session et par heure).
 - `403 reauthentication_required` : opération sensible nécessitant une connexion de moins de
-  10 minutes.
+  10 minutes. Le refus est audité sous le nom de l'opération (`permission.grant`,
+  `space.cloud_consent`, `auth.passkey.revoke`…).
+- `POST /v1/auth/sessions/revoke-others` (renforcée) révoque toutes les sessions sauf la
+  session courante et répond `200 {"revoked": n}` ; audité `auth.session.revoke_others`.
 
 ## Erreurs (RFC 9457 « Problem Details »)
 
@@ -39,7 +50,10 @@
 - Erreurs de validation : `422 validation_error` avec un tableau `errors`
   (`loc`, `msg`, `type`).
 - Une ressource d'un espace non autorisé répond `404` (et non `403`) pour ne pas révéler son
-  existence.
+  existence. Un `space_id` explicite (paramètre, corps ou chemin) hors des espaces autorisés
+  répond `404 space_not_found` et est audité (`space.access`, un événement par minute et par
+  compte, avec le gabarit de la route) ; un `404` sur l'identifiant d'un objet ne l'est pas
+  (indiscernable d'un objet supprimé).
 
 ## Pagination
 
@@ -62,7 +76,17 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 - `429 rate_limited` avec `Retry-After` (Traefik sur `/v1/auth`).
 - `503 llm_unavailable` : fournisseur LLM désactivé ou injoignable (mode dégradé ; les données
   locales restent consultables).
-- `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint.
+- `429 llm_budget_exceeded` : budget mensuel de jetons LLM atteint ou, en facturation
+  payante, budget en dollars du jour ou du mois atteint.
+- `429 llm_daily_quota_reached` : plafond quotidien de requêtes du palier atteint
+  (facturation gratuite). Extensions `tier` (`fast` \| `deep`) et `limit` (limite appliquée,
+  marge déduite).
+- Ces deux refus ont lieu **avant** tout envoi, dès que la réservation de l'appel ne tient
+  plus dans la limite, appels en cours compris (ADR 0010).
+- `GET /v1/guardian/llm-usage` :
+  - `requests_today` compte les appels en cours ; `in_flight` les détaille par palier ;
+  - `daily_request_caps`, `daily_budget_usd` et `monthly_budget_usd` sont les limites
+    appliquées, marges déduites (`daily_request_margin`, `budget_margin_ratio`).
 
 ## Approbations
 
@@ -74,22 +98,87 @@ Les entités éditables exposent `version`. Une mise à jour (`PATCH`) peut envo
 - Toute proposition issue du LLM (ex. analyse du journal) passe par une approbation, quel que
   soit le niveau d'autonomie de l'action.
 - `403 approval_required` : action exécutée sans approbation valide (refus audité).
+- Une approbation sert une fois : une deuxième décision (requête rejouée, double clic,
+  proposition refusée ou expirée) répond `409 approval_not_pending` avec l'extension
+  `approval_status`, et est auditée (`approval.replay`). Seul le propriétaire décide : un
+  agent reçoit `403 action_denied` (audité). Des paramètres corrigés hors du schéma
+  répondent `422 invalid_action_params`, l'approbation restant en attente.
 - `501 action_not_available` : action déclarée dans la politique mais pas encore implémentée.
+- Paramètres liés (ADR 0016) : l'empreinte SHA-256 des paramètres approuvés est
+  conservée ; exécuter d'autres paramètres répond `403 approval_params_mismatch` (audité).
+  Certaines actions ne se corrigent pas à l'approbation, leur aperçu venant de l'état du
+  fournisseur : `422 approval_not_editable`.
+- Statut `invalidated` : la proposition ne décrit plus la réalité, `error` dit pourquoi
+  (`event_changed`, `event_gone`, `superseded`). Elle ne peut plus être approuvée
+  (`409 approval_not_pending`, `approval_status: "invalidated"`). La même proposition
+  encore en attente est renvoyée au lieu d'en créer une seconde ; une nouvelle proposition
+  sur le même objet remplace l'ancienne.
+- Approbation `level: "reinforced"` (ex. événement partagé) : l'approuver demande une
+  connexion par passkey récente, sinon `403 reauthentication_required` (audité) ; le web
+  relance alors la passkey puis l'accord, une fois.
+- Écriture chez un fournisseur : l'accord répond `200` avec l'approbation `executed`, ou
+  `failed` et un code dans `error` :
+  - `outcome_unknown` : le fournisseur n'a pas confirmé (délai dépassé après l'envoi).
+    Rien n'est renvoyé ; LifeOS vérifie chez lui dans les minutes qui suivent, puis
+    l'approbation passe `executed`, ou garde `failed` avec `not_applied` ;
+  - `event_changed`, `event_gone`, `connector_reauth_required`, `connector_unavailable`,
+    `too_many_attempts` : rien n'a été écrit.
+  Une nouvelle tentative après un crash ne réécrit jamais : l'opération déjà réservée est
+  d'abord vérifiée chez le fournisseur.
 
 ## Mode dégradé du chat
 
 `POST /v1/chat/conversations/{id}/messages` répond `201` même si l'IA est indisponible : le
 message de l'utilisateur est enregistré, `assistant_message` vaut `null` et `error` contient
-le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
+le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…). Le refus
+`agent_permission_required` (agent sans permission valide dans l'espace) est audité
+(`chat.agent_reply`) et rien n'est envoyé au LLM.
+
+`context.screen` n'accepte qu'une valeur d'une liste fermée (aujourd'hui `"chat"`), jamais
+un texte libre : toute autre valeur répond `422 validation_error`.
 
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :
 
-- `422 attachment_sensitive` (document sensible : jamais envoyé) ;
+- `422 attachment_sensitive` (document qui reste local : jamais envoyé) avec en extension
+  `document_id`, `sensitivity` (catégories enregistrées **et** trouvées à l'envoi par les
+  règles en vigueur) et `reason` : `detected` (classé sensible localement) ou `owner`
+  (« Toujours garder en local ») ;
 - `409 attachment_not_ready` ;
 - `422 attachment_unreadable` ;
 - `404 document_not_found` (autre espace ou dictée) ;
-- `403 attachment_not_allowed` (agent sans droit `documents`).
+- `403 attachment_not_allowed` (agent sans droit `documents`), audité (`document.attach`).
+
+E-mails joints (tâche 17) : `mail_ids` (au plus 3 identifiants d'e-mails copiés) joint leur
+texte au message, dans un bloc délimité annoncé comme des données de tiers. Refus **avant**
+tout enregistrement, audités (`mail.attach`, `denied`, raison) : `404 mail_not_found` (autre
+espace que la conversation), `403 mail_not_allowed` (agent sans droit `email`), `422
+mail_sensitive` (catégories enregistrées ou trouvées à l'envoi, en extension `mail_id` et
+`sensitivity`), `403 cloud_consent_required` (espace sans IA cloud : un e-mail n'est jamais
+envoyé dans ce cas).
+
+Contrôle avant l'envoi : `POST /v1/chat/preview` (`space_id`, `content`, `agent`,
+`attachments`) applique les mêmes règles **sans rien enregistrer ni envoyer** et répond
+`200` :
+
+```json
+{
+  "masked": {"iban": 1, "email": 1},
+  "attachments": [
+    {"document_id": "…", "sent": true, "reason": null, "sensitivity": [], "masked": {"phone": 1}},
+    {"document_id": "…", "sent": false, "reason": "sensitive", "sensitivity": ["bank"], "masked": {}}
+  ]
+}
+```
+
+- `masked` compte par type les identifiants qui seront masqués (`email`, `phone`, `iban`,
+  `card`, `nir`, `secret`, `passport`, `id_number`, `tax_number`), jamais leurs valeurs ;
+- `reason` d'une pièce jointe laissée de côté : `sensitive`, `local_only`, `not_ready`,
+  `unreadable`, `not_found`, `not_allowed` (droits de l'agent qui répond) ;
+- un espace inconnu ou hors des espaces autorisés répond `404 space_not_found`.
+
+Le client n'affiche le récapitulatif que si quelque chose sera masqué ou laissé de côté,
+puis envoie le message avec les seules pièces jointes `sent`.
 
 ## Envois de fichiers (documents, dictées)
 
@@ -98,13 +187,22 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
   Un fichier vide répond `422 document_empty`.
 - Le type est reconnu à la signature du contenu ; un type non accepté répond
   `415 unsupported_type`. Sans clé de chiffrement configurée : `503 documents_unavailable`.
+  Une image, sans lecture locale configurée (`LIFEOS_EXTRACTION_PROVIDER=disabled`), répond
+  `415 image_reading_disabled` : elle ne serait ni lue ni téléchargeable.
 - `POST /v1/documents` répond `201` avec `status: "pending"`. La lecture (texte du PDF, OCR)
   a lieu en tâche de fond : suivre `GET /v1/documents/{id}` jusqu'à `ready` ou `failed`.
   L'`Idempotency-Key` est liée aux champs **et** à l'empreinte SHA-256 du fichier.
 - `GET /v1/documents/{id}/original` sert l'original déchiffré en pièce jointe, avec
   `nosniff`, `CSP sandbox` et `no-store`. Une fois l'original purgé : `410 original_purged`.
+  Une image n'est servie qu'une fois ré-encodée à partir de ses pixels (`original_downloadable`
+  dans le document) : pendant sa lecture, `409 document_processing` ; sinon (lecture en
+  échec ou interrompue, texte saisi à la main), `409 original_not_sanitized`. L'original
+  reste conservé pour une nouvelle lecture.
 - `PATCH /v1/documents/{id}` (`If-Match`) : titre, correction du texte extrait (la
-  sensibilité est recalculée), `keep_original`.
+  sensibilité est recalculée), `keep_original`, `local_only` (« Toujours garder en local » :
+  `true` immédiat ; `false` est une opération renforcée qui répond
+  `403 reauthentication_required` sans passkey récente, et ne retire jamais une catégorie
+  détectée).
 - `POST /v1/documents/{id}/reprocess` relance la lecture et remplace une correction.
 - `POST /v1/voice/dictations` (champs `file`, `space_id`) répond `202` avec une dictée
   `pending` :
@@ -113,6 +211,443 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
   - puis `DELETE` une fois le texte utilisé ;
   - `503 transcription_unavailable` si la dictée est désactivée (`GET /v1/voice/status`).
 
+## Comptes connectés (OAuth, ADR 0012)
+
+- `GET /v1/connectors/providers` : fournisseurs configurés (`[]` si
+  `LIFEOS_CONNECTORS_PROVIDER=disabled`).
+- `GET /v1/connectors/accounts` : comptes, statut (`active` \| `reauth_required` \|
+  `revoked`), `capabilities` (usages que le fournisseur a **réellement** accordés), `grants`
+  (consentements actifs par espace), `sources`. Jamais un jeton, même chiffré.
+- `POST /v1/connectors/oauth/start` `{provider, space_id, capabilities, account_id?}` →
+  `{authorization_url}`. Opération renforcée : `403 reauthentication_required` sans passkey
+  récente. `account_id` sert au consentement incrémental et à la reconnexion.
+- Le fournisseur renvoie le navigateur vers la **page web** `/connexions/retour`, pas vers
+  l'API : le cookie `SameSite=Strict` n'accompagne pas sa redirection. La page retire le
+  code de l'adresse et envoie, une seule fois, `POST /v1/connectors/oauth/callback`
+  `{state, code | null, error | null}` → `{account, space_id, requested, granted, missing}`.
+  - `400 oauth_state_invalid` : état inconnu, expiré (10 minutes), déjà utilisé ou d'un autre
+    propriétaire ;
+  - `400 connector_consent_denied` (`reason` en extension, ex. `access_denied`) : refus chez
+    le fournisseur ;
+  - `400 oauth_code_invalid` : code refusé par le fournisseur (expiré, déjà utilisé, PKCE) ;
+  - `502 connector_provider_error` : fournisseur injoignable ou réponse inexploitable.
+- `PUT /v1/connectors/accounts/{id}/grants` `{space_id, capabilities}` : les usages de ce
+  compte dans cet espace, exactement. Ajouter est renforcé ; retirer est immédiat.
+  `409 connector_scope_missing` (`capabilities` en extension) si le fournisseur ne les a pas
+  accordés : il faut un nouveau consentement (`oauth/start` avec `account_id`).
+- `DELETE /v1/connectors/grants/{id}` : retrait immédiat d'un consentement.
+- `DELETE /v1/connectors/accounts/{id}?purge=false|true` → `{account_id, remote_revocation,
+  purged}`. Révocation chez le fournisseur (`done` \| `failed` \| `not_needed`), jetons
+  effacés quoi qu'il arrive, consentements retirés, approbations en attente expirées.
+  `purge=true` supprime aussi le compte et les données synchronisées ; sinon le compte reste
+  visible, `revoked`.
+- Utilisation par les autres modules (synchronisation, actions) : `409 connector_reauth_required`
+  ou `409 connector_disconnected` si le compte n'est pas actif ; `403
+  connector_capability_missing` sans consentement de l'espace pour cet usage ; `403
+  agent_permission_required` pour un agent sans permission `calendar` ou `email`.
+- `503 connectors_unavailable` : connecteurs désactivés ou clé des jetons absente.
+- Agendas (tâche 14) :
+  - `GET /v1/connectors/accounts/{id}/calendars` → les agendas du compte, lus en direct
+    (`provider_ref`, `name`, `primary`, `read_only`, `source_id`/`space_id` s'il est déjà
+    suivi). `503 connector_unavailable` si le fournisseur ne répond pas.
+  - `POST /v1/connectors/sources` `{account_id, provider_ref, space_id}` → `201` la source ;
+    exige le consentement `calendar.read` de cet espace (`403
+    connector_capability_missing`, audité) ; `409 calendar_already_mapped` si l'agenda
+    alimente déjà un autre espace. La première lecture est mise en file.
+  - `DELETE /v1/connectors/sources/{id}` : ne plus suivre ; les occurrences copiées sont
+    supprimées. `POST /v1/connectors/sources/{id}/sync` → `202` : lecture demandée.
+  - `GET /v1/calendar/events?start&end&space_id?` → `{items, timezone}` : occurrences qui
+    chevauchent `[start, end)` (62 jours au plus, sinon `422 invalid_window`), dans les
+    espaces du principal. Une date sans décalage est lue dans le fuseau du propriétaire ;
+    les instants rendus portent le décalage de ce fuseau, les journées entières sont des
+    dates (fin exclue). Chaque occurrence indique sa source et sa date de lecture, et
+    `editable` : son compte a le consentement `calendar.write` dans cet espace.
+- Modifier l'agenda (tâche 16, ADR 0016) : chaque route **propose** et répond `201` avec
+  l'approbation (aperçu exact relu chez le fournisseur) ; rien n'est écrit avant l'accord
+  (`POST /v1/approvals/{id}/approve`). `Idempotency-Key` est accepté. Une heure sans
+  décalage est lue dans le fuseau du propriétaire.
+  - `GET /v1/calendar/calendars?space_id` → `[{source_id, name, account_id}]` : agendas
+    suivis de l'espace qu'on peut modifier.
+  - `POST /v1/calendar/events` `{space_id, source_id?, summary, description?, location?,
+    starts_at, ends_at | start_date, end_date, guests?, notify?}`. Sans `source_id` : le
+    premier agenda modifiable de l'espace.
+  - `POST /v1/calendar/events/{id}/move` `{starts_at, ends_at | start_date, end_date,
+    notify?}`.
+  - `POST /v1/calendar/events/{id}/cancel` `{notify?}`.
+  - Action `calendar.create_event`, `calendar.move_event` ou `calendar.cancel_event`
+    (approbation simple) ; pour un événement partagé (autres participants, événement d'un
+    autre organisateur, agenda d'un autre propriétaire), `calendar.update_shared_event`
+    (approbation renforcée). Paramètres non modifiables à l'approbation.
+  - `preview` : `{operation, calendar, summary, summary_line, timezone, before?, after?,
+    location?, attendees, notify, shared, recurring?, notes}`, heures écrites dans le
+    fuseau du propriétaire.
+  - `notify` : les participants ne sont prévenus (`sendUpdates=all`) que si c'est coché.
+  - Erreurs : `409 calendar_write_unavailable` (aucun agenda modifiable dans l'espace),
+    `409 calendar_read_only`, `409 calendar_gone`, `409 event_gone`, `409
+    event_not_organizer` (seul l'organisateur déplace un événement), `422 event_in_past`,
+    `422 event_unchanged`, `422 invalid_event_times` (fin avant le début, plus de 14 jours,
+    ou 31 jours entiers), `422 invalid_guest` (adresse non renvoyée), `404
+    event_not_found`, `403 connector_capability_missing` sans consentement `calendar.write`
+    de l'espace, `403 agent_permission_required` pour un agent sans permission `calendar`
+    en écriture.
+- Libellés e-mail (tâche 17) :
+  - `GET /v1/connectors/accounts/{id}/labels` → les libellés du compte, lus en direct
+    (`provider_ref`, `name`, `primary`, `source_id`/`space_id` s'il est déjà suivi) ; spam,
+    corbeille, brouillons et catégories ne sont pas proposés.
+  - `POST /v1/connectors/sources` `{account_id, provider_ref, space_id, kind: "mail_label"}`
+    → `201` ; exige le consentement `mail.read` de cet espace ; `404 label_not_found`,
+    `409 label_already_mapped`. `DELETE` supprime les e-mails copiés (les documents
+    importés restent).
+- E-mails copiés (tâche 17), texte brut seulement :
+  - `GET /v1/mail/messages?space_id?&source_id?&limit&cursor` → `{items, next_cursor}`, du
+    plus récent au plus ancien (curseur sur la date de réception) : expéditeur, objet,
+    début du texte, nombre de pièces jointes, `sensitivity`.
+  - `GET /v1/mail/messages/{id}` → le détail (`to_addresses`, `cc_addresses`, `body_text`,
+    `body_truncated`, `attachment_list` avec `document_id` une fois importée). `404
+    mail_not_found` hors des espaces du principal.
+  - `POST /v1/mail/messages/{id}/attachments/{part_id}/import` (`Idempotency-Key`) → `201`
+    le document (`purpose = attachment`, `source_type = mail_message`, `received_from`,
+    `active_content`) ; un second import rend le même document. `404
+    attachment_not_found`, `410 attachment_gone`, `413 document_too_large`, `415
+    unsupported_type` (signature refusée : HTML, SVG, exécutable…), `403
+    connector_capability_missing` sans consentement `mail.read`, `503
+    connector_unavailable`.
+- Envoi d'e-mails (tâche 18, [ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) :
+  rien ne part sans une approbation qui montre le message exact.
+  - `GET /v1/mail/send-accounts?space_id` → les comptes autorisés à envoyer dans l'espace
+    (consentement `mail.send`).
+  - `POST /v1/mail/drafts` (`Idempotency-Key`) `{space_id, account_id?, to[], cc[], bcc[],
+    subject, body, attachment_ids[], in_reply_to_id?}` → `201` le brouillon. `GET
+    /v1/mail/drafts?space_id?`, `GET /v1/mail/drafts/{id}`, `DELETE` (`204`).
+  - `PATCH /v1/mail/drafts/{id}` (`If-Match: <version>`) → nouvelle version ; l'approbation
+    en attente devient `invalidated` (`error = draft_changed`). `409 version_conflict`.
+  - Un brouillon porte `state` : `draft`, `awaiting_approval`, `sending`, `unknown` (envoi
+    peut-être fait : vérifié chez le fournisseur, jamais renvoyé), `failed` (rien n'est
+    parti), `sent`. `sending`, `unknown` et `sent` ne se modifient pas (`409
+    outcome_unknown`, `409 draft_already_sent`).
+  - `POST /v1/mail/drafts/{id}/send` (`Idempotency-Key`) → `201` l'approbation (`email.send`,
+    ou `email.send_reinforced` pour un nouveau destinataire ou une pièce jointe sensible :
+    passkey récente). Ses `params` sont le message ; son `preview` : `from`, `to`, `cc`,
+    `bcc`, `subject`, `body`, `attachments [{title, filename, mime, size_bytes,
+    sensitivity, local_only}]`, `reply`, `new_recipients`, `reinforced`, `notes`. Un second
+    appel rend la même approbation en attente. On l'approuve par `POST
+    /v1/approvals/{id}/approve` (paramètres non modifiables : `422 approval_not_editable`).
+  - `GET /v1/mail/drafts/{id}/approval` → la dernière approbation d'envoi.
+  - `POST /v1/mail/drafts/{id}/resolve` `{sent: bool}` : le propriétaire indique, après
+    vérification de ses messages envoyés, si un envoi incertain est parti (`409
+    draft_not_uncertain` sinon).
+  - Refus : `422 invalid_recipient` (l'adresse n'est jamais renvoyée), `invalid_subject`,
+    `too_many_recipients`, `too_many_attachments`, `body_too_long`, `recipient_required`,
+    `mail_empty` ; `413 mail_too_large` ; `404 document_not_found` (document d'un autre
+    espace) ; `409 attachment_unavailable`, `mail_send_unavailable`.
+  - À l'exécution (approbation `failed`, `error`) : `approval_stale` (brouillon, contenu,
+    compte ou sensibilité changés), `attachment_changed` (SHA-256 différent),
+    `draft_already_sent`, `draft_gone`, `outcome_unknown` (sans conclusion : rapproché par
+    la tâche `reconcile_external_operations`), `connector_capability_missing`,
+    `connector_reauth_required`, `connector_unavailable`.
+  - Le contenu exact d'une approbation d'envoi décidée est effacé après
+    `mail_approval_redact_days` (30 jours) : `params = {redacted, draft_id, recipients,
+    attachments}`, l'empreinte `params_sha256` reste.
+- Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
+  - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
+    `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous
+    les espaces du principal bloquent du temps, mais seules celles de `space_id` ont un
+    titre et un identifiant : ailleurs, `label = "Occupé (autre espace)"`, `event_id = null`.
+  - `POST /v1/planning/slots` `{space_id, duration_minutes? | task_id?, not_before?,
+    not_after?}` → au plus trois créneaux (un par jour), chacun avec ses `assumptions`
+    (durée et son origine, disponibilités, marge, provisoires, fraîcheur de l'agenda) et ses
+    `events_used`. Sans durée : l'estimation de la tâche, sinon une heure ; avec une tâche
+    datée, avant son échéance. Rien n'est écrit dans l'agenda : « Bloquer ce créneau » propose
+    un `calendar.create_event` à approuver.
+
+## Tâches : dépendances, état bloqué, étiquettes (tâche 22)
+
+- `POST /v1/tasks/{id}/dependencies` `{"depends_on_id": "<uuid>"}` : la tâche `{id}` attend
+  `depends_on_id`. Réponse `201` avec la tâche à jour. `Idempotency-Key` est accepté.
+  Ajouter un lien qui existe déjà ne change rien (même `version`). Un nouveau lien
+  incrémente la `version` de la tâche (`If-Match`).
+- `DELETE /v1/tasks/{id}/dependencies/{depends_on_id}` : `204`, ou `404
+  dependency_not_found`. Retirer un lien incrémente aussi la `version`.
+- `POST /v1/tasks` accepte `depends_on` (20 identifiants au plus, même espace) et `tags`.
+  `PATCH` accepte `tags`.
+- `TaskOut` ajoute :
+  - `tags` ;
+  - `depends_on` : toutes les tâches attendues, terminées ou non ;
+  - `blocked_by` : `[{id, title, status}]`, celles encore ouvertes ;
+  - `blocked` : vrai si la tâche est ouverte et attend au moins une tâche ouverte.
+  Ces champs figurent aussi dans `GET /v1/dashboard`.
+- Filtres de `GET /v1/tasks` : `blocked=true|false` et `tag=<étiquette>`. L'étiquette est
+  normalisée comme à l'enregistrement ; vide ou invalide : `422 validation_error`.
+- Erreurs :
+  - `422 dependency_cycle` : le lien fermerait une boucle, la dépendance d'une tâche à
+    elle-même comprise. L'extension `path` donne la chaîne des identifiants, de la tâche
+    à elle-même (`[C, A, B, C]`). Rien n'est enregistré ;
+  - `422 dependency_space_mismatch` : les deux tâches ne sont pas du même espace ;
+  - `422 too_many_dependencies` : la tâche attend déjà 20 tâches (extension `max`) ;
+  - `404 task_not_found` : l'une des deux tâches est hors de vos espaces ;
+  - `409 task_blocked` : passage à `in_progress` ou `done` d'une tâche qui attend encore une
+    tâche ouverte. L'extension `blocked_by` (`[{id, title, status}]`) dit pourquoi. Passer
+    à `cancelled` reste possible.
+- Une dépendance passée à `done` ou `cancelled` libère les tâches qui n'attendaient plus
+  qu'elle. Chacune reçoit une notification « Débloquée : <titre> », une seule fois.
+  L'audit enregistre `task.dependency.add` et `task.dependency.remove` (identifiants
+  seulement) et `released` (un nombre) dans `task.update`.
+- Pour un agent, lier deux tâches relève de `task.update` (niveau `rule` : permission
+  `tasks` en écriture dans l'espace).
+
+## Export et réversibilité (tâche 33)
+
+- `GET /v1/privacy/export` : le JSON complet (`application/json`, pièce jointe
+  `lifeos-export-AAAAMMJJ.json`).
+- `GET /v1/privacy/export.zip[?originals=true]` : l'archive (`application/zip`, pièce
+  jointe `lifeos-export-AAAAMMJJ.zip`), écrite pendant l'envoi fichier par fichier (les
+  lignes sont lues avant, dans la transaction de la requête). Tout est dans un dossier
+  `lifeos-export-AAAAMMJJ/`.
+- Autorisation : `data.export` (propriétaire, jamais un agent) en validation renforcée,
+  pour les deux routes, originaux ou non : `403 reauthentication_required` (refus audité)
+  si la connexion par passkey n'est pas récente. Sans cookie : `401`.
+  Succès audité `privacy.export` avec `format` (`json`, `zip`), `rows` et `originals`
+  (nombre prévu) : jamais de contenu. `503 documents_unavailable` si des originaux sont
+  demandés sans clé de stockage.
+- Chaque ligne est choisie par son propriétaire, déduit du schéma (`user_id`, ou celui de
+  la ligne parente : révisions d'un souvenir, jalons d'un objectif).
+
+**JSON, format `lifeos-export` version 2** (la version 1 imbriquait les révisions dans les
+souvenirs et écrivait les montants en nombres) : `format`, `version`, `app_version`,
+`exported_at`, `excluded` (`tables` et `columns` non exportées, avec leur raison), `user`
+(le compte et ses réglages), puis une clé par table, nommée comme la table (`tasks`,
+`task_dependencies`, `memory_revisions`, `memory_facts`, `goal_milestones`,
+`calendar_events`, `audit_events`…), chaque ligne avec ses colonnes sauf `user_id` et
+`search_vector`. Types : UUID et adresses IP en chaînes, dates et instants ISO 8601,
+**décimaux en chaînes exactes** (`"12.50"`, jamais de flottant ; dérogation assumée au
+`jsonable_encoder` de FastAPI), JSONB tel quel. `documents[].original_available` remplace
+l'emplacement du fichier chiffré. L'encodeur refuse les octets bruts : aucune colonne
+binaire (matériel de clé) ne peut partir par mégarde.
+
+**CSV** (`tasks.csv`, `transactions.csv`) : RFC 4180 (virgule, guillemets doubles, CRLF),
+UTF-8 avec BOM, point décimal, en-têtes anglais en snake_case (à reprendre par l'import CSV
+de la tâche 25). Instants ISO 8601 dans le fuseau du propriétaire, avec leur décalage.
+Une cellule de texte qui commence par `=`, `+`, `-`, `@`, tabulation ou retour chariot est
+préfixée d'une apostrophe (injection de formules : les tickets lus par OCR et les agendas
+synchronisés sont du texte tiers) ; les colonnes numériques ne le sont jamais.
+`transactions.csv` : `amount` toujours positif, `signed_amount` négatif pour une dépense,
+`category` (nom), `category_confirmed` (`true`/`false`). `tasks.csv` : `tags` séparés par
+`, ` (une étiquette ne contient jamais de virgule), `depends_on` (identifiants séparés par
+une espace), `goal` (titre).
+
+**iCalendar** (RFC 5545, écrit sans dépendance par `privacy/ics.py`) : CRLF, lignes pliées
+à 75 octets sans couper un caractère UTF-8, TEXT échappé (`\\`, `;`, `,`, saut de ligne) et
+débarrassé des caractères de contrôle, instants en UTC (`Z`). `calendar.ics` : un VEVENT
+par occurrence synchronisée (`UID:calendar-<id>@lifeos`, journée entière en
+`VALUE=DATE` avec fin exclusive, `STATUS`, `TRANSP`). `tasks.ics` : un VTODO par tâche
+(`UID:task-<id>@lifeos`, `DUE`, `STATUS`, `PRIORITY` 1/5/9, `COMPLETED`, `CATEGORIES`
+= étiquettes, `RELATED-TO;RELTYPE=DEPENDS-ON` pour les dépendances, VALARM au rappel) ;
+Google Agenda ignore les VTODO. Les UID sont stables : un nouvel import met à jour.
+L'espace figure en `X-LIFEOS-SPACE`.
+
+**Markdown** (`journal/AAAA-MM-JJ-<id8>.md`) : en-tête YAML (valeurs JSON : `id`, `date`,
+`space`, `mood`, `created_at`, `updated_at`), puis le texte de l'entrée.
+
+**Originaux** (`originaux/<date>-<id8>-<titre>.<ext>`, sur demande) : déchiffrés, stockés
+sans recompression ; titre réduit aux lettres, chiffres, `-` et `_`. Un original absent ou
+illisible est nommé dans le README, jamais omis en silence ; les images jamais nettoyées de
+leurs métadonnées (T26) ne sont pas incluses.
+
+## Notifications adaptatives (F09, tâches 20 et 21, ADR 0015)
+
+- `GET /v1/notifications` liste les notifications **dues** : `deliver_after` passé, hors
+  suggestions groupées. Une suggestion n'y figure jamais seule : elle arrive dans une
+  **synthèse** (`source_type = "digest"`, `category = "suggestion"`) dont `items_count` donne
+  le nombre de suggestions. La synthèse ne cite aucun titre (un objet effacé ne doit pas y
+  survivre).
+- `GET /v1/notifications/{id}/items` : les suggestions d'une synthèse, les plus anciennes
+  d'abord (`404 notification_not_found` pour une notification qui n'est pas une synthèse).
+- `PATCH /v1/notifications/{id}` `{"status": "read" | "dismissed"}` : sur une synthèse,
+  s'applique aussi à ses suggestions. `POST /v1/notifications/read-all` ne marque jamais une
+  suggestion qui attend encore sa synthèse.
+- `GET /v1/notifications/preferences` :
+  `{"categories": [{category, enabled, max_per_day, windows, digest_times}],
+  "critical_bypass_quiet_hours": bool}` pour `important` et `suggestion` (valeurs par défaut
+  sans ligne enregistrée : `important` actif, sans maximum ni créneau ; `suggestion` active,
+  3 par jour, synthèse à `18:00`).
+- `PUT /v1/notifications/preferences` `{"categories": [...]}` : règle les catégories
+  données ; un champ omis garde sa valeur. `windows` (`important` seulement, 4 au plus) :
+  `[{start, end}]` en `HH:MM` locales, `start < end`, sans chevauchement ; vide : immédiat
+  hors tranquillité. `digest_times` (`suggestion` seulement) : 1 à 4 heures `HH:MM`.
+  `max_per_day` : 1 à 100, ou `null` (sans limite). Les notifications pas encore livrées sont
+  reprogrammées ; celles d'une catégorie désactivée passent à `dismissed`. Audit
+  `notification.preferences.update` (noms des champs modifiés, nombres reprogrammés et
+  écartés).
+- Erreur `422 notification_preferences_invalid`, extension `field` (par ex.
+  `important.windows`), sans la saisie.
+- Alertes critiques : `PATCH /v1/settings {"critical_bypass_quiet_hours": true}` est une
+  opération **renforcée** (`notification.critical_bypass` : `403 reauthentication_required`
+  sans passkey récente, refus audité) ; le retrait (`false`) est immédiat. Les deux sont
+  audités (`notification.critical_bypass`, `{enabled}`). Sans cette permission, une alerte
+  critique attend la fin des plages de tranquillité. Changer le fuseau, les plages ou cette
+  permission reprogramme aussi les notifications en attente.
+- Envoi push (tâche 19) : `notifications.service.due(now)` donne les conditions d'une
+  notification à envoyer (livrée, hors synthèse, pas une suggestion en attente), plus le
+  statut `pending` ; voir ci-dessous.
+
+## Notifications sur le téléphone : Web Push (tâche 19, ADR 0019)
+
+Routes de session du propriétaire (les agents n'y ont pas accès). Aucune réponse, aucun
+audit ni export ne contient l'adresse d'abonnement ni ses clés.
+
+- `GET /v1/notifications/push/config` : `{"enabled": true, "public_key": "<clé VAPID
+  publique, base64url>"}` (le `applicationServerKey` de `PushManager.subscribe`) ;
+  `503 push_not_configured` quand `LIFEOS_PUSH_PROVIDER=disabled` (de même pour
+  l'enregistrement et le test).
+- `POST /v1/notifications/devices` (accepte `Idempotency-Key`) : `PushSubscription.toJSON()`
+  du navigateur, `{"endpoint", "keys": {"p256dh", "auth"}, "label?", "previous_endpoint?"}`.
+  `201` avec l'appareil `{id, label, preview, user_agent, created_at, consented_at,
+  last_success_at, failure_count, current}` (`current` : enregistré par la session de la
+  requête). Le même abonnement renvoie le même appareil (session et clés rafraîchies) ; un
+  appareil révoqué réactivé repart avec un nouveau consentement et `preview: "generic"`.
+  `previous_endpoint` (envoyé par le service worker sur `pushsubscriptionchange`) remplace
+  l'abonnement d'un appareil **actif**, sinon `404 device_not_found` : jamais de création.
+  Erreurs : `422 push_endpoint_not_allowed` (pas en HTTPS vers un service de push connu,
+  `LIFEOS_PUSH_ALLOWED_HOSTS`), `422 push_subscription_invalid` (clé qui n'est pas un point
+  P-256, secret de 16 octets attendu), `409 push_device_conflict` (deux enregistrements
+  simultanés). Audit `notification.device.register` (`reactivated`) ou
+  `notification.device.renew`.
+- `GET /v1/notifications/devices` : appareils actifs, du plus ancien au plus récent.
+- `PATCH /v1/notifications/devices/{id}` `{"label?", "preview?": "generic" | "full"}` :
+  passer à `full` (titre de la notification sur l'écran verrouillé, jamais son corps) est
+  **renforcé** (`notification.push_preview` : `403 reauthentication_required` sans passkey
+  récente, refus audité) ; revenir à `generic` est immédiat. Audit
+  `notification.device.update` (noms des champs, `preview`).
+- `DELETE /v1/notifications/devices/{id}` : `204` ; les envois en attente sont annulés.
+  Audit `notification.device.revoke`. Révoquer une session (`DELETE /v1/auth/sessions/{id}`,
+  `POST /v1/auth/logout`), une passkey, « les autres sessions » ou `lifeos-admin
+  revoke-sessions` révoque aussi les appareils liés (audit par nombre).
+- `POST /v1/notifications/devices/{id}/test` : `202 {"queued": bool}` (`false` : un test
+  attend déjà) ; envoyé par le worker dans la minute. Audit `notification.device.test`.
+- Appareil d'un autre compte, révoqué ou inconnu : `404 device_not_found`.
+- Message poussé (JSON chiffré, RFC 8291) : `{"title": "LifeOS", "body", "url", "tag"}`.
+  `body` est générique (« Nouveau rappel », « Une tâche a changé », « Nouvelles
+  suggestions », « Un compte connecté demande votre attention », « Alerte », « Nouvelle
+  notification ») ou, en `preview: "full"`, le titre (200 caractères au plus) ; `url` est un
+  chemin de même origine (`/tasks`, `/reviews`, `/settings#connexions`, `/`) ; `tag` =
+  `lifeos-<id>`. En-têtes `TTL` (`LIFEOS_PUSH_TTL_SECONDS`), `Topic` (identifiant de la
+  notification), `Urgency: high` pour une alerte critique remise pendant la tranquillité
+  avec la permission, `normal` sinon.
+
+## Accueil (tâche 23)
+
+Tout est calculé localement à chaque lecture (jamais par le LLM), en un nombre de requêtes
+borné qui ne dépend pas du volume (pas de requête par élément).
+
+- `GET /v1/dashboard?space_id=` garde ses champs et ajoute (optionnels) :
+  - `agenda_today` : `AgendaItem[]` du jour local ;
+  - `week` : `{start, end, timezone, days: [{date, items}], calendars, synced_at}`, la
+    semaine en cours (du lundi, ou d'aujourd'hui selon la disposition) ;
+  - `suggestions` : `[{text, why, source_type, source_id, source_label, date, href,
+    space_id}]`, 8 au plus. `source_type` = `review` (3 suggestions au plus du dernier bilan
+    généré de chaque espace, 35 jours au plus, `href` `/reviews?review=<id>`, `date` =
+    génération), `notification` (suggestion regroupée dans une synthèse livrée et non lue,
+    sauf si son bilan est déjà listé) ou `budget` (catégorie à 80 % de son budget ou plus,
+    `date` = calcul) ;
+  - `sources` : par carte (`priorities`, `agenda`, `week`, `suggestions`, `journal`,
+    `approvals`, `memory`, `budget`, `assistant`), `{origin, as_of, count}` : `local`
+    (calculé ici à `as_of`), `calendar` (`count` agendas suivis, lecture la plus ancienne
+    `as_of`), `review` (dernier bilan utilisé généré à `as_of`) ;
+  - `layout` : la disposition (ci-dessous).
+- `unread_notifications` suit maintenant l'espace choisi : notifications sans espace ou de
+  cet espace, livrées (`deliver_after` passé), hors éléments de synthèse.
+- `AgendaItem` : `kind` (`event` \| `busy` \| `task` \| `milestone` \| `payment`), `title`,
+  `day` (jour local où il est listé ; une occurrence sur plusieurs jours apparaît chaque
+  jour), `start`/`end` (instants avec le décalage du fuseau du propriétaire, `null` toute la
+  journée), `all_day`, `space_id`, `source_type` (`calendar_event`, `task`, `goal`,
+  `finance_recurring`), `source_id`, `source_label` (nom de l'agenda, titre de l'objectif…),
+  `href`, `synced_at` (dernière lecture de l'agenda), `detail` (lieu, montant « prévu » ou
+  « estimé », ce qu'attend une tâche bloquée), `tentative`, `blocked`. Une occurrence d'un
+  autre espace du propriétaire est `busy`, titre « Occupé (autre espace) », sans espace, ni
+  source, ni détail ; une plage libre d'un autre espace n'apparaît pas.
+- `GET /v1/dashboard/week?start=YYYY-MM-DD&space_id=` : la même structure pour les sept
+  jours locaux à partir de `start` (défaut : la semaine en cours). `start` hors 1900–2200 :
+  `422 invalid_window`. Espace étranger : `404 space_not_found`.
+- `GET /v1/dashboard/layout` : `{cards: [{id, visible}], default_view: day|week,
+  week_start: monday|today, updated_at}` (`updated_at` `null` tant que les valeurs par
+  défaut s'appliquent : toutes les cartes, dans l'ordre ci-dessus).
+- `PUT /v1/dashboard/layout` `{cards, default_view, week_start}` : `cards` dans l'ordre
+  voulu (30 au plus). Les cartes omises sont ajoutées à la fin, visibles, dans l'ordre par
+  défaut ; il en va de même à la lecture pour une carte apparue après l'enregistrement.
+  Audit `dashboard.layout.update` (`cards`, `hidden`, `default_view`, `week_start`).
+- Erreur `422 dashboard_layout_invalid`, extensions `field` (par ex. `cards[2].id`) et
+  `reason` (`unknown` \| `duplicate`).
+
+## Finances : import de relevés CSV (tâche 25)
+
+Rien n'est écrit dans le budget avant `commit` : le fichier est lu en mémoire (jamais
+conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu** de 24 h.
+
+- `POST /v1/finance/imports` (multipart : `file`, `space_id`, `account_label?`,
+  `encoding` = `auto` \| `utf-8` \| `cp1252`) : `201` avec l'import (`status: "preview"`,
+  `header`, `sample` (5 premières lignes), `suggested_mapping`, `mapping`, `counts` par état,
+  `to_import`, `totals` exacts, `already_imported_file`). Limites d'envoi habituelles
+  (`413 document_too_large` au-delà de `LIFEOS_FINANCE_IMPORT_MAX_BYTES`, 2 Mio par
+  défaut). Un `Idempotency-Key` est lié aux champs et au SHA-256 du fichier. La
+  correspondance des colonnes suggérée (noms français : date d'opération, libellé, montant ou
+  débit/crédit, référence, devise ; et le `transactions.csv` de l'archive LifeOS) est
+  appliquée d'emblée, en lecture seule.
+- `PUT /v1/finance/imports/{id}/mapping` (`date_column`, `date_format`, `label_column`,
+  `amount_mode` = `signed` \| `debit_credit`, `amount_column` ou `debit_column` +
+  `credit_column`, `decimal_separator`, `reference_column?`, `currency_column?`, `currency`) :
+  relit chaque ligne ; aucune opération créée, aucune règle comptée.
+- `GET /v1/finance/imports/{id}/rows?status=&cursor=&limit=` : `Page` dans l'ordre du
+  fichier (curseur = dernier numéro de ligne). États : `valid` (nouvelle), `invalid` (avec
+  `reason` : `date_invalid`, `date_in_future`, `amount_invalid`, `amount_precision` — plus de
+  deux décimales, jamais arrondi —, `amount_too_large`, `amount_zero`, `amount_missing`,
+  `amount_ambiguous`, `currency_invalid`, `column_count`), `in_file_duplicate`,
+  `already_imported` (clé déjà présente dans l'espace) et `possible_duplicate` (opération
+  saisie ou ticket de même montant à ±3 jours : `match_id`, `match_date`).
+- `POST /v1/finance/imports/{id}/commit` `{"exclude_lines": [], "include_lines": []}` :
+  la validation. Par défaut les lignes `valid` sont importées et les `possible_duplicate`
+  écartées. `200` avec `imported_count` et `skipped_count`. Rejouable avec la même
+  `Idempotency-Key` ; sinon `409 import_not_in_preview`. Les opérations créées ont
+  `source_type: "import"`, `import_id`, et la catégorie d'une règle apprise
+  (`category_confirmed: false`).
+- `POST /v1/finance/imports/{id}/undo` `{"confirm": true}` : supprime les opérations encore
+  présentes de cet import (`edited_count` dit combien avaient été corrigées) ;
+  `409 import_not_committed` sinon. Un nouvel import du même fichier les ajoute de nouveau.
+- `DELETE /v1/finance/imports/{id}` : abandonne un aperçu (`204`) ; `GET
+  /v1/finance/imports?space_id=` liste les 50 derniers imports.
+- Autres erreurs : `404 import_not_found`, `415 import_unreadable` (binaire, page web,
+  encodage illisible), `422 unsupported_encoding`, `422 import_empty`, `422 too_many_rows`
+  (extension `max_rows`), `422 mapping_invalid`, `409 import_expired`, `409
+  import_not_mapped`.
+- Actions `finance.import` et `finance.import.undo` : automatiques pour le propriétaire,
+  **interdites aux agents** (`403 action_denied`, `reason: forbidden_for_agents`). L'audit
+  ne garde que des nombres (lignes, importées, écartées), jamais de montant ni de libellé.
+
+## Finances : échéances, objectifs d'épargne, projection (tâche 26)
+
+- `GET|POST /v1/finance/recurring`, `PATCH|DELETE /v1/finance/recurring/{id}` : échéances
+  (`label`, `amount`, `amount_is_estimate`, `amount_low?`, `amount_high?`, `direction`,
+  `currency`, `category_id?`, `cadence` = `once` \| `weekly` \| `monthly` \| `quarterly` \|
+  `yearly`, `start_date`, `end_date?`, `active`). `RecurringOut.next_date` : prochaine
+  échéance. `POST` idempotent, `PATCH` avec `If-Match` (`409 version_conflict`). Erreurs :
+  `422 category_kind_mismatch`, `422 recurring_range_invalid`, `422
+  recurring_dates_invalid`, `404 recurring_not_found`.
+- `POST|PATCH /v1/finance/transactions` acceptent `recurring_id` (même espace et même sens :
+  `422 recurring_space_mismatch` / `recurring_direction_mismatch`).
+- `POST|PATCH /v1/goals` acceptent `currency` (objectif d'épargne : mesurable, montant visé
+  supérieur au montant de départ) et `monthly_contribution` (exige `currency` :
+  `422 goal_contribution_without_currency`).
+- `GET /v1/finance/projection?space_id=&months=6&baseline_months=3&currency=EUR` (1–24 mois,
+  moyenne sur 1–12 mois complets) : mois en cours puis mois à venir, **recalculés à chaque
+  lecture** (rien n'est stocké, aucun appel au LLM). Chaque montant porte sa base :
+  `known_*` (opérations enregistrées), `scheduled_*` (échéance à montant fixe),
+  `estimated_*` avec `_low` / `_high` (échéance variable, ou moyenne des derniers mois
+  complets hors opérations rattachées à une échéance, fourchette du mois le plus bas au plus
+  haut). `items[]` détaille chaque ligne avec `basis` = `known` \| `scheduled` \| `estimated`.
+  `savings_goals` (`null` sans droit de lecture sur les objectifs) : `saved` (connu),
+  `contribution_source` (`declared` \| `estimated` \| `none`), `eta_month` et sa fourchette,
+  `on_track`. `assumptions[]` et `warnings[]` (`code`, `label`, `value`) : historique court,
+  autres devises non converties, versement non déclaré…
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -120,18 +655,23 @@ localement au message. Les refus ont lieu **avant** tout enregistrement :
 | `/healthz`, `/readyz` | 1 | vivacité, disponibilité (base, Redis) — hors `/v1` |
 | `/v1/auth` | 1 | passkeys, sessions, utilisateur courant |
 | `/v1/spaces` | 2 | espaces, consentement cloud |
+| `/v1/settings` | 2 | préférences du propriétaire : nom, fuseau horaire, plages de tranquillité, budget mensuel de jetons, pause de l'assistant IA, alertes critiques pendant la tranquillité |
 | `/v1/chat` | 2 | conversations, messages |
-| `/v1/tasks` | 2 | CRUD, rappels, statuts |
+| `/v1/tasks` | 2 | CRUD, rappels, statuts, dépendances et étiquettes (tâche 22) |
 | `/v1/journal` | 2 | entrées, analyse (propositions à valider) |
-| `/v1/memory` | 2 | faits, souvenirs, correction, protection, export, suppression |
+| `/v1/memory` | 2 | faits, souvenirs, correction, protection, suppression |
+| `/v1/privacy` | 2 | export complet : JSON (`/export`), archive ZIP (`/export.zip`, originaux déchiffrés en option) |
 | `/v1/search` | 2, 3, 4 | recherche hybride (plein texte + sens), filtrée par espace, type (dont `documents`) et période |
 | `/v1/approvals` | 2 | prévisualisation, accepter / refuser |
 | `/v1/guardian` | 2 | permissions d'agents, journal d'audit, appels LLM |
-| `/v1/notifications` | 2 | liste, lecture, préférences (plages de tranquillité) |
-| `/v1/dashboard` | 2 | briefing du jour |
-| `/v1/goals` | 3 | objectifs, jalons, bilans |
+| `/v1/notifications` | 2, V1 | liste, lecture, synthèses de suggestions, préférences par catégorie (activation, maximum par jour, créneaux, heures de regroupement) |
+| `/v1/dashboard` | 2, V1 | briefing du jour, agenda et semaine, suggestions sourcées, disposition des cartes (tâche 23) |
+| `/v1/goals` | 3 | objectifs, jalons, points d'étape, tâches rattachées, objectifs d'épargne |
 | `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
-| `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois |
+| `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois, import de relevés CSV, échéances récurrentes, projection |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
-| `/v1/connectors` | 5 | OAuth, scopes, révocation, synchronisation |
+| `/v1/connectors` | 5 | fournisseurs, comptes connectés, consentement OAuth (début, retour), usages par espace, agendas et libellés e-mail suivis, déconnexion |
+| `/v1/mail` | 5 | e-mails copiés des libellés suivis (lecture, texte brut), import d'une pièce jointe dans Documents, brouillons et envoi sous approbation |
+| `/v1/calendar` | 5 | occurrences des agendas suivis, propositions de création, de déplacement et d'annulation (approbation) |
+| `/v1/planning` | 5 | conflits d'agenda et créneaux libres, calculés localement (lecture seule) |

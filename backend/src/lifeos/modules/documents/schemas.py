@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field, model_validator
 # "dictation" documents come from the voice module, never from an upload.
 UploadPurpose = Literal["document", "receipt", "attachment"]
 # Objects a document may come from or be attached to (provenance).
-SourceType = Literal["journal_entry", "message", "conversation", "task", "goal", "transaction"]
+SourceType = Literal[
+    "journal_entry", "message", "conversation", "task", "goal", "transaction", "mail_message"
+]
 # Longest extracted (or corrected) text kept for one document.
 MAX_TEXT_CHARS = 200_000
 
@@ -42,6 +44,9 @@ class DocumentUpdate(BaseModel):
     extracted_text: str | None = Field(default=None, max_length=MAX_TEXT_CHARS)
     # True: keep the original indefinitely; False: purge it after the retention period.
     keep_original: bool | None = None
+    # « Toujours garder en local »: True is immediate; False (sending the document to the
+    # assistant again) is a reinforced operation, and never clears a detected category.
+    local_only: bool | None = None
 
 
 class DocumentSummary(BaseModel):
@@ -56,17 +61,26 @@ class DocumentSummary(BaseModel):
     # Machine-readable reason of a pending (retry) or failed status.
     error: str | None
     sensitivity: list[str]
+    # Kept local by the owner, whatever the detection finds.
+    local_only: bool
     text_source: str | None
     text_confidence: float | None
     pages: int | None
     processed_at: datetime | None
     text_corrected_at: datetime | None
     original_available: bool
+    # The original can be downloaded: kept, and for a picture, re-encoded from its pixels
+    # (a picture never cleaned of its metadata is kept to be read again, never served).
+    original_downloadable: bool
     # Purge date of the original (in the past once purged); None while it is kept.
     original_until: datetime | None
     keep_original: bool
     source_type: str | None
     source_id: uuid.UUID | None
+    # A third party's file (e-mail attachment): its sender, shown with the document, and
+    # the active content found in a PDF (warning before downloading the original).
+    received_from: str | None = None
+    active_content: list[str] = []
     # Purpose-specific, never authoritative: {"sensitivity_reasons": {...}, "receipt": {...}}.
     analysis: dict[str, Any] | None
     version: int

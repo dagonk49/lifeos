@@ -20,6 +20,11 @@ class GoalCreate(BaseModel):
     start_date: date | None = None
     due_date: date | None = None
     review_cadence: Literal["weekly", "monthly"] = "weekly"
+    # Savings goal (task 26): the values are amounts in this currency.
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    monthly_contribution: Decimal | None = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
 
     @model_validator(mode="after")
     def _measurable_needs_target(self) -> "GoalCreate":
@@ -30,6 +35,19 @@ class GoalCreate(BaseModel):
             raise ValueError("a measurable goal needs a start_value")
         if self.start_date and self.due_date and self.due_date < self.start_date:
             raise ValueError("due_date is before start_date")
+        if self.currency is not None and self.kind != "measurable":
+            raise ValueError("a savings goal (with a currency) must be measurable")
+        if self.monthly_contribution is not None and self.currency is None:
+            raise ValueError("a monthly contribution needs a currency")
+        if self.currency is not None and (
+            (self.start_value is not None and self.start_value < 0)
+            or (
+                self.target_value is not None
+                and self.start_value is not None
+                and self.target_value <= self.start_value
+            )
+        ):
+            raise ValueError("a savings goal goes from a saved amount up to a larger target")
         return self
 
 
@@ -44,6 +62,11 @@ class GoalUpdate(BaseModel):
     due_date: date | None = None
     status: GoalStatus | None = None
     review_cadence: Literal["weekly", "monthly"] | None = None
+    # Explicit null turns a savings goal back into a plain measurable goal.
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    monthly_contribution: Decimal | None = Field(
+        default=None, ge=0, max_digits=14, decimal_places=2
+    )
 
 
 class MilestoneCreate(BaseModel):
@@ -97,6 +120,8 @@ class GoalOut(BaseModel):
     start_value: Decimal | None
     target_value: Decimal | None
     current_value: Decimal | None
+    currency: str | None
+    monthly_contribution: Decimal | None
     start_date: date | None
     due_date: date | None
     status: str

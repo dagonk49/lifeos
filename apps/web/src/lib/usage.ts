@@ -4,6 +4,7 @@
 
 import { agentLabel, resourceList } from "./agents";
 import { problemMessage } from "./api";
+import { sourceHref } from "./dashboard";
 import { formatDate, formatTime } from "./format";
 import type { AgentInfo, AgentPermission, Dashboard, IndexStatus, LLMTier, LLMUsage, SearchHit } from "./types";
 
@@ -108,14 +109,43 @@ export function gauge(used: number, limit: number): Gauge {
 export interface TierQuota extends Gauge {
   tier: LLMTier;
   label: string;
+  /** Calls of the tier still running (already included in `used`). */
+  inFlight: number;
 }
 
 /** Requests of the day against the local daily caps, one entry per tier. */
 export function tierQuotas(
   requests: Partial<Record<string, number>>,
   caps: Partial<Record<string, number>>,
+  inFlight: Partial<Record<string, number>> = {},
 ): TierQuota[] {
-  return LLM_TIERS.map((tier) => ({ tier, label: tierLabel(tier), ...gauge(requests[tier] ?? 0, caps[tier] ?? 0) }));
+  return LLM_TIERS.map((tier) => ({
+    tier,
+    label: tierLabel(tier),
+    inFlight: finite(inFlight[tier] ?? 0),
+    ...gauge(requests[tier] ?? 0, caps[tier] ?? 0),
+  }));
+}
+
+/** "dont 1 appel en cours" (counted as soon as it starts); "" when nothing is running. */
+export function inFlightLabel(count: number): string {
+  const value = finite(count);
+  if (value === 0) return "";
+  return value >= 2 ? `dont ${formatCount(value)} appels en cours` : "dont 1 appel en cours";
+}
+
+/** Why the caps and budgets shown are a little under the configured ones (ADR 0010). */
+export function marginNote(
+  usage: Pick<LLMUsage, "billing" | "daily_request_margin" | "budget_margin_ratio">,
+): string {
+  if (usage.billing === "paid") {
+    const percent = Math.round(finite(usage.budget_margin_ratio) * 100);
+    return percent > 0 ? `Marge de sécurité : ${formatCount(percent)} % des budgets sont gardés en réserve.` : "";
+  }
+  const margin = finite(usage.daily_request_margin);
+  if (margin === 0) return "";
+  const noun = margin >= 2 ? "requêtes gardées" : "requête gardée";
+  return `Marge de sécurité : ${formatCount(margin)} ${noun} sous chaque plafond configuré.`;
 }
 
 export interface CostBudget extends Gauge {
@@ -219,13 +249,17 @@ export function purposeLabel(purpose: string): string {
   return purpose;
 }
 
-export type OutcomeTone = "teal" | "amber" | "red" | "neutral";
+export type OutcomeTone = "teal" | "amber" | "red" | "blue" | "neutral";
 
 const OUTCOMES: Record<string, { label: string; tone: OutcomeTone }> = {
   ok: { label: "Réussi", tone: "teal" },
   denied: { label: "Refusé", tone: "amber" },
   budget_exceeded: { label: "Limite atteinte", tone: "amber" },
   error: { label: "Échec", tone: "red" },
+  // Quota reserved while the call runs (ADR 0010).
+  reserved: { label: "En cours", tone: "blue" },
+  // Reservation released after its process stopped: the request still counts.
+  abandoned: { label: "Abandonné", tone: "neutral" },
 };
 
 export function outcomeInfo(outcome: string): { label: string; tone: OutcomeTone } {
@@ -375,19 +409,7 @@ export function searchHitLabel(type: string): string {
   return HIT_LABELS[type as SearchHit["type"]] ?? type;
 }
 
-const HIT_LINKS: Record<SearchHit["type"], string> = {
-  task: "/tasks",
-  journal: "/journal",
-  fact: "/memory",
-  memory: "/memory",
-  message: "/chat",
-  goal: "/goals",
-  document: "/documents",
-};
-
-/** Where "Ouvrir" leads; goals open directly on their detail. */
+/** Where "Ouvrir" leads; goals and documents open directly on their detail. */
 export function searchHitHref(hit: Pick<SearchHit, "type" | "id">): string {
-  if (hit.type === "goal") return `/goals?id=${encodeURIComponent(hit.id)}`;
-  if (hit.type === "document") return `/documents?id=${encodeURIComponent(hit.id)}`;
-  return HIT_LINKS[hit.type] ?? "/";
+  return sourceHref(hit.type, hit.id) ?? "/";
 }

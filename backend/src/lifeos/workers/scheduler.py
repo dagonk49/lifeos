@@ -24,10 +24,36 @@ def build_scheduler() -> BlockingScheduler:
         timezone=tz,
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 6 * 3600},
     )
+    if settings.connectors_provider != "disabled":
+        scheduler.add_job(
+            actors.sync_calendars.send,
+            IntervalTrigger(minutes=5, timezone=tz),
+            id="sync_calendars",
+            # A sync running late is not replayed: the next one reads everything again.
+            misfire_grace_time=60,
+        )
+        # Approved calendar writes whose outcome is unknown (ADR 0016).
+        scheduler.add_job(
+            actors.reconcile_external_operations.send,
+            IntervalTrigger(minutes=5, timezone=tz),
+            id="reconcile_external_operations",
+            misfire_grace_time=300,
+        )
+        scheduler.add_job(
+            actors.sync_mail.send,
+            IntervalTrigger(minutes=5, timezone=tz),
+            id="sync_mail",
+            misfire_grace_time=60,
+        )
     scheduler.add_job(
         actors.purge_auth_artifacts.send,
         CronTrigger(hour=3, minute=10, timezone=tz),
         id="purge_auth_artifacts",
+    )
+    scheduler.add_job(
+        actors.purge_connector_states.send,
+        CronTrigger(hour=3, minute=15, timezone=tz),
+        id="purge_connector_states",
     )
     scheduler.add_job(
         actors.purge_audit_events.send,
@@ -35,17 +61,49 @@ def build_scheduler() -> BlockingScheduler:
         id="purge_audit_events",
     )
     scheduler.add_job(
+        actors.purge_decided_items.send,
+        CronTrigger(hour=3, minute=15, timezone=tz),
+        id="purge_decided_items",
+    )
+    scheduler.add_job(
         actors.purge_messages.send,
         CronTrigger(hour=3, minute=20, timezone=tz),
         id="purge_messages",
+    )
+    scheduler.add_job(
+        actors.purge_mail.send,
+        CronTrigger(hour=3, minute=25, timezone=tz),
+        id="purge_mail",
     )
     scheduler.add_job(
         actors.purge_idempotency_keys.send,
         CronTrigger(hour=3, minute=30, timezone=tz),
         id="purge_idempotency_keys",
     )
+    # CSV import previews expire after `finance_import_preview_hours`: swept every hour.
+    scheduler.add_job(
+        actors.purge_finance_imports.send,
+        IntervalTrigger(hours=1, timezone=tz),
+        id="purge_finance_imports",
+    )
     scheduler.add_job(
         actors.expire_approvals.send, CronTrigger(minute=5, timezone=tz), id="expire_approvals"
+    )
+    # Abandoned LLM quota reservations: also released before each new reservation; this
+    # keeps the usage panel right when no call follows.
+    scheduler.add_job(
+        actors.release_llm_reservations.send,
+        IntervalTrigger(minutes=5, timezone=tz),
+        id="release_llm_reservations",
+        misfire_grace_time=300,
+    )
+    # Supervision: proves the scheduler -> Redis -> worker chain runs (alert
+    # TachesPlanifieesBloquees, docs/exploitation.md §5).
+    scheduler.add_job(
+        actors.heartbeat.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="heartbeat",
+        misfire_grace_time=30,
     )
     # Reminders are "real time": checked every minute, never coalesced into the past.
     scheduler.add_job(
@@ -53,6 +111,27 @@ def build_scheduler() -> BlockingScheduler:
         IntervalTrigger(minutes=1, timezone=tz),
         id="send_reminders",
         misfire_grace_time=60,
+    )
+    # Suggestions become due at the owner's digest times (18:00 local by default): grouped
+    # within the minute.
+    scheduler.add_job(
+        actors.build_suggestion_digests.send,
+        IntervalTrigger(minutes=1, timezone=tz),
+        id="build_suggestion_digests",
+        misfire_grace_time=60,
+    )
+    # Web Push (ADR 0019): due notifications, retries and test pushes, every minute.
+    if settings.push_provider != "disabled":
+        scheduler.add_job(
+            actors.send_push.send,
+            IntervalTrigger(minutes=1, timezone=tz),
+            id="send_push",
+            misfire_grace_time=60,
+        )
+    scheduler.add_job(
+        actors.purge_push_records.send,
+        CronTrigger(hour=3, minute=35, timezone=tz),
+        id="purge_push_records",
     )
     scheduler.add_job(
         actors.index_embeddings.send,
@@ -66,6 +145,13 @@ def build_scheduler() -> BlockingScheduler:
         IntervalTrigger(minutes=1, timezone=tz),
         id="process_pending_documents",
         misfire_grace_time=60,
+    )
+    # After an update of the sensitivity rules, stored documents are classified again
+    # (attachments are also checked with the current rules when sent).
+    scheduler.add_job(
+        actors.reclassify_documents.send,
+        IntervalTrigger(hours=1, timezone=tz),
+        id="reclassify_documents",
     )
     scheduler.add_job(
         actors.purge_document_originals.send,

@@ -61,7 +61,7 @@ function goal(overrides: Partial<GoalSummary> = {}): GoalSummary {
 }
 
 // Not typed as Task on purpose: stays valid if Task gains `goal_id` (sent by the API).
-const TASK_BASE = {
+const TASK_BASE: Task = {
   id: "t",
   space_id: "s1",
   title: "t",
@@ -74,10 +74,14 @@ const TASK_BASE = {
   source_type: "manual",
   source_id: null,
   goal_id: null,
+  tags: [],
+  depends_on: [],
+  blocked_by: [],
+  blocked: false,
   version: 1,
   created_at: "2026-10-01T08:00:00Z",
   updated_at: "2026-10-01T08:00:00Z",
-} as const;
+};
 
 function task(overrides: Partial<Task>): Task {
   return { ...TASK_BASE, ...overrides };

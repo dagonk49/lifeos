@@ -3,6 +3,66 @@
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; numérotation
 [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié]
+
+Travaux restants après la 1.0.0 (plan « LifeOS — travaux restants »), en cours.
+
+### Sécurité
+
+- **CSP à nonce par requête** dans le client web, sans `'unsafe-inline'` pour les scripts ;
+  un script injecté sans nonce est bloqué (testé de bout en bout).
+- **Recette de sécurité** ([recette-securite.md](docs/recette-securite.md)) : accès entre
+  espaces, permissions révoquées ou expirées, cookie volé, CSRF, injections indirectes et
+  rejeu d'approbations sont refusés **et audités** (audit limité par Redis, métrique
+  `lifeos_security_events_total`). Bouton « Déconnecter les autres sessions ».
+- **Fichiers hostiles** ([ADR 0011](docs/adr/0011-antivirus-et-fichiers-hostiles.md)) :
+  chaque fichier non fiable est lu dans un processus enfant confiné (mémoire bornée, délai,
+  tué avec Tesseract) ; démultiplexeur et codecs audio imposés ; une image n'est servie
+  qu'une fois nettoyée de ses métadonnées. Pas d'antivirus pour les fichiers du
+  propriétaire (critères documentés pour les pièces jointes de tiers).
+- **Données sensibles** : filtrage local validé sur un corpus, refus manuel (« Toujours
+  garder en local »), contrôle avant envoi à l'assistant (`POST /v1/chat/preview`),
+  `lifeos-admin sensitivity-check`.
+- Dépendances mises à jour pour des failles publiées : Next.js 16.4.3, Pillow 13.0,
+  filelock, certifi.
+
+### Données et vie privée
+
+- **Effacement complet** : supprimer un objet efface aussi ses vecteurs, son original, les
+  réponses gardées par idempotence, les propositions, rappels et bilans qui le citent ; un
+  fait part avec tout son historique de corrections ; ce qui a été tiré d'une entrée de
+  journal ou d'une conversation est montré et gardé, sauf choix contraire.
+- Approbations décidées et notifications lues purgées après 90 jours.
+- Délai de disparition des sauvegardes explicite : **sous 23 jours** (35 au plus si des
+  nuits manquent), copie hors site comprise ; `restore.sh` rejoue de lui-même les
+  effacements faits depuis la sauvegarde restaurée.
+- **Quotas IA fiables en concurrence** : chaque appel réserve sa part des plafonds avant de
+  partir ([ADR 0010](docs/adr/0010-reservation-des-quotas-llm.md)).
+
+### Exploitation
+
+- **Derrière un reverse proxy existant** (Nginx Proxy Manager) : `install.sh
+  --behind-proxy`, aucun port publié, adresse réelle du client conservée.
+- **Sauvegardes automatiques** (timers systemd) avec copie hors machine, paires base +
+  originaux cohérentes, alertes d'échec (ntfy), exercice de restauration scripté
+  ([restauration.md](docs/restauration.md)), `lifeos-admin verify-data`.
+- **Alertes opérationnelles** (profil `monitoring`) : indisponibilité, disque, workers,
+  file en retard, sauvegardes, certificats, signal de vie ; notifications sans donnée
+  personnelle.
+- **Mises à jour** : `infra/scripts/update.sh` (sauvegarde préalable, contrôle de santé,
+  retour arrière, y compris avec migration) ; chaque migration redescend puis remonte.
+- **Recette sur le serveur cible** : `infra/scripts/recette.sh` mesure temps et pointes de
+  mémoire ([recette-serveur.md](docs/recette-serveur.md)).
+
+### Comptes connectés (étape 5, début)
+
+- **Socle OAuth** ([ADR 0012](docs/adr/0012-connecteurs-oauth.md)), Google en premier
+  fournisseur : jetons chiffrés, consentement par espace et par usage, renouvellement,
+  reconnexion, déconnexion avec révocation chez le fournisseur, aucun jeton dans les
+  journaux. Panneau « Comptes connectés » dans les réglages
+  ([guide-google.md](docs/guide-google.md)). L'agenda et les e-mails eux-mêmes viennent
+  ensuite.
+
 ## [1.0.0] — 2026-10-12
 
 Première version livrable. Elle couvre les étapes 0 à 4 de la feuille de route

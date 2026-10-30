@@ -56,9 +56,23 @@ export interface Task {
   source_id: Uuid | null;
   /** Goal this task contributes to (F06). */
   goal_id: Uuid | null;
+  /** Free labels (F03 classification), normalised by the API. */
+  tags: string[];
+  /** Every task this one waits for, finished or not. */
+  depends_on: Uuid[];
+  /** Those still open: why the task is blocked. */
+  blocked_by: TaskBlocker[];
+  /** Open and waiting for an open task: it can be neither started nor finished. */
+  blocked: boolean;
   version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaskBlocker {
+  id: Uuid;
+  title: string;
+  status: TaskStatus;
 }
 
 export interface JournalEntry {
@@ -161,6 +175,41 @@ export interface SendResult {
   suggested_agent: AgentName | null;
 }
 
+/** Identifiers masked locally before a message leaves the server (kinds, never values). */
+export type MaskKind =
+  | "email"
+  | "phone"
+  | "iban"
+  | "card"
+  | "nir"
+  | "secret"
+  | "passport"
+  | "id_number"
+  | "tax_number";
+export type MaskCounts = Partial<Record<MaskKind, number>>;
+/** Why an attached document stays on the server. */
+export type AttachmentRefusal =
+  | "not_allowed"
+  | "not_found"
+  | "not_ready"
+  | "sensitive"
+  | "local_only"
+  | "unreadable";
+
+export interface AttachmentPreview {
+  document_id: Uuid;
+  sent: boolean;
+  reason: AttachmentRefusal | null;
+  sensitivity: SensitivityCategory[];
+  masked: MaskCounts;
+}
+
+/** POST /v1/chat/preview: the control before sending (nothing saved, nothing sent). */
+export interface SendPreview {
+  masked: MaskCounts;
+  attachments: AttachmentPreview[];
+}
+
 export interface ConsolidationResult {
   /** Null when nothing durable was found. */
   approval_id: Uuid | null;
@@ -187,7 +236,7 @@ export interface Approval {
   params: Record<string, unknown>;
   preview: { summary?: string; items?: { type: string; text: string; date: string | null }[] } & Record<string, unknown>;
   level: "approval" | "reinforced";
-  status: "pending" | "approved" | "rejected" | "expired" | "executed" | "failed";
+  status: "pending" | "approved" | "rejected" | "expired" | "executed" | "failed" | "invalidated";
   requested_by: string;
   created_at: string;
   expires_at: string;
@@ -208,6 +257,57 @@ export interface NotificationItem {
   source_id: Uuid | null;
   deliver_after: string;
   created_at: string;
+  read_at: string | null;
+  /** A digest (source_type "digest"): how many suggestions it groups. */
+  items_count: number;
+}
+
+export type NotificationCategory = "important" | "suggestion";
+
+/** A local delivery window, "HH:MM" to "HH:MM" on the same day. */
+export interface NotificationWindow {
+  start: string;
+  end: string;
+}
+
+export interface NotificationCategoryPreference {
+  category: NotificationCategory;
+  enabled: boolean;
+  max_per_day: number | null;
+  /** important only; empty: any time outside quiet hours. */
+  windows: NotificationWindow[];
+  /** suggestion only: local times of the digests ("HH:MM"). */
+  digest_times: string[];
+}
+
+export interface NotificationPreferences {
+  categories: NotificationCategoryPreference[];
+  /** Read only here: changed through PATCH /v1/settings (passkey confirmation). */
+  critical_bypass_quiet_hours: boolean;
+}
+
+/** GET /v1/notifications/push/config (503 push_not_configured when disabled). */
+export interface PushConfig {
+  enabled: boolean;
+  /** applicationServerKey (VAPID public key, base64url). */
+  public_key: string;
+}
+
+/** What the lock screen shows: a generic text, or the notification's title. */
+export type PushPreview = "generic" | "full";
+
+/** A phone or browser receiving Web Push (never its endpoint nor its keys). */
+export interface PushDevice {
+  id: Uuid;
+  label: string;
+  preview: PushPreview;
+  user_agent: string | null;
+  created_at: string;
+  consented_at: string;
+  last_success_at: string | null;
+  failure_count: number;
+  /** Registered by the session of this browser. */
+  current: boolean;
 }
 
 export type SearchType =
@@ -272,6 +372,83 @@ export interface Dashboard {
     daily_request_caps: Record<LLMTier, number>;
     cost_month_usd: string;
   };
+  /** Task 23 (optional additions). */
+  agenda_today?: AgendaItem[];
+  week?: DashboardWeek | null;
+  suggestions?: DashboardSuggestion[];
+  sources?: Partial<Record<CardId, CardSource>>;
+  layout?: DashboardLayout | null;
+}
+
+export type CardId =
+  | "priorities"
+  | "agenda"
+  | "week"
+  | "suggestions"
+  | "journal"
+  | "approvals"
+  | "memory"
+  | "budget"
+  | "assistant";
+
+/** One line of the home agenda; "busy" is the time of another space (nothing else). */
+export interface AgendaItem {
+  kind: "event" | "busy" | "task" | "milestone" | "payment";
+  title: string;
+  /** Local day it is listed under (YYYY-MM-DD). */
+  day: string;
+  /** Instants with the offset of the owner's zone; null for an all-day item. */
+  start: string | null;
+  end: string | null;
+  all_day: boolean;
+  space_id: Uuid | null;
+  source_type: string | null;
+  source_id: Uuid | null;
+  source_label: string | null;
+  href: string | null;
+  synced_at: string | null;
+  detail: string | null;
+  tentative: boolean;
+  blocked: boolean;
+}
+
+export interface DashboardWeek {
+  start: string;
+  end: string;
+  timezone: string;
+  days: { date: string; items: AgendaItem[] }[];
+  calendars: number;
+  synced_at: string | null;
+}
+
+export interface DashboardSuggestion {
+  text: string;
+  why: string | null;
+  source_type: "review" | "notification" | "budget";
+  source_id: Uuid;
+  source_label: string;
+  date: string;
+  href: string;
+  space_id: Uuid | null;
+}
+
+/** What a card's figures rest on. */
+export interface CardSource {
+  origin: "local" | "calendar" | "review";
+  as_of: string | null;
+  count?: number | null;
+}
+
+export interface LayoutCard {
+  id: CardId;
+  visible: boolean;
+}
+
+export interface DashboardLayout {
+  cards: LayoutCard[];
+  default_view: "day" | "week";
+  week_start: "monday" | "today";
+  updated_at: string | null;
 }
 
 export type LLMTier = "fast" | "deep";
@@ -286,6 +463,8 @@ export interface Settings {
   llm_monthly_token_budget: number;
   /** Emergency stop of every cloud call. */
   llm_paused: boolean;
+  /** Critical alerts may go through quiet hours (granted with a passkey confirmation). */
+  critical_bypass_quiet_hours: boolean;
 }
 
 export interface SessionInfo {
@@ -297,6 +476,11 @@ export interface SessionInfo {
   user_agent: string | null;
   ip: string | null;
   current: boolean;
+}
+
+/** `POST /v1/auth/sessions/revoke-others`: sessions signed out (the current one stays). */
+export interface RevokedSessions {
+  revoked: number;
 }
 
 export interface Passkey {
@@ -340,15 +524,22 @@ export interface LLMUsage {
   /** free: daily request caps (no billing account); paid: cost budgets in USD. */
   billing: "free" | "paid";
   models: Record<LLMTier, string | null>;
+  /** Includes the calls still running (their quota is reserved, ADR 0010). */
   requests_today: Record<LLMTier, number>;
+  /** Calls currently holding a reservation. */
+  in_flight: Record<LLMTier, number>;
+  /** Enforced caps: the configured ones minus `daily_request_margin`. */
   daily_request_caps: Record<LLMTier, number>;
+  daily_request_margin: number;
   quota_resets_at: string;
   month_tokens_used: number;
   month_token_budget: number;
   cost_today_usd: string;
   cost_month_usd: string;
+  /** Enforced budgets: the configured ones minus the `budget_margin_ratio` share. */
   daily_budget_usd: number;
   monthly_budget_usd: number;
+  budget_margin_ratio: number;
   recent_calls: {
     id: Uuid;
     space_id: Uuid | null;
@@ -383,6 +574,9 @@ export interface Goal {
   start_value: string | null;
   target_value: string | null;
   current_value: string | null;
+  /** Savings goal (task 26): the values are amounts in this currency. */
+  currency?: string | null;
+  monthly_contribution?: Decimal | null;
   start_date: string | null;
   due_date: string | null;
   status: GoalStatus;
@@ -513,7 +707,8 @@ export type DocumentSourceType =
   | "conversation"
   | "task"
   | "goal"
-  | "transaction";
+  | "transaction"
+  | "mail_message";
 
 /** Local receipt reading (UC02), stored in `analysis.receipt`; never applied by itself. */
 export interface ReceiptAnalysis {
@@ -549,6 +744,8 @@ export interface DocumentSummary {
   /** Machine-readable reason of a pending (retry) or failed status. */
   error: string | null;
   sensitivity: SensitivityCategory[];
+  /** « Toujours garder en local »: the owner's choice, whatever the detection finds. */
+  local_only: boolean;
   /** "pdf" (text layer), "ocr", "text" (plain text file), "speech" (dictation). */
   text_source: string | null;
   text_confidence: number | null;
@@ -556,11 +753,17 @@ export interface DocumentSummary {
   processed_at: string | null;
   text_corrected_at: string | null;
   original_available: boolean;
+  /** Kept and, for a picture, re-encoded from its pixels: the server serves it. */
+  original_downloadable: boolean;
   /** Purge date of the original; null while it is kept indefinitely. */
   original_until: string | null;
   keep_original: boolean;
   source_type: DocumentSourceType | null;
   source_id: Uuid | null;
+  /** A third party's file (e-mail attachment): who sent it. */
+  received_from?: string | null;
+  /** Active content found in a PDF from a third party (warning, never a refusal). */
+  active_content?: string[];
   analysis: DocumentAnalysis | null;
   version: number;
   created_at: string;
@@ -603,6 +806,10 @@ export interface Transaction {
   category_confirmed: boolean;
   source_type: "manual" | "receipt" | "import";
   document_id: Uuid | null;
+  /** The CSV import it came from (task 25). */
+  import_id?: Uuid | null;
+  /** The recurring item it pays (task 26). */
+  recurring_id?: Uuid | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -668,6 +875,76 @@ export interface BudgetSnapshot {
   alerts: { category_id: Uuid; name: string; budget: Decimal; spent: Decimal; ratio: number }[];
 }
 
+// --- Connected accounts (ADR 0012) --------------------------------------------------------
+
+export type ConnectorCapability = "calendar.read" | "calendar.write" | "mail.read" | "mail.send";
+export type ConnectorStatus = "active" | "reauth_required" | "revoked";
+
+export interface ConnectorProvider {
+  name: string;
+  label: string;
+  capabilities: ConnectorCapability[];
+}
+
+/** The owner's consent: this account may serve this capability in this space. */
+export interface ConnectorGrant {
+  id: Uuid;
+  space_id: Uuid;
+  capability: ConnectorCapability;
+  created_at: string;
+  expires_at: string | null;
+}
+
+/** A calendar or a mail label mapped to a space. */
+export interface ConnectorSource {
+  id: Uuid;
+  space_id: Uuid;
+  kind: "calendar" | "mail_label";
+  name: string;
+  enabled: boolean;
+  last_synced_at: string | null;
+  last_error: string | null;
+}
+
+export interface ConnectorAccount {
+  id: Uuid;
+  provider: string;
+  email: string | null;
+  status: ConnectorStatus;
+  /** What the provider actually granted (the owner may untick accesses there). */
+  capabilities: ConnectorCapability[];
+  grants: ConnectorGrant[];
+  sources: ConnectorSource[];
+  connected_at: string;
+  revoked_at: string | null;
+  last_error: string | null;
+}
+
+export interface OAuthStart {
+  authorization_url: string;
+}
+
+export interface OAuthResult {
+  account: ConnectorAccount;
+  space_id: Uuid;
+  requested: ConnectorCapability[];
+  granted: ConnectorCapability[];
+  missing: ConnectorCapability[];
+  /** Reconnection: tokens restored, consents per space unchanged (none added). */
+  reconnected: boolean;
+}
+
+export interface DisconnectResult {
+  account_id: Uuid;
+  /**
+   * "failed": the provider could not revoke; "manual_required": the tokens were already wiped
+   * (reconnection needed), nothing to revoke with. Either way, the owner should withdraw
+   * LifeOS's access in the account's own settings.
+   */
+  remote_revocation: "done" | "failed" | "manual_required" | "not_needed";
+  purged: boolean;
+}
+
 // --- Voice (UC01) ------------------------------------------------------------------------
 
 export interface VoiceStatus {
@@ -686,4 +963,405 @@ export interface Dictation {
   duration: number | null;
   expires_at: string;
   created_at: string;
+}
+
+/** Something saved from a journal entry or a conversation, listed before deleting it. */
+export interface DerivedItem {
+  type: "fact" | "task" | "memory";
+  id: Uuid;
+  /** Statement or title. */
+  text: string;
+}
+
+// --- Calendar (task 14) ------------------------------------------------------------------
+
+/** A calendar of a connected account, read live at the provider. */
+export interface RemoteCalendar {
+  provider_ref: string;
+  name: string;
+  primary: boolean;
+  read_only: boolean;
+  /** Already followed: the source and the space it feeds. */
+  source_id: Uuid | null;
+  space_id: Uuid | null;
+}
+
+/** An occurrence synced from a followed calendar. Its texts come from third parties. */
+export interface CalendarEvent {
+  id: Uuid;
+  space_id: Uuid;
+  source_id: Uuid;
+  source_name: string;
+  synced_at: string | null;
+  summary: string;
+  description: string | null;
+  location: string | null;
+  all_day: boolean;
+  /** Timed: ISO 8601 with the offset of the owner's time zone. */
+  starts_at: string | null;
+  ends_at: string | null;
+  /** All-day: dates, `end_date` exclusive. */
+  start_date: string | null;
+  end_date: string | null;
+  timezone: string | null;
+  status: "confirmed" | "tentative";
+  busy: boolean;
+  recurring: boolean;
+  response: string | null;
+  /** Its account may modify this calendar in this space: moving or cancelling it proposes an approval. */
+  editable?: boolean;
+}
+
+export interface CalendarEvents {
+  items: CalendarEvent[];
+  /** The owner's time zone, in which the times above are written. */
+  timezone: string;
+}
+
+/** A followed calendar the owner consented to modify (task 16). */
+export interface WritableCalendar {
+  source_id: Uuid;
+  name: string;
+  account_id: Uuid;
+}
+
+/** Preview of a calendar change (approvals calendar.*), built by the server from the
+ * provider's state: times are already written in the owner's zone. */
+export interface CalendarPreview {
+  operation: "create" | "move" | "cancel";
+  calendar: string;
+  summary: string;
+  summary_line: string;
+  timezone: string;
+  before?: string;
+  after?: string;
+  location?: string;
+  attendees: string[];
+  notify: boolean;
+  shared: boolean;
+  recurring?: boolean;
+  notes: string[];
+}
+
+// --- Planning (task 15) ------------------------------------------------------------------
+
+/** An occurrence used by planning; another space's shows no title and no id. */
+export interface PlanningBusy {
+  event_id: Uuid | null;
+  label: string;
+  start: string;
+  end: string;
+  tentative: boolean;
+}
+
+export interface PlanningConflict {
+  first: PlanningBusy;
+  second: PlanningBusy;
+  start: string;
+  end: string;
+}
+
+export interface PlanningConflicts {
+  items: PlanningConflict[];
+  synced_at: string | null;
+  calendars: number;
+}
+
+export interface PlanningSlot {
+  start: string;
+  end: string;
+  /** What the proposal rests on (duration, availability, margin, freshness). */
+  assumptions: string[];
+  events_used: PlanningBusy[];
+}
+
+export interface PlanningSlots {
+  items: PlanningSlot[];
+  task_title: string | null;
+  synced_at: string | null;
+  calendars: number;
+}
+
+// --- E-mails (task 17) ---------------------------------------------------------------------
+
+/** A mail label of a connected account, read live at the provider. */
+export interface RemoteLabel {
+  provider_ref: string;
+  name: string;
+  primary: boolean;
+  /** Already followed: the source and the space it feeds. */
+  source_id: Uuid | null;
+  space_id: Uuid | null;
+}
+
+/** A copied e-mail. Every text in it was written by a third party: plain text only. */
+export interface MailSummary {
+  id: Uuid;
+  space_id: Uuid;
+  source_id: Uuid;
+  source_name: string;
+  from_name: string | null;
+  from_address: string | null;
+  subject: string;
+  snippet: string;
+  received_at: string;
+  attachments: number;
+  sensitivity: SensitivityCategory[];
+}
+
+export interface MailAttachment {
+  part_id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  /** Imported into Documents by the owner. */
+  document_id: Uuid | null;
+}
+
+export interface MailDetail extends MailSummary {
+  to_addresses: string[];
+  cc_addresses: string[];
+  body_text: string;
+  body_truncated: boolean;
+  attachment_list: MailAttachment[];
+  synced_at: string | null;
+}
+
+// --- Sending e-mails (task 18) ---------------------------------------------------------------
+
+/** draft: being written; awaiting_approval: the owner has to decide; sending: approved, the
+ * provider is being called; unknown: maybe sent (checked, never resent); failed: nothing was
+ * sent; sent: accepted by the provider. */
+export type DraftState = "draft" | "awaiting_approval" | "sending" | "unknown" | "failed" | "sent";
+
+export interface DraftAttachment {
+  document_id: Uuid;
+  title: string | null;
+  mime: string | null;
+  size_bytes: number | null;
+  sensitivity: SensitivityCategory[];
+  local_only: boolean;
+  available: boolean;
+}
+
+export interface MailDraft {
+  id: Uuid;
+  space_id: Uuid;
+  account_id: Uuid | null;
+  from_address: string | null;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  body: string;
+  attachments: DraftAttachment[];
+  in_reply_to_id: Uuid | null;
+  reply: boolean;
+  state: DraftState;
+  approval_id: Uuid | null;
+  approval_level: "approval" | "reinforced" | null;
+  error: string | null;
+  sent_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SendAccount {
+  id: Uuid;
+  email: string | null;
+  provider: string;
+}
+
+/** Preview of an e-mail send approval: exactly the message that will leave. After the
+ * retention delay, only `redacted`, the summary line and the counts remain. */
+export interface EmailPreview {
+  redacted?: boolean;
+  from?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: string;
+  attachments?: {
+    title: string;
+    filename: string;
+    mime: string;
+    size_bytes: number;
+    sensitivity: string[];
+    local_only: boolean;
+  }[];
+  reply?: boolean;
+  new_recipients?: string[];
+  reinforced?: boolean;
+  summary_line: string;
+  notes?: string[];
+  recipients?: number;
+}
+
+// --- Bank statement imports (task 25) ------------------------------------------------------
+
+export type ImportStatus = "preview" | "committed" | "undone";
+export type ImportRowStatus =
+  | "pending"
+  | "valid"
+  | "invalid"
+  | "in_file_duplicate"
+  | "already_imported"
+  | "possible_duplicate";
+export type DateFormat = "DD/MM/YYYY" | "DD/MM/YY" | "YYYY-MM-DD" | "DD.MM.YYYY" | "DD-MM-YYYY";
+
+export interface ImportMapping {
+  date_column: number;
+  date_format: DateFormat;
+  label_column: number;
+  amount_mode: "signed" | "debit_credit";
+  amount_column: number | null;
+  debit_column: number | null;
+  credit_column: number | null;
+  decimal_separator: "," | ".";
+  reference_column: number | null;
+  currency_column: number | null;
+  currency: string;
+}
+
+export interface FinanceImport {
+  id: Uuid;
+  space_id: Uuid;
+  status: ImportStatus;
+  filename: string | null;
+  account_label: string | null;
+  encoding: "utf-8" | "cp1252";
+  delimiter: string;
+  header: string[];
+  sample: string[][];
+  suggested_mapping: ImportMapping | null;
+  mapping: ImportMapping | null;
+  row_count: number;
+  counts: Partial<Record<ImportRowStatus, number>>;
+  to_import: number;
+  totals: { expenses: Decimal; income: Decimal; other_currency: number } | null;
+  imported_count: number;
+  skipped_count: number;
+  edited_count: number;
+  already_imported_file: boolean;
+  expires_at: string;
+  committed_at: string | null;
+  undone_at: string | null;
+  version: number;
+  created_at: string;
+}
+
+export interface ImportRow {
+  line_no: number;
+  status: ImportRowStatus;
+  reason: string | null;
+  cells: string[];
+  tx_date: string | null;
+  amount: Decimal | null;
+  direction: "expense" | "income" | null;
+  currency: string | null;
+  label: string | null;
+  merchant: string | null;
+  category_id: Uuid | null;
+  match_id: Uuid | null;
+  match_date: string | null;
+}
+
+// --- Recurring items and projections (task 26) ---------------------------------------------
+
+export type Cadence = "once" | "weekly" | "monthly" | "quarterly" | "yearly";
+export type Basis = "known" | "scheduled" | "estimated";
+
+export interface RecurringItem {
+  id: Uuid;
+  space_id: Uuid;
+  label: string;
+  merchant: string | null;
+  amount: Decimal;
+  amount_is_estimate: boolean;
+  amount_low: Decimal | null;
+  amount_high: Decimal | null;
+  direction: "expense" | "income";
+  currency: string;
+  category_id: Uuid | null;
+  cadence: Cadence;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+  next_date: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectionItem {
+  label: string;
+  direction: "expense" | "income";
+  basis: Basis;
+  source: "transactions" | "recurring" | "baseline";
+  amount: Decimal;
+  low: Decimal;
+  high: Decimal;
+  occurrences: number;
+  recurring_id: Uuid | null;
+  category_id: Uuid | null;
+}
+
+export interface ProjectionMonth {
+  month: string;
+  state: "current" | "future";
+  known_income: Decimal;
+  known_expenses: Decimal;
+  scheduled_income: Decimal;
+  scheduled_expenses: Decimal;
+  estimated_income: Decimal;
+  estimated_income_low: Decimal;
+  estimated_income_high: Decimal;
+  estimated_expenses: Decimal;
+  estimated_expenses_low: Decimal;
+  estimated_expenses_high: Decimal;
+  balance: Decimal;
+  balance_low: Decimal;
+  balance_high: Decimal;
+  cumulative: Decimal;
+  cumulative_low: Decimal;
+  cumulative_high: Decimal;
+  items: ProjectionItem[];
+}
+
+export interface SavingsGoalProjection {
+  goal_id: Uuid;
+  title: string;
+  currency: string;
+  target: Decimal;
+  saved: Decimal;
+  saved_at: string | null;
+  remaining: Decimal;
+  reached: boolean;
+  contribution: Decimal | null;
+  contribution_source: "declared" | "estimated" | "none";
+  eta_month: string | null;
+  eta_early: string | null;
+  eta_late: string | null;
+  due_date: string | null;
+  on_track: boolean | null;
+}
+
+export interface ProjectionNote {
+  code: string;
+  label: string;
+  value: string | null;
+}
+
+export interface FinanceProjection {
+  space_id: Uuid;
+  currency: string;
+  today: string;
+  horizon: number;
+  baseline: { months: number; start: string | null; end: string | null };
+  months: ProjectionMonth[];
+  savings_goals: SavingsGoalProjection[] | null;
+  assumptions: ProjectionNote[];
+  warnings: ProjectionNote[];
 }

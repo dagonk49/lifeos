@@ -42,7 +42,7 @@ export function ReviewView({
           <h2 ref={headingRef} tabIndex={-1} className="scroll-mt-32 text-lg font-semibold outline-none">
             {label}
           </h2>
-          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
             <Badge tone={isAutomatic(review.generated_by) ? "blue" : "teal"}>
               {generatedByLabel(review.generated_by)}
             </Badge>

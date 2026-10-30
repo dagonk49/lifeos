@@ -1,8 +1,47 @@
+# Prometheus of LifeOS (compose profile `monitoring`, docs/exploitation.md §5).
+# Started by entrypoint.sh, which writes the public probe targets from LIFEOS_DOMAIN to
+# /tmp/targets/public.yml (Prometheus does not read the environment).
 global:
   scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
+  # API: HTTP, LLM calls, queues, backlog, internal dependencies, version.
   - job_name: lifeos-api
     metrics_path: /metrics/
     static_configs:
       - targets: ["api:8000"]
+
+  # Worker (one process): task runs and heartbeat (LIFEOS_WORKER_METRICS_PORT).
+  - job_name: lifeos-worker
+    static_configs:
+      - targets: ["worker:9101"]
+
+  # The VM: disk, memory, OOM kills, and the backup metrics (textfile collector).
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # LifeOS as the owner's devices reach it: https://<domain>/healthz (api) and /login (web),
+  # through the host's port 443 (Traefik, or the reverse proxy of compose.proxy.yaml).
+  # Module https_reachable: is it up (any certificate); https_verified: would a browser
+  # accept the certificate.
+  - job_name: public
+    metrics_path: /probe
+    file_sd_configs:
+      - files: [/tmp/targets/public.yml]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

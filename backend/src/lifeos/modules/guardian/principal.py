@@ -7,12 +7,24 @@ from typing import Literal
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lifeos.core.errors import not_found
+from lifeos.core.errors import ProblemError
 from lifeos.core.security import utcnow
 from lifeos.modules.guardian.models import AgentPermission
 from lifeos.modules.identity.models import Space
 
 Grant = tuple[uuid.UUID, str, str]  # (space_id, resource, access)
+
+
+class SpaceAccessDeniedError(ProblemError):
+    """A space outside the principal's, named by the request: 404 rather than 403 (do not
+    reveal what exists elsewhere). Audited at the HTTP layer (lifeos.api.denials)."""
+
+    def __init__(self, principal: "Principal", space_id: uuid.UUID) -> None:
+        super().__init__(404, "space_not_found", "Space not found")
+        self.actor_type = principal.kind
+        self.actor_id = principal.actor_id
+        self.user_id = principal.user_id
+        self.space_id = space_id
 
 
 @dataclass(frozen=True)
@@ -29,7 +41,7 @@ class Principal:
     def require_space(self, space_id: uuid.UUID) -> uuid.UUID:
         # 404 rather than 403: do not reveal what exists outside the allowed spaces.
         if space_id not in self.space_ids:
-            raise not_found("space_not_found", "Space not found")
+            raise SpaceAccessDeniedError(self, space_id)
         return space_id
 
     def spaces_or_all(self, space_id: uuid.UUID | None) -> frozenset[uuid.UUID]:

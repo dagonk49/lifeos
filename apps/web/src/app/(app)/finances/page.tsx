@@ -5,8 +5,11 @@ import { Suspense, useState } from "react";
 
 import { useMe } from "@/components/AppShell";
 import { FinanceCategories } from "@/components/FinanceCategories";
+import { FinanceImport, ImportHistory } from "@/components/FinanceImport";
+import { FinanceProjection } from "@/components/FinanceProjection";
 import { FinanceSummary } from "@/components/FinanceSummary";
 import { ReceiptImport } from "@/components/ReceiptImport";
+import { RecurringList } from "@/components/RecurringList";
 import { TransactionForm } from "@/components/TransactionForm";
 import { TransactionList } from "@/components/TransactionList";
 import { Alert, Button, Card, Empty, PageHeader, Select, Spinner } from "@/components/ui";
@@ -31,17 +34,24 @@ function FinancesView() {
   const budgetSpace = selected ?? (spaces.length === 1 ? (spaces[0]?.id ?? null) : pickedSpace || null);
 
   const receiptId = searchParams.get("receipt");
+  const importId = searchParams.get("import");
+  const [importing, setImporting] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [creating, setCreating] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const setReceiptParam = (id: string | null) => {
+  const setParam = (name: string, id: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (id) params.set("receipt", id);
-    else params.delete("receipt");
+    if (id) params.set(name, id);
+    else params.delete(name);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+  const setReceiptParam = (id: string | null) => setParam("receipt", id);
+  const closeStatement = () => {
+    setImporting(false);
+    if (importId) setParam("import", null);
   };
   const closeImport = () => {
     setScanning(false);
@@ -64,6 +74,18 @@ function FinancesView() {
   return (
     <>
       <PageHeader title="Finances">
+        {!importing && !importId && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setNotice(null);
+              setImporting(true);
+            }}
+          >
+            Importer un relevé (CSV)
+          </Button>
+        )}
         {!scanning && !receiptId && (
           <Button
             size="sm"
@@ -90,8 +112,8 @@ function FinancesView() {
         )}
       </PageHeader>
       <p className="-mt-2 mb-4 text-sm text-stone-600 dark:text-stone-400">
-        Calculé localement, au centime près. Aucune connexion bancaire : vous saisissez vos opérations ou scannez vos
-        tickets, et LifeOS n&apos;effectue jamais aucun paiement.
+        Calculé localement, au centime près. Aucune connexion bancaire : vous saisissez vos opérations, scannez vos
+        tickets ou importez le relevé CSV exporté depuis votre banque, et LifeOS n&apos;effectue jamais aucun paiement.
       </p>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -138,6 +160,16 @@ function FinancesView() {
         <div className="mb-4">
           <Alert tone="success">{notice}</Alert>
         </div>
+      )}
+
+      {(importing || importId) && (
+        <FinanceImport
+          key={importId ?? "new"}
+          importId={importId}
+          defaultSpaceId={budgetSpace}
+          onCreated={(id) => setParam("import", id)}
+          onClose={closeStatement}
+        />
       )}
 
       {(scanning || receiptId) && (
@@ -191,6 +223,16 @@ function FinancesView() {
           </div>
         )}
       </div>
+
+      {budgetSpace && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
+          <FinanceProjection key={budgetSpace} spaceId={budgetSpace} />
+          <div className="flex flex-col gap-4">
+            <RecurringList key={budgetSpace} spaceId={budgetSpace} today={today} />
+            <ImportHistory spaceId={budgetSpace} onOpen={(id) => setParam("import", id)} />
+          </div>
+        </div>
+      )}
     </>
   );
 }

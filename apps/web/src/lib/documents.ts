@@ -65,6 +65,7 @@ export const SOURCE_TYPE_LABELS: Record<DocumentSourceType, string> = {
   task: "Tâche",
   goal: "Objectif",
   transaction: "Opération",
+  mail_message: "E-mail",
 };
 
 // --- Filters and queries ---------------------------------------------------------------
@@ -143,6 +144,13 @@ export function isInProgress(status: DocumentStatus | undefined): boolean {
 export const DETAIL_POLL_MS = 2_000;
 export const LIST_POLL_MS = 5_000;
 
+/** The original can be downloaded. A picture only once the server re-encoded it from its
+ * pixels (no GPS or other metadata): until then the server refuses it (409), even when its
+ * reading failed (the upload is kept to be read again, never served). */
+export function canDownloadOriginal(document: Pick<DocumentSummary, "original_downloadable">): boolean {
+  return document.original_downloadable;
+}
+
 /** refetchInterval of a document detail: poll while it is being read. */
 export function detailPollInterval(status: DocumentStatus | undefined): number | false {
   return isInProgress(status) ? DETAIL_POLL_MS : false;
@@ -165,6 +173,8 @@ const ERROR_EXPLANATIONS: Record<string, string> = {
   original_purged: "L'original n'est plus conservé : le document ne peut plus être lu.",
   original_unreadable: "L'original chiffré n'a pas pu être déchiffré.",
   processing_error: "Erreur inattendue pendant la lecture.",
+  extraction_crashed:
+    "La lecture a échoué plusieurs fois de suite (fichier endommagé, ou serveur à court de mémoire) : vous pouvez la relancer.",
   extraction_unavailable: "Lecture locale indisponible pour le moment : nouvel essai automatique dans quelques minutes.",
   documents_unavailable:
     "Le stockage des documents est indisponible sur le serveur : nouvel essai automatique dans quelques minutes.",
@@ -402,6 +412,7 @@ export function sourceLink(type: DocumentSourceType | null, id: string | null): 
     conversation: "/chat",
     message: "/chat",
     transaction: "/finances",
+    mail_message: `/mail?id=${encodeURIComponent(id)}`,
   };
   return { label, href: pages[type] ?? "/" };
 }

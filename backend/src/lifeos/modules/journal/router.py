@@ -11,6 +11,7 @@ from lifeos.core.pagination import Page
 from lifeos.modules.guardian.schemas import ApprovalOut
 from lifeos.modules.journal import service
 from lifeos.modules.journal.schemas import JournalEntryCreate, JournalEntryOut, JournalEntryUpdate
+from lifeos.modules.privacy.schemas import DerivedOut
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
@@ -67,9 +68,16 @@ async def update_entry(
     )
 
 
+@router.get("/{entry_id}/derived")
+async def derived(entry_id: uuid.UUID, ctx: CtxDep) -> DerivedOut:
+    """What was saved from this entry: shown before deleting it."""
+    return DerivedOut.of(await service.derived(ctx, entry_id))
+
+
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_entry(entry_id: uuid.UUID, ctx: CtxDep) -> None:
-    await service.delete_entry(ctx, entry_id)
+async def delete_entry(entry_id: uuid.UUID, ctx: CtxDep, with_derived: bool = False) -> None:
+    """Erasure; `with_derived=true` also erases the facts and tasks saved from it."""
+    await service.delete_entry(ctx, entry_id, with_derived=with_derived)
 
 
 @router.post("/{entry_id}/analyze", status_code=status.HTTP_201_CREATED)

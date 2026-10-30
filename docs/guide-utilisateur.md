@@ -1,4 +1,4 @@
-# Guide d'utilisation — LifeOS 1.0
+# Guide d'utilisation de LifeOS
 
 LifeOS est votre assistant personnel, hébergé chez vous. Vos données restent sur votre
 serveur. L'assistant IA (Gemini) n'est sollicité que pour les espaces où vous l'avez
@@ -20,20 +20,142 @@ autorisé, avec un contexte minimal et masqué. Rien d'important n'est fait sans
 
 Vous vous connectez avec une **passkey** (empreinte, visage ou code de l'appareil), sans mot
 de passe. Ajoutez une deuxième passkey sur un autre appareil dans **Réglages → Appareils et
-passkeys** ; cette page liste aussi les sessions ouvertes, que vous pouvez révoquer.
+passkeys** ; cette page liste aussi les sessions ouvertes, que vous pouvez révoquer une à une.
+Téléphone perdu, session que vous ne reconnaissez pas : **Déconnecter les autres sessions**
+ferme d'un coup toutes les sessions sauf celle de l'appareil que vous tenez (votre passkey
+est demandée si votre connexion date de plus de 10 minutes). L'appareil déconnecté revient à
+la page de connexion à sa prochaine action.
+
+## Appareil perdu ou volé
+
+Gardez toujours **au moins deux passkeys** sur deux appareils différents (téléphone et
+ordinateur, ou clé de sécurité) : c'est votre secours.
+
+**Vous avez encore un autre appareil connecté** (ou une autre passkey) :
+
+1. Sur cet appareil, ouvrez **Réglages → Appareils et passkeys**.
+2. **Révoquer** la passkey de l'appareil perdu (votre passkey est redemandée si votre
+   connexion date de plus de 10 minutes). Les sessions ouvertes avec cette passkey sont
+   fermées en même temps : l'appareil perdu ne peut plus rien lire ni rien faire.
+3. Par prudence, **Déconnecter les autres sessions** ferme aussi toutes les autres.
+4. Si l'appareil perdu portait un compte Google connecté à LifeOS, rien à faire de plus
+   côté LifeOS : les jetons restent sur votre serveur. Changez néanmoins les accès de votre
+   compte Google si l'appareil lui-même y était connecté.
+
+LifeOS refuse de révoquer votre **dernière** passkey (« Impossible de révoquer votre
+dernière passkey ») : ajoutez-en d'abord une autre sur un appareil que vous avez en main
+(**Ajouter une passkey**), puis révoquez l'ancienne.
+
+**Vous n'avez plus aucun appareil connecté** : la récupération se fait sur le serveur, par
+la personne qui l'administre (vous, en général), avec un accès SSH à la VM :
+
+```bash
+cd /opt/lifeos/infra
+docker compose exec api lifeos-admin revoke-sessions --email moi@exemple.fr    # ferme toutes les sessions
+docker compose exec api lifeos-admin enrollment-token --email moi@exemple.fr   # lien d'enrôlement, 15 minutes
+```
+
+Ouvrez le lien sur votre nouvel appareil pour y créer une passkey, puis, une fois connecté,
+révoquez dans **Réglages → Appareils et passkeys** la passkey de l'appareil perdu.
+
+Une passkey **synchronisée** (badge « Synchronisée » : trousseau Apple, gestionnaire de mots
+de passe Google…) se retrouve sur vos autres appareils du même compte : si c'est ce compte
+qui est compromis, révoquez aussi cette passkey et changez le mot de passe du compte.
+
+Serveur perdu (VM, disque) : voir le [plan de reprise](restauration.md), qui ne demande que
+la fiche de récupération.
+
+## Clavier et téléphone
+
+Tout se fait au clavier. Le premier appui sur Tab affiche **Aller au contenu**, qui saute
+l'en-tête et la navigation. Raccourcis :
+
+- **Assistant** : sur un ordinateur, Entrée envoie le message et Maj+Entrée va à la ligne.
+  Sur un écran tactile, Entrée va à la ligne et c'est le bouton **Envoyer** qui envoie (une
+  phrase sous le champ le rappelle).
+- **Échap** ferme le panneau des notifications (le focus revient au bouton) et annule le
+  contrôle « Avant l'envoi » (le message reste tel quel).
+- **Mémoire** : les flèches ← → passent d'un onglet à l'autre, Début et Fin vont au premier
+  et au dernier.
+
+Sur le **téléphone**, utilisez le site dans le navigateur, ou mieux, installez-le (voir
+ci-dessous) :
+
+- l'en-tête défile avec la page ; dans **Assistant**, « Afficher les conversations » déplie la
+  liste au-dessus de la conversation ouverte ;
+- la **dictée** demande l'accès au micro la première fois : le site doit être ouvert en HTTPS
+  sur votre domaine (ou, sur le réseau local seulement, avec l'autorité de certification
+  installée sur le téléphone, voir [installation.md](installation.md)) ;
+- **Scanner un ticket** (Finances) ouvre directement l'appareil photo arrière.
+
+Le thème clair ou sombre suit le réglage de l'appareil. Détails, contrôles et résultats par
+appareil : [accessibilite.md](accessibilite.md).
+
+## Installer LifeOS sur le téléphone
+
+Il n'y a pas d'application à télécharger dans un magasin : LifeOS s'installe depuis le
+navigateur et s'ouvre ensuite depuis son icône, comme une application
+([ADR 0022](adr/0022-client-mobile-web-dabord.md)).
+
+- **Android** (Chrome ou Edge) : **Réglages → Installer LifeOS sur le téléphone →
+  Installer LifeOS**, ou menu ⋮ → « Installer l'application » (« Ajouter à l'écran
+  d'accueil »).
+- **iPhone et iPad** (Safari, iOS 16.4 ou plus récent) : bouton Partager → « Sur l'écran
+  d'accueil ». Ouvrez ensuite LifeOS depuis l'icône et reconnectez-vous avec votre passkey
+  (l'application installée a sa propre connexion). C'est obligatoire pour recevoir les
+  notifications.
+
+Une fois installé :
+
+- **Notifications** : activez-les depuis l'application installée (Réglages →
+  « Notifications sur le téléphone »).
+- **Partager → LifeOS** (Android) : depuis la galerie ou un fichier, partagez une photo de
+  ticket ou un PDF vers LifeOS. La page **Documents** s'ouvre avec le fichier choisi ;
+  choisissez « Document » ou « Ticket de caisse » et l'espace, puis **Envoyer**. Rien n'est
+  envoyé avant votre clic ; si vous quittez la page, partagez le fichier à nouveau. Plusieurs
+  fichiers partagés d'un coup s'envoient un par un. Sur iPhone, utilisez le bouton
+  « Fichier » de la page Documents.
+- **Raccourcis** (Android, appui long sur l'icône) : nouvelle tâche, assistant, envoi d'un
+  document.
+- **Hors connexion** : rien n'est conservé sur le téléphone. Sans réseau ou sans le VPN,
+  LifeOS affiche « LifeOS n'est pas joignable » et un bouton **Réessayer**.
 
 ## Pages
 
 ### Accueil
 
-Briefing du jour :
+Briefing du jour, calculé sur votre serveur sans appel à l'IA (il reste disponible quand le
+cloud ne répond pas) :
 
-- tâches en retard, du jour et à venir ;
-- journal du jour ;
-- approbations en attente ;
-- état de la mémoire ;
-- **budget du mois** (catégories proches de leur budget) ;
-- consommation de l'assistant IA.
+- **priorités** : tâches en retard et du jour ; une tâche bloquée dit ce qu'elle attend, et
+  une tâche née du journal ou de l'assistant porte un lien vers sa source ;
+- **agenda du jour** : les événements des agendas suivis de l'espace choisi, les échéances
+  de vos tâches, les jalons de vos objectifs et les paiements récurrents prévus. Le temps
+  pris dans vos autres espaces apparaît seulement comme « Occupé (autre espace) », sans
+  titre ni détail. Sans agenda suivi, un lien « Connecter un agenda » mène aux réglages ;
+- **conflits** : les événements qui se chevauchent dans les 14 prochains jours ;
+- **cette semaine** : ce que chaque jour contient (nombre d'événements, tâches, jalons,
+  paiements), puis « Voir le détail de la semaine » ;
+- **suggestions** : celles de votre dernier bilan de chaque espace (35 jours au plus), les
+  suggestions regroupées pas encore lues, et les catégories proches de leur budget. Chacune
+  dit **pourquoi** et donne sa **source** (par ex. « Bilan hebdomadaire du 19/10/2026 »,
+  lien vers le bilan) avec sa date ;
+- journal du jour, approbations et notifications non lues (de l'espace choisi), état de la
+  mémoire, **budget du mois**, consommation de l'assistant IA.
+
+Le pied de chaque carte dit d'où viennent ses chiffres : « Calculé localement le … », ou le
+nombre d'agendas suivis et l'heure de leur dernière lecture.
+
+- **Jour / Semaine** : la vue Semaine montre sept jours côte à côte (empilés sur un
+  téléphone), avec « Semaine précédente », « Cette semaine » et « Semaine suivante ». La vue
+  choisie est retenue.
+- **Personnaliser** : affichez ou masquez chaque carte, changez son ordre avec « Monter » et
+  « Descendre » (au clavier comme à la souris), choisissez si la semaine commence le lundi
+  ou aujourd'hui, puis « Enregistrer la disposition ». « Rétablir l'ordre par défaut »
+  remet toutes les cartes. La disposition est enregistrée sur votre serveur : la même sur
+  tous vos appareils. Une nouvelle carte ajoutée par une mise à jour apparaît à la fin.
+
+Chaque carte indique l'heure à laquelle elle a été calculée.
 
 ### Assistant
 
@@ -43,8 +165,14 @@ Briefing du jour :
   dans la liste. À la première utilisation, il demande un accès en lecture limité à ce dont
   il a besoin (90 jours, révocable).
 - **Joindre un document** : le fichier est lu sur votre serveur. Seul son texte accompagne
-  le message, et jamais celui d'un document sensible. « Vérifier le texte » ouvre le document
-  pour corriger la lecture avant d'envoyer.
+  le message, et jamais celui d'un document sensible ou gardé en local. « Vérifier le
+  texte » ouvre le document pour corriger la lecture avant d'envoyer.
+- **Avant l'envoi** : si un identifiant de votre message ou d'une pièce jointe va être
+  masqué (IBAN, téléphone, e-mail…), ou si une pièce jointe reste sur votre serveur, un
+  encadré « Avant l'envoi à l'assistant IA » le dit (par type et par nombre, jamais les
+  valeurs). **Confirmer l'envoi** envoie le message ; **Retirer** enlève une pièce jointe ;
+  **Annuler** (ou Échap) garde le message sans rien envoyer. Sans rien à signaler, le
+  message part directement.
 - **Dicter** : le texte dicté s'ajoute au message, que vous relisez avant d'envoyer.
 - **Écouter** : lit une réponse à voix haute avec une voix de votre appareil. Le bouton
   n'apparaît que si l'appareil a une voix française locale.
@@ -55,8 +183,35 @@ Briefing du jour :
 
 ### Tâches
 
-Création avec priorité, échéance et rappel. Les rappels respectent vos plages de
-tranquillité (**Réglages → Préférences**).
+Une tâche se crée avec une priorité, une échéance, un rappel et des **étiquettes**. Les
+étiquettes sont libres et séparées par des virgules, par exemple « maison, urgent ». Elles
+sont enregistrées en minuscules, 10 au plus. Les rappels respectent vos plages de
+tranquillité (**Réglages → Préférences**) et vos réglages de notifications (**Réglages →
+Notifications**).
+
+**Dépendances.** Une tâche peut en attendre d'autres du même espace. Pour la lier :
+
+- à la création, choisissez **Dépend de** ;
+- ensuite, ouvrez **Dépendances** sous la tâche, choisissez une tâche dans **Attendre
+  aussi**, puis **Lier**.
+
+**Retirer** supprime un lien.
+
+- Une tâche qui attend une tâche encore ouverte est **bloquée**. Elle affiche « Bloquée
+  par « … » » et ne peut être ni commencée ni terminée. Elle peut toujours être annulée ou
+  supprimée.
+- Quand la dernière tâche attendue est terminée ou annulée, la tâche est libérée. Vous
+  recevez une notification « Débloquée : … », une seule fois.
+- LifeOS refuse tout lien qui créerait une boucle (A attend B qui attend A) et ne change
+  rien.
+- Supprimer une tâche attendue libère celles qui l'attendaient.
+
+Le filtre **Afficher** montre les tâches ouvertes, bloquées ou terminées. Le filtre
+**Étiquette** apparaît dès qu'une tâche en porte une. Les tâches bloquées sont listées en
+dernier. L'assistant de planification voit, pour chaque tâche ouverte, ce qui la bloque.
+
+Il n'y a pas encore de **tâches récurrentes** : recréez la tâche après l'avoir terminée
+(décision : [ADR 0013](adr/0013-taches-recurrentes.md)).
 
 ### Journal (et journal oral)
 
@@ -71,10 +226,17 @@ tranquillité (**Réglages → Préférences**).
 Objectifs mesurables (valeur de départ et cible) ou qualitatifs, avec jalons, points d'étape
 et tâches rattachées. La progression est calculée localement.
 
+- **Objectif d'épargne** : un objectif mesurable avec la case « Objectif d'épargne » cochée.
+  Les montants sont en euros, exacts au centime ; indiquez ce qui est déjà épargné, le
+  montant visé et, si vous voulez, le versement mensuel prévu. Chaque point d'étape (« j'ai
+  maintenant 1 500 € ») est le montant **connu** ; la date à laquelle l'objectif sera atteint
+  est **estimée** dans la projection de la page Finances.
+
 ### Documents
 
 - **Envoyer un document** : PDF, photo (JPEG, PNG, WebP, HEIC) ou texte. Choisissez
-  « Document » ou « Ticket de caisse ».
+  « Document » ou « Ticket de caisse ». Depuis le téléphone, un fichier partagé vers LifeOS
+  arrive ici, déjà choisi ([Installer LifeOS sur le téléphone](#installer-lifeos-sur-le-téléphone)).
 - La lecture se fait en arrière-plan (quelques secondes, plus pour un PDF scanné). Le statut
   passe de « Lecture en cours » à « Prêt ».
 - **Texte extrait** : corrigez-le si la lecture est incertaine (la confiance est affichée).
@@ -82,7 +244,16 @@ et tâches rattachées. La progression est calculée localement.
 - **Original** : il est conservé chiffré 90 jours par défaut. Cochez « Conserver l'original
   sans limite » pour le garder. Après la purge, le texte extrait reste disponible.
 - Badges **Identité / Santé / Banque** : document sensible, jamais transmis à l'IA (les
-  raisons sont affichées, sans les valeurs).
+  raisons sont affichées, sans les valeurs). Sont reconnus notamment les pièces d'identité,
+  passeports, titres de séjour, permis, cartes grises, avis d'impôt et de taxe foncière ou
+  d'habitation (identité) ; ordonnances, comptes rendus, analyses, arrêts de travail,
+  décomptes de mutuelle (santé) ; RIB, relevés, bulletins de paie, offres de prêt (banque),
+  même mal lus par l'OCR.
+- **Toujours garder en local** (section « Assistant IA » du document) : votre propre refus,
+  en plus de la détection. Le document n'est plus jamais envoyé à l'IA, même après une
+  correction du texte ou une nouvelle lecture (badge « Gardé en local »). Le décocher demande
+  une confirmation par passkey. Une catégorie détectée ne se lève pas à la main : si la
+  détection s'est trompée, corrigez le texte, elle est refaite.
 - Les documents sont retrouvables dans **Recherche**.
 
 ### Finances
@@ -98,6 +269,39 @@ et tâches rattachées. La progression est calculée localement.
   total en indiquant la ligne d'où vient chaque valeur. Vérifiez et corrigez, puis
   **Ajouter l'opération**. Rien n'est enregistré sans votre clic, et LifeOS prévient si le
   ticket a déjà été enregistré.
+- **Importer un relevé (CSV)** : exportez vos opérations au format CSV depuis l'espace en
+  ligne de votre banque (séparateur `;` ou `,`, montants `1 234,56`, dates `31/12/2026`,
+  encodage UTF-8 ou Windows-1252), puis choisissez le fichier. LifeOS montre les premières
+  lignes telles qu'il les a lues et propose les colonnes (date d'opération, libellé, montant
+  ou débit et crédit) : corrigez-les si besoin, puis **Relire avec ces colonnes**.
+  - Chaque ligne est marquée **Nouvelle**, **Déjà importée**, **Doublon possible** (une
+    opération de même montant déjà saisie ou scannée à quelques jours près : décochée par
+    défaut, cochez-la pour l'importer quand même) ou **Illisible**, avec la raison (par
+    exemple « plus de deux décimales » : un montant n'est jamais arrondi).
+  - Les totaux sont exacts. **Rien n'est enregistré avant « Importer N opérations »**, et
+    « Abandonner cet import » efface l'aperçu. Un aperçu non validé s'efface seul après 24 h.
+  - Réimporter le même fichier (ou un relevé qui chevauche le précédent) n'ajoute que les
+    opérations nouvelles : « 0 nouvelle opération » si tout était connu.
+  - Les opérations importées sont classées par vos règles apprises (« classée
+    automatiquement ») et restent corrigeables.
+  - **Annuler cet import** (carte « Imports de relevés », bouton « Voir ») supprime les
+    opérations qu'il a ajoutées, après une confirmation qui nomme le fichier ; celles que
+    vous aviez corrigées depuis sont supprimées aussi (leur nombre est indiqué).
+  - Le fichier n'est pas conservé. Les identifiants bancaires ne sont jamais demandés.
+- **Échéances récurrentes** : déclarez loyer, salaire, abonnements, factures ou un achat
+  prévu (« Une seule fois »), leur fréquence et leur montant. Un montant fixe est **prévu** ;
+  cochez « Montant variable » pour une facture qui change (électricité) : il est alors
+  **estimé**, avec une fourchette facultative. « Enregistrer cette échéance » pré-remplit
+  l'opération et la rattache à l'échéance, pour qu'elle ne soit pas comptée deux fois.
+- **Projection des prochains mois** : calculée sur votre serveur, jamais par l'IA. Pour
+  chaque mois, les revenus et dépenses **connus** (déjà enregistrés), **prévus** (échéances
+  fixes) et **estimés** (moyenne des derniers mois complets, avec une fourchette du mois le
+  plus bas au plus haut), puis le solde estimé et sa fourchette. Les **hypothèses** sont
+  listées (période de la moyenne, aucune inflation, pas de solde bancaire de départ, euros
+  seulement) et les limites signalées (historique court, autres devises non comptées). Vous
+  choisissez l'horizon et la période de la moyenne. Corriger une opération, une catégorie,
+  une échéance ou un objectif met la projection à jour aussitôt. C'est une estimation, pas
+  un conseil.
 - Aucune connexion bancaire, aucun paiement.
 
 ### Bilans
@@ -126,33 +330,216 @@ et par période. Des expressions comme « la semaine dernière » ou « en mars 
 
 Toute action importante proposée par l'assistant attend ici votre accord : vous voyez
 exactement ce qui sera fait, vous pouvez décocher des éléments, approuver ou refuser.
+Une proposition « Plus valable » ne peut plus être approuvée (l'élément visé a changé, ou
+une proposition plus récente la remplace). Les modifications d'un événement partagé
+demandent votre passkey au moment d'approuver.
 
 ### Réglages
 
-- **Appareils et passkeys** : vos appareils, vos sessions, et leur révocation.
+- **Installer LifeOS sur le téléphone** : le bouton d'installation (Chrome, Edge) ou les
+  étapes (Safari), voir [ci-dessus](#installer-lifeos-sur-le-téléphone).
+- **Appareils et passkeys** : vos appareils, vos sessions, leur révocation une à une ou
+  **Déconnecter les autres sessions**.
+- **Notifications sur le téléphone** (si l'administrateur les a activées) : rappels et
+  alertes sur le téléphone, même LifeOS fermé.
+  - **Activer sur cet appareil** : le navigateur demande la permission (une seule fois).
+    Sur iPhone et iPad, ajoutez d'abord LifeOS à l'écran d'accueil (Partager → « Sur
+    l'écran d'accueil ») et ouvrez-le depuis l'icône : Safari seul ne les reçoit pas.
+  - **Ce qui s'affiche** : par défaut un texte générique sur l'écran verrouillé
+    (« Nouveau rappel », « Nouvelles suggestions », « Alerte »), jamais le contenu. La case
+    **Afficher le titre sur l'écran verrouillé** montre le titre de la notification (jamais
+    son texte) pour cet appareil seulement ; elle demande votre passkey.
+  - Les plages de tranquillité et le regroupement des suggestions s'appliquent : une
+    notification retenue part à la fin des plages, les suggestions arrivent en une seule
+    notification. Une alerte critique ne traverse les plages qu'avec votre permission, et le
+    « Ne pas déranger » du téléphone reste maître.
+  - **Envoyer un test** : une notification de test arrive dans la minute. **Révoquer** (ou
+    **Désactiver sur cet appareil**) arrête aussitôt les envois. Se déconnecter, révoquer la
+    session ou la passkey de l'appareil, ou **Déconnecter les autres sessions** les arrête
+    aussi.
 - **Espaces et assistant IA** : autoriser l'IA par espace, consommation du jour et du mois,
   **pause de l'assistant IA** (arrêt d'urgence : plus aucun appel cloud).
 - **Agents spécialisés / Permissions des agents** : accès accordés, avec leur échéance et
   leur retrait.
-- **Préférences** : nom, fuseau horaire, plages de tranquillité.
-- **Mes données** : export complet (JSON).
-- **Journal d'audit** : qui a fait quoi, sans le contenu.
+- **Comptes connectés** (si l'administrateur les a activés, [guide Google](guide-google.md)) :
+  - **Connecter un compte** : choisir l'espace et cocher les usages (lire ou modifier
+    l'agenda, lire ou envoyer des e-mails), puis accepter chez Google, où vous pouvez encore
+    décocher des accès. Une confirmation par passkey est demandée.
+  - Pour chaque compte, le panneau affiche ce que Google a **réellement** accordé et, espace
+    par espace, les usages autorisés. Cocher un usage demande une passkey (et un nouvel
+    accord chez Google s'il ne l'a pas encore donné) ; décocher le coupe aussitôt.
+  - **Reconnexion nécessaire** : Google n'accepte plus l'accès (autorisation retirée, mot de
+    passe changé, expiration). Les usages sont suspendus jusqu'à « Reconnecter le compte ».
+  - **Déconnecter** révoque l'accès chez Google et efface les jetons. LifeOS demande chaque
+    fois s'il faut garder (par défaut) ou supprimer les données déjà synchronisées. Un
+    compte déconnecté reste listé, sans aucun accès, jusqu'à ce que vous le supprimiez.
+  - **Choisir les agendas à suivre** : pour chaque agenda du compte, l'espace qu'il
+    alimente (seuls les espaces où la lecture de l'agenda est autorisée sont proposés).
+    LifeOS le lit environ toutes les 15 minutes, sur 30 jours passés et un an à venir ;
+    **Synchroniser** le relit tout de suite. **Ne plus suivre** supprime de LifeOS les
+    événements copiés (pas chez Google). Si l'autorisation de l'espace est retirée, la
+    synchronisation s'arrête et le dit.
+  - Page **Agenda** : la semaine de vos agendas suivis, avec la source et l'heure de
+    lecture de chaque événement. En dessous, les **conflits** (événements qui se
+    chevauchent) et **Trouver un créneau** : jusqu'à trois créneaux libres pour une durée,
+    chacun avec ses hypothèses (durée, disponibilités du lundi au vendredi de 9 h à 18 h,
+    marge de 10 min, événements provisoires comptés comme occupés, date de lecture de
+    l'agenda) et les événements autour. Les événements d'un autre espace comptent comme
+    « Occupé (autre espace) », sans titre.
+  - **Modifier l'agenda sous approbation** (il faut avoir autorisé « Modifier l'agenda »
+    pour l'espace) : **Déplacer** et **Annuler l'événement** sous un événement,
+    **Nouvel événement**, et **Bloquer ce créneau** sous un créneau proposé. Aucun de ces
+    boutons ne modifie votre agenda : LifeOS relit l'événement chez Google et vous montre
+    l'aperçu exact (agenda, avant et après à votre heure avec le fuseau, participants, et
+    s'ils seront prévenus). L'agenda ne change qu'une fois que vous approuvez.
+    - Un **événement partagé** (avec d'autres participants, organisé par quelqu'un
+      d'autre, ou dans l'agenda de quelqu'un d'autre) porte la mention « Événement partagé
+      — confirmation par passkey » : votre passkey est demandée au moment d'approuver.
+    - Les participants ne sont prévenus par Google que si vous cochez **Prévenir les
+      participants**.
+    - Si l'événement a changé chez Google depuis l'aperçu, rien n'est modifié : la
+      proposition passe « Plus valable » et vous la refaites. Un double clic, une page
+      rechargée ou une coupure réseau ne créent jamais un deuxième événement.
+    - « Le fournisseur n'a pas confirmé la modification » : Google n'a pas répondu à
+      temps. LifeOS vérifie de lui-même
+      dans les minutes qui suivent, sans rien renvoyer, et la proposition passe
+      « Exécutée » si la modification a bien eu lieu.
+    - Pour un événement récurrent, seule l'occurrence choisie change. Seul l'organisateur
+      peut déplacer un événement ; l'annuler le retire de votre agenda.
+  - **Choisir les libellés à suivre** (e-mails) : pour chaque libellé Gmail (Boîte de
+    réception, Importants, vos libellés…), l'espace qu'il alimente, parmi ceux où la
+    lecture des e-mails est autorisée. Google donne accès à toute la boîte : c'est ce choix
+    qui limite ce que LifeOS copie. Seuls les 90 derniers jours sont copiés, en texte
+    seul, et chaque copie est supprimée 90 jours après sa réception, ou dès que l'e-mail
+    quitte le libellé chez Google (supprimé, corbeille, spam, libellé retiré). **Ne plus
+    suivre** supprime les copies.
+  - Page **E-mails** : les e-mails copiés, en texte brut (images, liens actifs et mise en
+    forme ne sont jamais chargés), sous le bandeau « Contenu externe non fiable » : ce
+    qu'un e-mail demande n'est jamais un ordre pour LifeOS, et l'expéditeur affiché peut
+    être usurpé. Un e-mail sensible (banque, santé, identité) est marqué et ne part jamais
+    à l'assistant.
+    - **Importer dans Documents** : une pièce jointe devient un document seulement sur
+      votre demande, pièce par pièce, avec les mêmes contrôles qu'un envoi. Le document
+      indique « Pièce jointe reçue de … », signale le contenu actif d'un PDF
+      (JavaScript, action à l'ouverture…) et demande confirmation avant de télécharger
+      l'original.
+    - **Discuter de cet e-mail** : ouvre une conversation dans l'espace de l'e-mail et
+      lui joint ce seul message, comme une donnée (adresses et numéros masqués). Il faut
+      que l'IA cloud soit activée pour cet espace. Aucun agent ne lit vos e-mails de
+      lui-même.
+    - **Répondre** : ouvre un brouillon de réponse (destinataire, « Re: » et texte cité
+      préremplis), rattaché à la même conversation chez Gmail.
+  - **Écrire et envoyer un e-mail** (page **E-mails** → **Écrire**), si « Envoyer des
+    e-mails » est autorisé pour l'espace :
+    1. Choisissez le compte d'envoi, les destinataires (À, Cc, Cci : adresses séparées par
+       des virgules), l'objet, le texte (texte brut) et, si besoin, des documents de
+       l'espace en pièces jointes (10 Mo en tout). **Enregistrer le brouillon** ne fait que
+       le garder.
+    2. **Préparer l'envoi** n'envoie rien : une carte « Vérifiez l'e-mail avant de
+       l'envoyer » montre exactement ce qui partira — expéditeur, À, Cc, Cci, objet, texte
+       entier, pièces jointes avec leur taille et leur sensibilité.
+    3. **Approuver** l'envoie, une seule fois. Une adresse à laquelle LifeOS n'a jamais
+       écrit depuis cet espace (marquée « Nouveau destinataire ») ou une pièce jointe
+       sensible demande votre passkey (**Approuver avec ma passkey**) : vérifiez l'adresse
+       lettre par lettre, c'est la seule protection contre une faute de frappe.
+    4. Modifier le brouillon après l'avoir préparé **annule** l'approbation : préparez de
+       nouveau l'envoi. Une approbation refusée ou expirée n'envoie rien.
+    - « Envoyé » : Gmail l'a accepté. « État incertain — vérifiez vos e-mails envoyés » : la
+      connexion a coupé pendant l'envoi. LifeOS ne le renvoie **jamais** de lui-même : si la
+      lecture de Gmail est autorisée, il le cherche dans vos messages envoyés ; sinon vous
+      recevez une notification, vous vérifiez dans Gmail, puis vous indiquez sur le
+      brouillon « Il est bien parti » ou « Il n'est pas parti » (vous pourrez alors le
+      préparer de nouveau).
+    - Les brouillons envoyés sont supprimés 90 jours après l'envoi ; le contenu des
+      approbations d'envoi est effacé 30 jours après votre décision.
+    - Une adresse « envoyer en tant que » doit d'abord être validée dans les paramètres de
+      Gmail.
+  - L'**agent de planification**, s'il a la permission « agenda » dans l'espace, voit les 7
+    prochains jours de l'agenda de cet espace, les conflits et deux créneaux calculés par
+    LifeOS ; sans cette permission, il planifie à partir des tâches seules.
+  - Les jetons d'accès restent chiffrés sur votre serveur : ils ne sont jamais affichés,
+    exportés ni journalisés.
+- **Préférences** : nom, fuseau horaire, plages de tranquillité. Pendant ces plages,
+  aucune notification n'arrive : elles attendent la fin, alertes critiques comprises, sauf
+  si vous les autorisez (ci-dessous).
+- **Notifications** :
+  - **Alertes critiques pendant la tranquillité** : désactivé par défaut. L'activer demande
+    une confirmation par passkey ; le désactiver est immédiat. Les deux sont inscrits au
+    journal d'audit. Le mode « Ne pas déranger » de votre téléphone reste prioritaire.
+  - **Importantes** (rappels de tâches, tâches débloquées, comptes à reconnecter) :
+    immédiates hors tranquillité. Vous pouvez fixer jusqu'à 4 **créneaux de livraison**
+    (elles arrivent alors au prochain créneau) et un **maximum par jour** (au-delà, la suite
+    attend le lendemain). Les désactiver supprime aussi les rappels de tâches : réactivées,
+    elles ne rejouent pas les anciens rappels.
+  - **Suggestions** (bilans prêts…) : **regroupées** en une seule notification, à 18:00 par
+    défaut, 3 au plus par jour (le surplus attend le regroupement suivant). Vous pouvez
+    choisir jusqu'à 4 heures de regroupement, ou les désactiver.
+  - Une même notification n'est jamais envoyée deux fois. Changer ces réglages, le fuseau
+    ou les plages de tranquillité reprogramme les notifications pas encore arrivées.
+  - Dans le menu **Notifications**, **Voir le détail** déplie un regroupement ; **Lu** et
+    **Ignorer** s'appliquent à toutes ses suggestions.
+- **Mes données** : **Télécharger l'archive (ZIP)** rassemble toutes vos données dans un
+  dossier `lifeos-export-AAAAMMJJ` :
+  - `lifeos-export.json` : tout, dans un format complet et documenté (montants en
+    décimaux exacts) ;
+  - `tasks.csv` et `transactions.csv` : vos tâches et vos opérations, à ouvrir dans un
+    tableur (Excel : Données > À partir d'un fichier texte/CSV ; LibreOffice : jeu de
+    caractères UTF-8, séparateur virgule) ;
+  - `calendar.ics` (événements de vos agendas suivis) et `tasks.ics` (tâches, avec
+    échéances et rappels), à importer dans Google Agenda, Apple Calendrier, Thunderbird
+    ou un gestionnaire de tâches ;
+  - `journal/` : une entrée de journal par fichier Markdown ;
+  - `README.md` : ce que contient chaque fichier, et ce qui n'est pas exporté.
+
+  **JSON seul** télécharge uniquement le fichier JSON. Cochez **Inclure les originaux
+  déchiffrés de mes documents** pour ajouter le dossier `originaux/`. LifeOS vous demande
+  votre passkey si vous ne vous êtes pas connecté récemment, et inscrit chaque export au
+  journal d'audit. Les jetons des comptes connectés et les clés des passkeys ne sont
+  jamais exportés. **Les fichiers téléchargés ne sont pas chiffrés** : rangez-les sur un
+  support chiffré, pas dans un dossier synchronisé dans le cloud.
+- **Journal d'audit** : qui a fait quoi, sans le contenu. Les refus apparaissent en rouge
+  (`denied`), par exemple :
+  - `auth.session.rejected` : une session révoquée ou expirée a été réutilisée (un ancien
+    appareil, ou un cookie copié) ;
+  - `http.origin_mismatch` : une écriture venue d'un autre site a été bloquée ;
+  - `space.access` : une requête nommait un espace qui n'est pas le vôtre ;
+  - `approval.replay` : une décision a été envoyée deux fois sur la même approbation ;
+  - `chat.agent_reply`, `document.attach` : un agent sans accès a été arrêté.
+
+  `auth.session.ua_changed` signale une session utilisée depuis un autre navigateur ou
+  système que celui de la connexion : si ce n'est pas vous, utilisez **Déconnecter les autres
+  sessions**. Le détail est dans la [recette de sécurité](recette-securite.md).
 
 ## Ce que l'assistant voit — et ne voit jamais
 
 | Envoyé à Gemini (espace autorisé seulement, après masquage) | Jamais envoyé |
 |---|---|
 | votre message et les derniers échanges de la conversation | vos documents (fichiers, images) |
-| les souvenirs et faits pertinents du même espace | le texte d'un document sensible |
-| le texte d'une pièce jointe non sensible, avec ce message | votre voix (transcrite sur le serveur) |
+| les souvenirs et faits pertinents du même espace | le texte d'un document sensible ou gardé en local |
+| le texte d'une autre pièce jointe, avec ce message | votre voix (transcrite sur le serveur) |
+| le texte d'un e-mail que vous joignez, avec ce message | un e-mail sensible, ou que vous n'avez pas joint |
 | pour un agent : uniquement les ressources que vous lui avez ouvertes | les vecteurs de recherche, les budgets, les faits des bilans |
 
-Les e-mails, numéros de téléphone, IBAN, numéros de carte et numéros de sécurité sociale sont
-masqués avant tout envoi. Sans compte de facturation Google, l'assistant ne peut rien vous
-coûter : au-delà du quota gratuit du jour, il répond simplement qu'il est indisponible.
+Les e-mails, numéros de téléphone, IBAN, numéros de carte, numéros de sécurité sociale, mots
+de passe et codes annoncés, et numéros de passeport, de pièce d'identité ou fiscaux écrits
+après le nom du document sont masqués avant tout envoi, même écrits avec des espaces
+insécables, des points, des tirets ou mal lus par l'OCR. La détection reste au mieux : elle
+ne reconnaît ni les noms ni les adresses. Sans compte de facturation Google, l'assistant ne
+peut rien vous coûter : au-delà du quota gratuit du jour, il répond simplement qu'il est
+indisponible.
 
 ## Ce que cette version ne fait pas encore
 
-Pas de synchronisation d'agenda ni d'e-mail, pas de notifications push sur le téléphone (les
-rappels s'affichent dans l'application) et pas d'application mobile native : utilisez le site
-dans le navigateur du téléphone. Voir le [journal des versions](../CHANGELOG.md).
+- Un e-mail envoyé par LifeOS est en **texte brut** (pas de mise en forme).
+- Les e-mails copiés ne sont pas dans la **Recherche** (ils se consultent dans la page
+  **E-mails**).
+- Pas d'**application mobile native** : installez le site sur l'écran d'accueil
+  ([Installer LifeOS sur le téléphone](#installer-lifeos-sur-le-téléphone)). Pas de lecture
+  hors connexion, de widget, de partage depuis iPhone, ni d'alerte qui traverse « Ne pas
+  déranger ».
+- Pas de **tâches récurrentes** ([ADR 0013](adr/0013-taches-recurrentes.md)), pas de
+  connexion bancaire (import de relevés CSV seulement), pas d'autre fournisseur que Google
+  pour l'agenda et les e-mails.
+
+En cas de problème : [dépannage](depannage.md). Nouveautés : [journal des
+versions](../CHANGELOG.md).

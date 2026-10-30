@@ -11,7 +11,8 @@ from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.llm.base import LLMUnavailableError
 from lifeos.modules.llm.fake import FakeProvider
 from lifeos.modules.notifications.models import Notification
-from lifeos.modules.notifications.service import dispatch_reminders, next_delivery
+from lifeos.modules.notifications.policy import quiet_hours_delivery as next_delivery
+from lifeos.modules.notifications.service import dispatch_reminders
 from lifeos.modules.tasks.models import Task
 
 from .conftest import enable_cloud
@@ -85,7 +86,7 @@ async def test_chat_context_is_minimal_and_scoped_to_the_space(
             f"/v1/chat/conversations/{conversation}/messages",
             json={
                 "content": "Quand faire la révision de ma voiture ? Mon tel 06 11 22 33 44",
-                "context": {"screen": "tasks"},
+                "context": {"screen": "chat"},
             },
         )
     ).json()
@@ -96,7 +97,7 @@ async def test_chat_context_is_minimal_and_scoped_to_the_space(
     assert "Clio grise" in request.system
     assert "Tesla" not in request.system  # other space
     assert "jardinage" not in request.system  # not relevant to the question
-    assert "écran « tasks »" in request.system
+    assert "écran « chat »" in request.system
     assert "06 11 22 33 44" not in request.messages[-1].text
 
 
@@ -158,11 +159,15 @@ def test_quiet_hours() -> None:
     assert next_delivery(early, tz, *night, "suggestion") == datetime(
         2026, 10, 11, 5, 0, tzinfo=UTC
     )
-    # Outside quiet hours, critical, or no quiet hours: immediate.
+    # Outside quiet hours, or no quiet hours: immediate.
     noon = datetime(2026, 10, 11, 10, 0, tzinfo=UTC)
     assert next_delivery(noon, tz, *night, "important") == noon
-    assert next_delivery(late, tz, *night, "critical") == late
     assert next_delivery(late, tz, None, None, "important") == late
+    # Critical alerts wait too, unless the owner allowed them through (task 21).
+    assert next_delivery(late, tz, *night, "critical") == held
+    assert next_delivery(late, tz, *night, "critical", critical_bypass=True) == late
+    assert next_delivery(noon, tz, *night, "critical") == noon
+    assert next_delivery(late, tz, None, None, "critical") == late
     # Same-day window (lunch break).
     lunch = datetime(2026, 10, 11, 11, 30, tzinfo=UTC)  # 13:30 Paris
     assert next_delivery(lunch, tz, time(13, 0), time(14, 0), "important") == datetime(

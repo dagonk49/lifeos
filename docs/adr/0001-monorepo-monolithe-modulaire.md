@@ -1,6 +1,6 @@
 # ADR 0001 — Monorepo et monolithe modulaire
 
-- Statut : acceptée
+- Statut : acceptée ; précisée le 2026-10-30 (aucun client mobile à ce jour) ; amendée par l'ADR 0022 (pas de `apps/mobile/` : le client web installé est le client mobile)
 - Date : 2026-10-11
 
 ## Contexte
@@ -16,7 +16,7 @@ Un seul dépôt :
 ```
 backend/      API FastAPI, workers, migrations (package Python `lifeos`)
 apps/web/     client web Next.js
-apps/mobile/  client Expo (plus tard)
+apps/mobile/  (pas créé : le client web installé sert de client mobile, ADR 0022)
 infra/        Docker Compose, Traefik, Postgres, Prometheus, scripts d'exploitation
 docs/         cadrage, ADR, modèle de données, politiques
 ```
@@ -51,6 +51,12 @@ Playwright. Code et identifiants en anglais, documentation en français.
 - Les frontières de modules ne sont pas imposées par le réseau : elles doivent l'être par revue
   de code et par les tests (séparation des espaces, autorisations).
 - Extraire un module en service séparé restera possible si un besoin mesuré l'impose.
+- Précision (2026-10-30) : `apps/mobile/` n'a pas été créé. Le client web, utilisable dans le
+  navigateur du téléphone, est le seul client ; l'existence et la forme d'un client mobile
+  restent à décider (périmètre Android, [docs/README.md](../README.md#points-encore-ouverts)).
+  Décidé par l'[ADR 0022](0022-client-mobile-web-dabord.md) : le client web installé sur
+  l'écran d'accueil est le client mobile ; un client natif n'est cadré que si un besoin que
+  le web ne couvre pas est confirmé.
 
 ## Alternatives écartées
 

@@ -29,9 +29,13 @@ class User(UUIDPrimaryKey, Timestamps, Base):
         Text, default="Europe/Paris", server_default="Europe/Paris"
     )
     disabled_at: Mapped[datetime | None]
-    # Non-critical notifications wait for the end of this local time window.
+    # Notifications wait for the end of this local time window (critical alerts too,
+    # unless critical_bypass_quiet_hours).
     quiet_hours_start: Mapped[time | None]
     quiet_hours_end: Mapped[time | None]
+    # Explicit, revocable permission for critical alerts to go through quiet hours (F09).
+    # Granting it is reinforced (recent passkey) and audited; off by default.
+    critical_bypass_quiet_hours: Mapped[bool] = mapped_column(default=False, server_default="false")
     # Automatic stop for cloud LLM usage (tokens per calendar month).
     llm_monthly_token_budget: Mapped[int] = mapped_column(
         Integer, default=1_000_000, server_default="1000000"

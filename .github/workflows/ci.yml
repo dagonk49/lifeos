@@ -51,8 +51,13 @@ jobs:
         run: |
           uv run ruff check .
           uv run ruff format --check .
+          # Acceptance helper (infra/scripts/recette.sh), run inside the ml and stt images.
+          uv run ruff check --config pyproject.toml ../infra/scripts/lib/recette.py
+          uv run ruff format --config pyproject.toml --check ../infra/scripts/lib/recette.py
       - name: Type check
-        run: uv run mypy
+        run: |
+          uv run mypy
+          uv run mypy ../infra/scripts/lib/recette.py
       - name: Tests
         run: uv run pytest -q
       - name: Migrations match models
@@ -134,9 +139,9 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-      - name: End-to-end tests (passkeys, tasks, assistant, journal, memory, search, documents, finances, dictation)
+      - name: End-to-end tests, desktop and phone projects (passkeys, journeys, accessibility, keyboard, mobile)
         working-directory: apps/web
-        run: pnpm e2e
+        run: pnpm e2e --project=chromium --project=mobile-chromium
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -191,6 +196,21 @@ jobs:
           docker build --target ml -t lifeos-ml:ci backend
           docker build --target stt -t lifeos-stt:ci backend
           docker build -t lifeos-web:ci apps/web
+      - name: The web image sends a script policy with a new nonce for every page (src/proxy.ts)
+        run: |
+          docker run -d --name web --read-only --tmpfs /tmp --tmpfs /app/.next/cache --cap-drop ALL \
+            --memory 512m -p 127.0.0.1:3000:3000 lifeos-web:ci
+          for _ in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:3000/login && break; sleep 1; done
+          scripts() {
+            curl -fsS -D - -o /dev/null http://127.0.0.1:3000/login | tr -d '\r' \
+              | sed -n "s/^content-security-policy:.*\(script-src [^;]*\).*/\1/Ip"
+          }
+          first="$(scripts)"
+          second="$(scripts)"
+          echo "$first"
+          grep -qx "script-src 'self' 'nonce-[A-Za-z0-9+/]*=*' 'strict-dynamic'" <<<"$first"
+          test "$first" != "$second"
+          docker rm -f web
       - name: The ml image starts without network nor model (degraded, healthy API)
         run: |
           docker run -d --name ml --network none --read-only --tmpfs /tmp lifeos-ml:ci
@@ -200,6 +220,19 @@ jobs:
           docker rm -f ml
       - name: The ml image reads a French receipt (OCR), without network
         run: docker run --rm --network none --read-only --tmpfs /tmp lifeos-ml:ci lifeos-ml selftest
+      - name: The acceptance helper measures the local OCR in the ml image (recette.sh)
+        run: |
+          docker run -d --name ml --network none --read-only --tmpfs /tmp lifeos-ml:ci
+          for _ in $(seq 1 30); do
+            docker exec ml python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=2)" \
+              2>/dev/null && break
+            sleep 1
+          done
+          docker exec ml python -c "$(cat infra/scripts/lib/recette.py)" ocr 1 | tee "$RUNNER_TEMP/ocr.jsonl"
+          jq -se 'length == 2 and all(.[]; .status == 200 and .pages >= 1 and .chars > 100)' \
+            "$RUNNER_TEMP/ocr.jsonl"
+          docker exec ml python -c "$(cat infra/scripts/lib/recette.py)" receipt | file - | grep -q JPEG
+          docker rm -f ml
       - name: The stt image starts without network nor model (loaded on first dictation)
         run: |
           docker run -d --name stt --network none --read-only --tmpfs /tmp lifeos-stt:ci
@@ -214,5 +247,49 @@ jobs:
           cp .env.example .env
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.gpu.yaml config --quiet
+          # Behind an existing reverse proxy: Traefik publishes no port at all.
+          docker compose -f compose.yaml -f compose.gpu.yaml -f compose.proxy.yaml config --quiet
+          test "$(docker compose -f compose.yaml -f compose.proxy.yaml config --format json \
+            | jq -c '.services.traefik.ports')" = null
+          # Monitoring and alerts (profile `monitoring`), in both modes.
+          docker compose --profile monitoring config --quiet
+          docker compose -f compose.yaml -f compose.proxy.yaml --profile monitoring config --quiet
+          # The images of a deployed version carry its tag (update.sh), `local` by default.
+          test "$(LIFEOS_IMAGE_TAG=0123abcd docker compose -f compose.yaml -f compose.gpu.yaml \
+            config --format json | jq -r '[.services[] | select(.build) | .image] | unique | join(" ")')" \
+            = "lifeos-backend:0123abcd lifeos-ml:0123abcd lifeos-stt-gpu:0123abcd lifeos-web:0123abcd"
+          test "$(docker compose config --format json | jq -r '.services.api.image')" = lifeos-backend:local
+      - name: Traefik routing, headers and rate limit (standard and behind a reverse proxy)
+        run: scripts/test-traefik.sh
+      - name: Alerts (rules, Alertmanager, simulated outages without personal data, public probes)
+        run: scripts/test-monitoring.sh
+      - name: Acceptance tool (times, memory peaks, HTTPS checks, report without personal data)
+        run: scripts/test-recette.sh
+        env:
+          LIFEOS_TEST_BACKEND_IMAGE: lifeos-backend:ci
+          LIFEOS_TEST_WEB_IMAGE: lifeos-web:ci
+          LIFEOS_TEST_ML_IMAGE: lifeos-ml:ci
+      - name: restic (official binary; Ubuntu ships an older one)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/restic.bz2" \
+            https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2
+          echo "680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d  $RUNNER_TEMP/restic.bz2" \
+            | sha256sum -c -
+          bunzip2 -c "$RUNNER_TEMP/restic.bz2" > "$RUNNER_TEMP/restic"
+          sudo install -m 755 "$RUNNER_TEMP/restic" /usr/local/bin/restic
+          restic version
+      - name: Backup and restore round trip (pairs, missing originals, blank machine, passkey sign-in, alerts)
+        run: scripts/test-backup.sh
+        env:
+          LIFEOS_TEST_BACKEND_IMAGE: lifeos-backend:ci
+      - name: Update and rollback (pre-update backup, migrations, health check, automatic rollback)
+        run: scripts/test-update.sh
+        env:
+          LIFEOS_TEST_BACKEND_IMAGE: lifeos-backend:ci
+      - name: Backup timers (systemd units)
+        run: |
+          units="$(mktemp -d)"
+          for unit in infra/systemd/*; do sed "s|/opt/lifeos|$PWD|g" "$unit" > "$units/${unit##*/}"; done
+          systemd-analyze verify "$units"/*.service "$units"/*.timer
       - name: Shellcheck
-        run: shellcheck infra/scripts/*.sh infra/postgres/init/*.sh scripts/*.sh apps/web/e2e/*.sh
+        run: shellcheck infra/scripts/*.sh infra/scripts/lib/*.sh infra/postgres/init/*.sh infra/prometheus/*.sh scripts/*.sh apps/web/e2e/*.sh

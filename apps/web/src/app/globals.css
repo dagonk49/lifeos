@@ -4,8 +4,27 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }
 
+/*
+ * Secondary text (dates, counts, hints): stone-500 on light surfaces, stone-400 on dark
+ * ones. A plain text-stone-500 is only 3.6:1 on a stone-900 card; this utility keeps every
+ * surface at 4.5:1 or more (src/lib/contrast.test.ts). Use it for any secondary text.
+ */
+@utility text-muted {
+  @apply text-stone-500 dark:text-stone-400;
+}
+
 :root {
   color-scheme: light dark;
+}
+
+/*
+ * The header is sticky from the sm breakpoint: anchors and focused elements stay below it
+ * (WCAG 2.4.11). On phones it scrolls away with the page and needs no padding.
+ */
+@media (min-width: 40rem) {
+  html {
+    scroll-padding-top: 7rem;
+  }
 }
 
 body {

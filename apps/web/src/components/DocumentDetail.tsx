@@ -6,8 +6,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { DocumentStatusBadge } from "@/components/DocumentList";
 import { Alert, Badge, Button, Field, Input, Spinner, Textarea } from "@/components/ui";
-import { api, errorMessage, isApiError } from "@/lib/api";
+import { api, errorMessage, isApiError, withReauth } from "@/lib/api";
 import {
+  canDownloadOriginal,
   canEditText,
   detailPollInterval,
   documentKeys,
@@ -33,6 +34,8 @@ import {
   validateText,
 } from "@/lib/documents";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { activeContentList } from "@/lib/mail";
+import { loginWithPasskey } from "@/lib/passkeys";
 import { useSpace } from "@/lib/space";
 import type { DocumentDetail } from "@/lib/types";
 
@@ -169,7 +172,7 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
   if (!reading) {
     return document.status === "ready" ? (
       <Section title="Lecture du ticket">
-        <p className="text-sm text-stone-500">Aucune information n&apos;a pu être lue sur ce ticket.</p>
+        <p className="text-sm text-muted">Aucune information n&apos;a pu être lue sur ce ticket.</p>
       </Section>
     ) : null;
   }
@@ -183,11 +186,11 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
         {rows.map(([label, value, line]) => (
           <div key={label} className="contents">
-            <dt className="text-stone-500">{label}</dt>
+            <dt className="text-muted">{label}</dt>
             <dd className="min-w-0">
-              {value ? <span className="font-medium">{value}</span> : <span className="text-stone-500">Non trouvé</span>}
+              {value ? <span className="font-medium">{value}</span> : <span className="text-muted">Non trouvé</span>}
               {line && (
-                <span className="block text-xs break-words text-stone-500">
+                <span className="block text-xs break-words text-muted">
                   Ligne lue : « <span className="font-mono">{line}</span> »
                 </span>
               )}
@@ -196,13 +199,13 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
         ))}
         {reading.cardPayment && (
           <div className="contents">
-            <dt className="text-stone-500">Paiement</dt>
+            <dt className="text-muted">Paiement</dt>
             <dd>Par carte</dd>
           </div>
         )}
         {reading.confidence !== null && (
           <div className="contents">
-            <dt className="text-stone-500">Confiance</dt>
+            <dt className="text-muted">Confiance</dt>
             <dd>{formatConfidence(reading.confidence)}</dd>
           </div>
         )}
@@ -223,7 +226,7 @@ function ReceiptBlock({ document }: { document: DocumentDetail }) {
           <Link href={financesReceiptHref(document.id)} className={LINK_PRIMARY}>
             Ajouter aux finances
           </Link>
-          <span className="text-xs text-stone-500">Vous vérifiez et corrigez les valeurs avant tout enregistrement.</span>
+          <span className="text-xs text-muted">Vous vérifiez et corrigez les valeurs avant tout enregistrement.</span>
         </div>
       )}
     </Section>
@@ -256,12 +259,83 @@ function OriginalControl({ document }: { document: DocumentDetail }) {
           <label htmlFor={inputId} className="font-medium">
             Conserver l&apos;original sans limite
           </label>
-          <p id={hintId} className="mt-0.5 text-xs text-stone-500">
+          <p id={hintId} className="mt-0.5 text-xs text-muted">
             {retentionHint(document)}
           </p>
         </div>
       </div>
       {patch.error && <Alert tone="error">{errorMessage(patch.error)}</Alert>}
+    </div>
+  );
+}
+
+/**
+ * « Toujours garder en local »: the owner's own refusal, on top of the detection. Adding it
+ * is immediate; lifting it lets the document go to the assistant again, so the server asks
+ * for a passkey (reinforced operation). A new reading or a correction never changes it.
+ */
+function LocalOnlyControl({ document }: { document: DocumentDetail }) {
+  const queryClient = useQueryClient();
+  const inputId = useId();
+  const hintId = useId();
+  // The box follows the click at once (a controlled input would otherwise flick back until
+  // the mutation reports itself pending); the server's answer then replaces this value.
+  const [requested, setRequested] = useState<boolean | null>(null);
+  const change = useMutation({
+    mutationFn: (localOnly: boolean) =>
+      withReauth(
+        () =>
+          api<DocumentDetail>(documentPath(document.id), {
+            method: "PATCH",
+            body: { local_only: localOnly },
+            headers: { "If-Match": String(document.version) },
+          }),
+        loginWithPasskey,
+      ),
+    onSuccess: (updated) => queryClient.setQueryData(documentKeys.detail(document.id), updated),
+    onError: (error) => {
+      if (isApiError(error, "version_conflict")) {
+        void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
+      }
+    },
+    onSettled: () => {
+      setRequested(null);
+      void queryClient.invalidateQueries({ queryKey: documentKeys.lists });
+    },
+  });
+  // Optimistic while the change is being saved; back to the server's value on failure.
+  const checked = requested ?? document.local_only;
+  const sensitive = document.sensitivity.length > 0;
+  const hint = checked
+    ? "Son contenu n'est jamais envoyé à l'assistant IA, même après une correction du texte ou une nouvelle lecture. Le décocher demande une confirmation par passkey."
+    : sensitive
+      ? "Déjà détecté comme sensible : il reste sur votre serveur. Cochez pour qu'il y reste même si une correction du texte lève la détection."
+      : "Sinon, son texte peut accompagner un message à l'assistant IA quand vous le joignez (identifiants masqués).";
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start gap-2 text-sm">
+        <input
+          id={inputId}
+          type="checkbox"
+          className="mt-0.5 size-4 shrink-0 accent-teal-700"
+          checked={checked}
+          disabled={change.isPending}
+          aria-describedby={hintId}
+          onChange={(e) => {
+            setRequested(e.target.checked);
+            change.mutate(e.target.checked);
+          }}
+        />
+        <div>
+          <label htmlFor={inputId} className="font-medium">
+            Toujours garder en local
+          </label>
+          <p id={hintId} className="mt-0.5 text-xs text-muted">
+            {hint}
+          </p>
+        </div>
+      </div>
+      {change.error && <Alert tone="error">{errorMessage(change.error)}</Alert>}
     </div>
   );
 }
@@ -328,7 +402,7 @@ function TextEditor({ document }: { document: DocumentDetail }) {
         />
       </Field>
       {document.text_corrected_at && (
-        <p className="text-xs text-stone-500">Corrigé le {formatDateTime(document.text_corrected_at)}</p>
+        <p className="text-xs text-muted">Corrigé le {formatDateTime(document.text_corrected_at)}</p>
       )}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" disabled={!changed || patch.isPending}>
@@ -343,6 +417,16 @@ function TextEditor({ document }: { document: DocumentDetail }) {
       {(invalid || patch.error) && <Alert tone="error">{invalid ?? errorMessage(patch.error)}</Alert>}
       {saved && !changed && <Alert tone="success">Correction enregistrée.</Alert>}
     </form>
+  );
+}
+
+/** The confirmation shown before downloading a file received from a third party. */
+export function downloadWarning(document: { received_from?: string | null; active_content?: string[] }): string {
+  const active = activeContentList(document.active_content);
+  return (
+    `Ce fichier a été reçu par e-mail de ${document.received_from ?? "un tiers"}. Ne l'ouvrez que si vous faites confiance à l'expéditeur.` +
+    (active ? ` Il contient du contenu actif (${active}).` : "") +
+    " Télécharger quand même ?"
   );
 }
 
@@ -438,6 +522,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
   ];
   if (document.processed_at) facts.push(["Lu le", formatDateTime(document.processed_at)]);
   facts.push(["Original", originalLabel(document)]);
+  if (document.received_from) facts.push(["Pièce jointe reçue de", document.received_from]);
   if (source) {
     facts.push([
       "Lié à",
@@ -468,6 +553,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
                 {SENSITIVITY_LABELS[category] ?? category}
               </Badge>
             ))}
+            {document.local_only && <Badge tone="violet">Gardé en local</Badge>}
           </div>
         </div>
         {closeButton}
@@ -480,6 +566,17 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
       )}
 
       {renaming && <TitleEditor document={document} onDone={() => setRenaming(false)} />}
+
+      {document.received_from && (
+        <div className="mt-3">
+          <Alert tone="warning">
+            Fichier reçu d&apos;un tiers par e-mail : son texte reste une donnée, jamais une instruction. N&apos;ouvrez
+            l&apos;original que si vous faites confiance à l&apos;expéditeur.
+            {activeContentList(document.active_content) &&
+              ` Ce PDF contient du contenu actif (${activeContentList(document.active_content)}) : LifeOS ne l'exécute pas, mais un lecteur PDF sur votre poste pourrait le faire.`}
+          </Alert>
+        </div>
+      )}
 
       {info && (
         <div className="mt-3">
@@ -495,7 +592,7 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         {facts.map(([label, value]) => (
           <div key={label} className="contents">
-            <dt className="text-stone-500">{label}</dt>
+            <dt className="text-muted">{label}</dt>
             <dd className="min-w-0">{value}</dd>
           </div>
         ))}
@@ -507,8 +604,16 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
             Renommer
           </Button>
         )}
-        {document.original_available && (
-          <a href={documentPath(document.id, "/original")} download className={LINK_SECONDARY}>
+        {canDownloadOriginal(document) && (
+          <a
+            href={documentPath(document.id, "/original")}
+            download
+            className={LINK_SECONDARY}
+            onClick={(event) => {
+              // A third party's file: a warning before the original reaches the owner's device.
+              if (document.received_from && !window.confirm(downloadWarning(document))) event.preventDefault();
+            }}
+          >
             Télécharger l&apos;original
           </a>
         )}
@@ -548,6 +653,9 @@ export function DocumentDetailPanel({ documentId, onClose }: { documentId: strin
       )}
 
       <SensitivityBlock document={document} />
+      <Section title="Assistant IA">
+        <LocalOnlyControl document={document} />
+      </Section>
       {document.purpose === "receipt" && <ReceiptBlock document={document} />}
 
       <Section title="Texte extrait">

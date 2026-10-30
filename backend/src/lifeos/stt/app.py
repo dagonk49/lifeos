@@ -74,7 +74,9 @@ def create_stt_app(settings: Settings | None = None, engine: Engine | None = Non
             return JSONResponse({"code": "busy"}, status_code=503)
         started = time.monotonic()
         try:
-            result = await asyncio.to_thread(stt.transcribe, data, max_seconds=max_seconds)
+            result = await asyncio.to_thread(
+                stt.transcribe, data, mime=detected.mime, max_seconds=max_seconds
+            )
         except SttFailure as exc:
             log.info("transcription_refused", mime=mime, code=exc.code)
             return JSONResponse({"code": exc.code}, status_code=exc.status)
@@ -90,6 +92,8 @@ def create_stt_app(settings: Settings | None = None, engine: Engine | None = Non
             speech_seconds=round(result.speech, 1),
             chars=len(result.text),
             seconds=round(elapsed, 2),
+            # Memory of the isolated decoding (the model's is fixed): sizes the service.
+            decode_peak_mb=result.decode_peak_mb,
         )
         return {
             "text": result.text,

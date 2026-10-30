@@ -5,12 +5,15 @@
 
 import { ApiError, errorMessage } from "./api";
 import type {
+  Basis,
   BudgetSummary,
+  Cadence,
   CategorySummary,
   Decimal,
   DocumentSummary,
   FinanceCategory,
   ReceiptProposal,
+  RecurringItem,
   Transaction,
 } from "./types";
 
@@ -300,6 +303,16 @@ export const financeKeys = {
   proposal: (documentId: string) => ["finance", "receipt", documentId] as const,
   /** Same key as the documents page, so both share the polled document. */
   document: (documentId: string) => ["documents", "detail", documentId] as const,
+  importsAll: ["finance", "imports"] as const,
+  imports: (spaceId: string | null) => ["finance", "imports", "list", spaceId ?? "all"] as const,
+  import: (id: string) => ["finance", "imports", "detail", id] as const,
+  importRows: (id: string) => ["finance", "imports", "rows", id] as const,
+  recurringAll: ["finance", "recurring"] as const,
+  recurring: (spaceId: string | null) => ["finance", "recurring", spaceId ?? "all"] as const,
+  /** Recomputed by the server on every read: invalidated by every finance or goal change. */
+  projections: ["finance", "projection"] as const,
+  projection: (spaceId: string, months: number, baselineMonths: number) =>
+    ["finance", "projection", spaceId, months, baselineMonths] as const,
 };
 
 /** To refresh after a transaction is created, changed or deleted (dashboard block too). */
@@ -308,6 +321,8 @@ export const TRANSACTION_CHANGE_KEYS: readonly (readonly string[])[] = [
   ["finance", "transaction"],
   financeKeys.summaries,
   financeKeys.proposals,
+  financeKeys.projections,
+  financeKeys.importsAll,
   ["dashboard"],
 ];
 
@@ -317,7 +332,14 @@ export const CATEGORY_CHANGE_KEYS: readonly (readonly string[])[] = [
   financeKeys.transactionsAll,
   financeKeys.summaries,
   financeKeys.proposals,
+  financeKeys.projections,
   ["dashboard"],
+];
+
+/** To refresh after a recurring item is created, changed or deleted. */
+export const RECURRING_CHANGE_KEYS: readonly (readonly string[])[] = [
+  financeKeys.recurringAll,
+  financeKeys.projections,
 ];
 
 // --- Errors ------------------------------------------------------------------------------
@@ -330,6 +352,23 @@ const FINANCE_MESSAGES: Record<string, string> = {
   idempotency_key_reused: "Cette opération a déjà été envoyée avec d'autres valeurs : réessayez.",
   idempotency_key_in_use: "L'enregistrement précédent est encore en cours : patientez un instant.",
   action_denied: "Action non autorisée dans cet espace.",
+  recurring_not_found: "Cette échéance n'existe plus.",
+  recurring_space_mismatch: "Cette échéance appartient à un autre espace.",
+  recurring_direction_mismatch: "Cette échéance ne correspond pas au sens de l'opération (dépense ou revenu).",
+  recurring_range_invalid:
+    "La fourchette ne vaut que pour un montant variable, et le montant doit se trouver entre le bas et le haut.",
+  recurring_dates_invalid: "La date de fin doit suivre la date de début.",
+  import_not_found: "Cet import est introuvable ou a été annulé.",
+  import_unreadable:
+    "Ce fichier n'est pas un relevé CSV lisible (texte séparé par des points-virgules ou des virgules).",
+  unsupported_encoding: "Le fichier ne se lit pas avec cet encodage : essayez l'autre.",
+  import_empty: "Le fichier ne contient aucune ligne d'opération.",
+  too_many_rows: "Le fichier contient trop de lignes : exportez une période plus courte.",
+  mapping_invalid: "Une des colonnes choisies n'existe pas dans ce fichier.",
+  import_not_in_preview: "Cet import a déjà été validé ou annulé.",
+  import_expired: "L'aperçu a expiré (24 h) : envoyez le fichier à nouveau.",
+  import_not_mapped: "Choisissez d'abord les colonnes du fichier.",
+  import_not_committed: "Seul un import validé peut être annulé.",
 };
 
 /** errorMessage() plus the finance codes it does not know yet. */
@@ -805,4 +844,162 @@ export function receiptFailure(document: Pick<DocumentSummary, "status" | "error
 /** The reading was postponed by the server (pending with a reason): it will retry. */
 export function readingDelay(document: ReadingState): string | null {
   return document.status === "pending" && document.error ? readingErrorMessage(document.error) : null;
+}
+
+// --- Recurring items and projections (task 26) ---------------------------------------------
+
+export const BASIS_LABELS: Record<Basis, string> = { known: "connu", scheduled: "prévu", estimated: "estimé" };
+export const BASIS_TONES: Record<Basis, Tone> = { known: "teal", scheduled: "blue", estimated: "amber" };
+export const BASIS_HINTS: Record<Basis, string> = {
+  known: "opérations déjà enregistrées",
+  scheduled: "échéance déclarée, montant fixe",
+  estimated: "moyenne des mois passés ou montant variable",
+};
+
+export function basisLabel(basis: Basis): string {
+  return BASIS_LABELS[basis];
+}
+
+/** "entre 60,00 € et 120,00 €", or the single amount when the range is empty. */
+export function rangeText(low: Decimal, high: Decimal, currency = "EUR"): string {
+  const a = toCents(low);
+  const b = toCents(high);
+  if (a === null || b === null) return "";
+  if (a === b) return formatCents(a, currency);
+  return `entre ${formatCents(a, currency)} et ${formatCents(b, currency)}`;
+}
+
+export const CADENCE_LABELS: Record<Cadence, string> = {
+  once: "Une seule fois",
+  weekly: "Chaque semaine",
+  monthly: "Chaque mois",
+  quarterly: "Chaque trimestre",
+  yearly: "Chaque année",
+};
+
+export function cadenceLabel(cadence: Cadence): string {
+  return CADENCE_LABELS[cadence];
+}
+
+export const PROJECTION_HORIZONS = [3, 6, 12] as const;
+export const BASELINE_CHOICES = [1, 3, 6, 12] as const;
+
+export function projectionPath(spaceId: string, months: number, baselineMonths: number): string {
+  const params = new URLSearchParams({
+    space_id: spaceId,
+    months: String(months),
+    baseline_months: String(baselineMonths),
+  });
+  return `/v1/finance/projection?${params.toString()}`;
+}
+
+export function recurringPath(spaceId: string | null): string {
+  return spaceId ? `/v1/finance/recurring?${new URLSearchParams({ space_id: spaceId }).toString()}` : "/v1/finance/recurring";
+}
+
+export interface RecurringFormValues {
+  label: string;
+  amount: string;
+  direction: Direction;
+  cadence: Cadence;
+  start_date: string;
+  end_date: string;
+  variable: boolean;
+  low: string;
+  high: string;
+  category_id: string;
+}
+
+export function emptyRecurringForm(today: string): RecurringFormValues {
+  return {
+    label: "",
+    amount: "",
+    direction: "expense",
+    cadence: "monthly",
+    start_date: today,
+    end_date: "",
+    variable: false,
+    low: "",
+    high: "",
+    category_id: "",
+  };
+}
+
+export function recurringToForm(item: RecurringItem): RecurringFormValues {
+  return {
+    label: item.label,
+    amount: decimalToInput(item.amount),
+    direction: item.direction,
+    cadence: item.cadence,
+    start_date: item.start_date,
+    end_date: item.end_date ?? "",
+    variable: item.amount_is_estimate,
+    low: decimalToInput(item.amount_low),
+    high: decimalToInput(item.amount_high),
+    category_id: item.category_id ?? "",
+  };
+}
+
+export interface RecurringFields {
+  label: string;
+  amount: Decimal;
+  direction: Direction;
+  cadence: Cadence;
+  start_date: string;
+  end_date: string | null;
+  amount_is_estimate: boolean;
+  amount_low: Decimal | null;
+  amount_high: Decimal | null;
+  category_id: string | null;
+}
+
+/** Same rules as the server: positive amounts, low <= amount <= high, end after start. */
+export function validateRecurring(form: RecurringFormValues): Parsed<RecurringFields> {
+  const label = form.label.split(/\s+/).filter(Boolean).join(" ");
+  if (!label) return { ok: false, error: "Donnez un nom à l'échéance (ex. Loyer)." };
+  if (label.length > 120) return { ok: false, error: "Le nom ne doit pas dépasser 120 caractères." };
+  const amount = parseAmount(form.amount);
+  if (!amount.ok) return { ok: false, error: `Montant : ${amount.error}` };
+  if (!isCalendarDate(form.start_date)) return { ok: false, error: "Indiquez la date de la première échéance." };
+  if (form.end_date && (!isCalendarDate(form.end_date) || form.end_date < form.start_date)) {
+    return { ok: false, error: "La date de fin doit suivre la date de début." };
+  }
+  let low: Decimal | null = null;
+  let high: Decimal | null = null;
+  if (form.variable) {
+    const parsedLow = parseMoney(form.low);
+    if (!parsedLow.ok) return { ok: false, error: `Bas de la fourchette : ${parsedLow.error}` };
+    const parsedHigh = parseMoney(form.high);
+    if (!parsedHigh.ok) return { ok: false, error: `Haut de la fourchette : ${parsedHigh.error}` };
+    low = parsedLow.value;
+    high = parsedHigh.value;
+    const cents = toCents(amount.value) ?? 0n;
+    if ((low !== null && (toCents(low) ?? 0n) > cents) || (high !== null && (toCents(high) ?? 0n) < cents)) {
+      return { ok: false, error: "Le montant habituel doit se trouver entre le bas et le haut de la fourchette." };
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      label,
+      amount: amount.value,
+      direction: form.direction,
+      cadence: form.cadence,
+      start_date: form.start_date,
+      end_date: form.end_date || null,
+      amount_is_estimate: form.variable,
+      amount_low: low,
+      amount_high: high,
+      category_id: form.category_id || null,
+    },
+  };
+}
+
+/** "Prochaine : 05/11/2026" style hint, from the server's next occurrence. */
+export function recurringAmountText(item: Pick<RecurringItem, "amount" | "amount_is_estimate" | "amount_low" | "amount_high" | "currency">): string {
+  const amount = formatMoney(item.amount, item.currency);
+  if (!item.amount_is_estimate) return amount;
+  const low = item.amount_low ?? item.amount;
+  const high = item.amount_high ?? item.amount;
+  return low === high ? `environ ${amount}` : `environ ${amount} (${rangeText(low, high, item.currency)})`;
 }

@@ -26,7 +26,23 @@ const backendEnv = {
   LIFEOS_DOCUMENTS_KEY: "ZTJlLW9ubHktZG9jdW1lbnRzLWtleS0zMi1ieXRlcyE=",
   LIFEOS_EXTRACTION_PROVIDER: "fake",
   LIFEOS_STT_PROVIDER: "fake",
+  // Connected accounts (step 5): the in-memory fake provider ("Démo") agrees at once and
+  // sends the browser back to /connexions/retour; tokens sealed with a throw-away key.
+  LIFEOS_CONNECTORS_PROVIDER: "fake",
+  LIFEOS_CONNECTORS_KEY: "ZTJlLW9ubHktY29ubmVjdG9ycy1rZXktMzJieXRlcyE=",
+  // Web Push (task 19): devices are registered for real, the worker's fake sender sends
+  // nothing (the browser's subscription is stubbed in e2e/push.spec.ts).
+  LIFEOS_PUSH_PROVIDER: "fake",
   LIFEOS_LOG_LEVEL: "WARNING",
+};
+
+const chromiumOptions = {
+  // A fake microphone (a tone) for dictation, granted without a prompt.
+  permissions: ["microphone"],
+  launchOptions: {
+    args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+    ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
+  },
 };
 
 export default defineConfig({
@@ -46,17 +62,17 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        // A fake microphone (a tone) for dictation, granted without a prompt.
-        permissions: ["microphone"],
-        launchOptions: {
-          args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
-          ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
-            ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
-            : {}),
-        },
-      },
+      // The phone journeys only run on the phone.
+      testIgnore: /mobile\.spec\.ts$/,
+      use: { ...devices["Desktop Chrome"], ...chromiumOptions },
+    },
+    {
+      // A phone (Chromium: the CDP virtual authenticator does not exist in WebKit, so iOS
+      // is covered by the manual protocol of docs/accessibilite.md). Touch screen, coarse
+      // pointer, 412 px wide; mobile.spec.ts also checks 360 and 375 px.
+      name: "mobile-chromium",
+      testMatch: /(mobile|a11y)\.spec\.ts$/,
+      use: { ...devices["Pixel 7"], ...chromiumOptions },
     },
   ],
   webServer: [

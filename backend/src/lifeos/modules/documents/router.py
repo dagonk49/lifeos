@@ -13,6 +13,7 @@ from lifeos.core.idempotency import idempotent
 from lifeos.core.pagination import Page
 from lifeos.core.uploads import read_upload
 from lifeos.modules.documents import service
+from lifeos.modules.documents.extraction import extraction_enabled
 from lifeos.modules.documents.schemas import (
     DocumentOut,
     DocumentSummary,
@@ -70,6 +71,7 @@ UPLOAD_OPENAPI: dict[str, Any] = {
                                 "task",
                                 "goal",
                                 "transaction",
+                                "mail_message",
                             ],
                         },
                         "source_id": {"type": "string", "format": "uuid"},
@@ -145,6 +147,10 @@ async def upload_document(
     # Audio is dictation, handled by the voice module.
     if detected is None or detected.kind == "audio":
         raise ProblemError(415, "unsupported_type", "This file type is not accepted")
+    if detected.kind == "image" and not extraction_enabled(ctx.settings):
+        # A picture is served only once the reader re-encoded it from its pixels (ADR 0011):
+        # without a reader, it would stay pending for ever, neither read nor downloadable.
+        raise ProblemError(415, "image_reading_disabled", "Pictures cannot be read on this server")
     fingerprint = UploadFingerprint(
         **upload.fields.model_dump(), sha256=hashlib.sha256(upload.data).hexdigest()
     )

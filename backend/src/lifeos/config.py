@@ -1,10 +1,11 @@
 """Application settings, read from `LIFEOS_*` environment variables and Docker secrets."""
 
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -39,6 +40,15 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379/0"
 
+    # Supervision (docs/exploitation.md §5). The API refreshes its queue, backlog and
+    # dependency gauges this often (0: never, e.g. in tests); the worker serves its own
+    # metrics on this port (0: not at all), one process per container (`--processes 1`).
+    metrics_refresh_seconds: int = Field(default=60, ge=0)
+    worker_metrics_port: int = Field(default=9101, ge=0, le=65535)
+    # Tag of the deployed images (infra/scripts/update.sh writes it to infra/.env), exported
+    # as the `revision` label of lifeos_build_info.
+    image_tag: str = Field(default="local", max_length=64)
+
     session_ttl_days: int = 30
     session_idle_days: int = 7
     recent_auth_minutes: int = 10
@@ -64,6 +74,22 @@ class Settings(BaseSettings):
     llm_price_output_deep: float = 3.75
     llm_daily_budget_usd: float = 0.50
     llm_monthly_budget_usd: float = 5.00
+    # Quota reservation (ADR 0010): every call reserves its share of the caps in a short
+    # locked transaction before reaching the provider, then settles it with real usage.
+    # Requests kept below each daily cap: covers the thinking-level retry (two Google
+    # requests for one call) and calls whose outcome was lost.
+    llm_quota_margin_requests: int = Field(default=2, ge=0)
+    # Share of the USD budgets kept in reserve (paid billing: Google's billing data lags
+    # about ten minutes and real usage may exceed the reserved estimate).
+    llm_budget_margin_ratio: float = Field(default=0.05, ge=0, lt=1)
+    # Output tokens reserved when a request sets no max_output_tokens (thinking tokens are
+    # billed as output). Real usage replaces the reservation after the call.
+    llm_reserve_output_tokens_fast: int = Field(default=2048, ge=1)
+    llm_reserve_output_tokens_deep: int = Field(default=8192, ge=1)
+    # A reservation older than this (process killed during the call) is released: its
+    # tokens and cost no longer count, the request still does. Never shorter than two
+    # provider timeouts plus a minute (see `llm_reservation_ttl`).
+    llm_reservation_ttl_seconds: int = Field(default=600, ge=1)
 
     gemini_backend: Literal["developer", "vertex"] = "developer"
     gemini_api_key: SecretStr | None = None
@@ -95,6 +121,11 @@ class Settings(BaseSettings):
     documents_max_bytes: int = 20 * 1024 * 1024
     documents_original_retention_days: int = 90
     documents_max_pages: int = 30
+    # Bank statement imports (F04, task 25): CSV only, read in memory, never stored; the
+    # preview (parsed rows) is erased at validation, cancellation or after this delay.
+    finance_import_max_bytes: int = Field(default=2 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
+    finance_import_max_rows: int = Field(default=5000, ge=10, le=50_000)
+    finance_import_preview_hours: int = Field(default=24, ge=1, le=7 * 24)
     # AES-256-GCM key (base64, 32 bytes), Docker secret `lifeos_documents_key`.
     documents_key: SecretStr | None = None
     # Local text extraction and OCR: "remote" = the internal ml service.
@@ -122,6 +153,65 @@ class Settings(BaseSettings):
     memory_related_distance: float = 0.25
     memory_preference_max_age_days: int = 180
 
+    # Connectors (ADR 0012): calendar and mail accounts linked through OAuth 2.0. "fake":
+    # tests and end-to-end runs (no network); "disabled": no account can be connected.
+    # The key and the client are checked by `connectors.build_connectors` (API start), not
+    # here: migrate, scheduler, ml and stt read the same .env without these secrets.
+    connectors_provider: Literal["disabled", "fake", "google"] = "disabled"
+    # AES-256-GCM keyring of the OAuth tokens, Docker secret `lifeos_connectors_key`:
+    # base64 of 32 bytes, or `id:base64,...` during a rotation (the first one seals).
+    # Losing it only forces reconnecting the accounts.
+    connectors_key: SecretStr | None = None
+    # Google OAuth client of type "Web application" (docs/guide-google.md); the secret is
+    # the Docker secret `lifeos_google_client_secret`.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    # A consent started in LifeOS must come back within this delay (single-use state).
+    oauth_state_minutes: int = Field(default=10, ge=1, le=60)
+    # Calendar sync (task 14): every mapped calendar is read again this often, over a
+    # window from `calendar_past_days` before today to `calendar_future_days` after.
+    calendar_sync_minutes: int = Field(default=15, ge=5, le=24 * 60)
+    calendar_past_days: int = Field(default=30, ge=1, le=365)
+    calendar_future_days: int = Field(default=365, ge=7, le=3 * 365)
+    # Mail reading (task 17): every mapped label is read again this often (its changes
+    # only, after a first pass over the last `mail_retention_days`). Local copies are
+    # deleted `mail_retention_days` after their reception.
+    mail_sync_minutes: int = Field(default=15, ge=5, le=24 * 60)
+    mail_retention_days: int = Field(default=90, ge=1, le=365)
+    # Mail sending (task 18, ADR 0018): total size of the attachments of one e-mail, and
+    # how long the exact content of a decided send approval is kept (then redacted, only
+    # its digest and counts remain). Sent drafts go after `mail_retention_days`.
+    mail_max_send_bytes: int = Field(default=10 * 1024 * 1024, ge=1024 * 1024, le=25 * 1024 * 1024)
+    mail_approval_redact_days: int = Field(default=30, ge=1, le=90)
+    connectors_timeout_seconds: float = Field(default=15.0, gt=0)
+
+    # Web Push to the owner's phones (ADR 0019). "webpush": RFC 8291 encryption and RFC
+    # 8292 (VAPID) signature, sent by the worker; "fake": tests and end-to-end runs (no
+    # network); "disabled": no device can be registered. The key is checked when the API
+    # starts and when the worker first sends (`notifications.push.load_vapid_key`).
+    push_provider: Literal["disabled", "fake", "webpush"] = "disabled"
+    # P-256 private key, PEM (PKCS#8), Docker secret `lifeos_vapid_private_key`. Losing it
+    # only forces every device to subscribe again.
+    vapid_private_key: SecretStr | None = None
+    # Contact given to the push services in every signature: mailto: or https: URL.
+    vapid_subject: str = "mailto:admin@localhost"
+    # How long a push service keeps a message for an unreachable phone (TTL header), and
+    # the age after which a due notification is no longer pushed (in-app only).
+    push_ttl_seconds: int = Field(default=6 * 3600, ge=0, le=7 * 24 * 3600)
+    push_max_age_minutes: int = Field(default=6 * 60, ge=1, le=7 * 24 * 60)
+    push_max_attempts: int = Field(default=5, ge=1, le=20)
+    push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Hosts (or parent domains) a subscription endpoint may point to: the browsers' push
+    # services. Anything else is refused at registration (the worker would call it).
+    push_allowed_hosts: list[str] = Field(
+        default_factory=lambda: [
+            "fcm.googleapis.com",
+            "push.apple.com",
+            "push.services.mozilla.com",
+            "notify.windows.com",
+        ]
+    )
+
     @model_validator(mode="after")
     def _check_llm(self) -> Self:
         if self.llm_provider != "gemini":
@@ -145,6 +235,22 @@ class Settings(BaseSettings):
                 "for Vertex AI"
             )
         return self
+
+    @property
+    def oauth_redirect_uri(self) -> str:
+        """Where the provider sends the browser back: a page of the web client, which
+        hands the code to the API (the session cookie is SameSite=Strict)."""
+        return self.public_origin.rstrip("/") + "/connexions/retour"
+
+    @property
+    def llm_reservation_ttl(self) -> timedelta:
+        """Age after which a pending reservation is released as abandoned.
+
+        A live call makes at most two provider requests (thinking-level retry), each
+        bounded by the timeout: it is never released while it may still be running.
+        """
+        floor = 2 * self.llm_timeout_seconds + 60
+        return timedelta(seconds=max(float(self.llm_reservation_ttl_seconds), floor))
 
     @property
     def database_url(self) -> URL:

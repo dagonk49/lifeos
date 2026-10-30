@@ -215,7 +215,7 @@ function Reviews() {
                             <span className="block text-sm font-medium">
                               {periodLabel(review.period, review.period_start, review.period_end)}
                             </span>
-                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                               <Badge tone={isAutomatic(review.generated_by) ? "blue" : "teal"}>
                                 {generatedByLabel(review.generated_by)}
                               </Badge>
@@ -229,7 +229,7 @@ function Reviews() {
                     })}
                   </ul>
                   {list.length >= LIMIT && (
-                    <p className="mt-2 text-xs text-stone-500">
+                    <p className="mt-2 text-xs text-muted">
                       Seuls les {LIMIT} bilans les plus récents sont affichés : filtrez par période pour remonter plus
                       loin.
                     </p>

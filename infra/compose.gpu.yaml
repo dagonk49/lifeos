@@ -6,7 +6,7 @@
 services:
   stt:
     build: { context: ../backend, target: stt-gpu }
-    image: lifeos-stt-gpu:local
+    image: lifeos-stt-gpu:${LIFEOS_IMAGE_TAG:-local}
     environment:
       LIFEOS_STT_DEVICE: cuda
     # The model lives in the GPU memory (about 1 GB): less RAM needed.
