@@ -451,13 +451,6 @@ colonnes ne sort par l'API ni par l'export.
 - **`agent_permissions.resource`** : s'étend à `calendar` et `email`. Un agent a besoin de
   cette permission **en plus** du consentement du compte dans l'espace.
 
-## 7. Prévu ensuite
-
-| Table | Étape | Notes |
-|---|---|---|
-| `push_devices` | 5 | jetons de notification mobile |
-| connexion bancaire (agrégateur agréé) | — | projet séparé : aujourd'hui, import de fichiers CSV seulement (tâche 25) |
-
 ## 7. Migrations
 
 Fichiers `backend/migrations/versions/AAAAMMJJ_NNNN_sujet.py` écrits à la main, numéros
@@ -485,3 +478,10 @@ Comme une mise à jour peut revenir en arrière ([exploitation.md §6](exploitat
 - Les migrations d'une même mise à jour s'appliquent dans une seule transaction : une
   migration qui échoue laisse le schéma tel qu'il était (retour arrière automatique,
   `scripts/test-update.sh`).
+
+## 8. Prévu ensuite
+
+| Table | Étape | Notes |
+|---|---|---|
+| `push_devices` | 5 | jetons de notification mobile |
+| connexion bancaire (agrégateur agréé) | — | projet séparé : aujourd'hui, import de fichiers CSV seulement (tâche 25) |

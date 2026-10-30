@@ -2,6 +2,9 @@ LifeOS • Version de conception 1.0 • 11 octobre 2026
 
 Statut : document de cadrage — les technologies proposées restent à confirmer par prototypage.
 
+> Document source, conservé tel quel. Ce qui a été retenu à la place de certaines
+> propositions, et l'état de réalisation de chaque exigence : [realisation.md](../realisation.md).
+
 # 1. Principes structurants
 
 - Architecture local-first : données et décisions d’autorisation sur le serveur personnel.

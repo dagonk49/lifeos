@@ -34,8 +34,8 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Notifications | **90 jours** après lecture (ou après livraison si jamais lues) | purge quotidienne avec audit (nombre) ; un rappel cite le titre de la tâche ; un regroupement de suggestions ne cite aucun titre (seulement un nombre) et disparaît avec sa dernière suggestion |
 | Préférences de notification | tant que le compte existe | catégories, maximum par jour, créneaux et heures ; aucun contenu |
 | Journal d'audit | 1 an (**à valider**) | purge dédiée, seule exception au mode append-only |
-| Journal des appels LLM (`llm_calls`) | 1 an (**à valider**) | ne contient aucun contenu |
-| Logs applicatifs | 14 jours | rotation Docker ; aucun contenu personnel brut |
+| Journal des appels LLM (`llm_calls`) | **sans limite à ce jour** (aucune purge ; durée **à valider**) | ne contient aucun contenu : palier, objet de l'appel, jetons, coût estimé, résultat |
+| Logs applicatifs | selon le volume : **10 Mo × 5 fichiers par conteneur** (pas une durée) | rotation Docker (`json-file`, `infra/compose.yaml`) ; aucun contenu personnel brut |
 | Métriques Prometheus | 15 jours | rétention Prometheus ; compteurs, durées et âges seulement, aucune donnée personnelle ([exploitation.md §5](exploitation.md#5-supervision-et-alertes)) |
 | Alertes (silences, journal des notifications d'Alertmanager) | 5 jours | rétention par défaut d'Alertmanager ; textes fixes des règles, aucune donnée personnelle |
 | Journal des déploiements (`infra/state/deployments.tsv`) | tant que l'installation existe | dates, commits, étiquettes d'images, révisions du schéma, résultat ; aucune donnée personnelle |

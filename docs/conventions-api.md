@@ -530,6 +530,7 @@ conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu**
 | `/healthz`, `/readyz` | 1 | vivacité, disponibilité (base, Redis) — hors `/v1` |
 | `/v1/auth` | 1 | passkeys, sessions, utilisateur courant |
 | `/v1/spaces` | 2 | espaces, consentement cloud |
+| `/v1/settings` | 2 | préférences du propriétaire : nom, fuseau horaire, plages de tranquillité, budget mensuel de jetons, pause de l'assistant IA, alertes critiques pendant la tranquillité |
 | `/v1/chat` | 2 | conversations, messages |
 | `/v1/tasks` | 2 | CRUD, rappels, statuts, dépendances et étiquettes (tâche 22) |
 | `/v1/journal` | 2 | entrées, analyse (propositions à valider) |
@@ -540,7 +541,7 @@ conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu**
 | `/v1/guardian` | 2 | permissions d'agents, journal d'audit, appels LLM |
 | `/v1/notifications` | 2, V1 | liste, lecture, synthèses de suggestions, préférences par catégorie (activation, maximum par jour, créneaux, heures de regroupement) |
 | `/v1/dashboard` | 2 | briefing du jour |
-| `/v1/goals` | 3 | objectifs, jalons, bilans |
+| `/v1/goals` | 3 | objectifs, jalons, points d'étape, tâches rattachées, objectifs d'épargne |
 | `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois, import de relevés CSV, échéances récurrentes, projection |

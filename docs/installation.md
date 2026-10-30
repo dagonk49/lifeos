@@ -1,4 +1,4 @@
-# Installation de LifeOS 1.0 sur la VM
+# Installation de LifeOS sur la VM
 
 Guide pas à pas pour la machine de référence : VM Debian sur Proxmox, 8 vCPU (i7-6700),
 10 Go de RAM, GTX 1050 Ti en option. Les détails d'exploitation (exposition réseau,
@@ -155,8 +155,9 @@ seulement à reconnecter les comptes.
 
 1. Certificat : déposer `fullchain.pem` et `privkey.pem` dans `infra/traefik/certs/`, puis
    `cp infra/traefik/dynamic/tls.yml.example infra/traefik/dynamic/tls.yml`
-   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)). Derrière Nginx Proxy
-   Manager, c'est lui qui fournit le certificat (§4).
+   ([exploitation.md §2](exploitation.md#2-domaine-et-certificat-tls)). Un certificat Let's
+   Encrypt dure 90 jours : prévoir son renouvellement dès maintenant (même section). Derrière
+   Nginx Proxy Manager, c'est lui qui fournit et renouvelle le certificat (§4).
 2. Ouvrir le lien d'enrôlement sur l'appareil qui portera la première passkey (téléphone ou
    ordinateur), nommer l'appareil, valider.
 3. Dans **Réglages → Appareils et passkeys**, ajouter une **deuxième passkey** (autre
@@ -165,7 +166,8 @@ seulement à reconnecter les comptes.
    professionnel).
 
 Lien perdu ou appareils perdus :
-`docker compose exec api lifeos-admin enrollment-token --email moi@exemple.fr`.
+`docker compose exec api lifeos-admin enrollment-token --email moi@exemple.fr` (marche à
+suivre complète : [guide d'utilisation](guide-utilisateur.md#appareil-perdu-ou-volé)).
 
 ## 7. GPU pour la dictée (facultatif)
 
@@ -249,6 +251,9 @@ seul à la version précédente. Retour arrière à la main : `infra/scripts/upd
 ([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)).
 
 ## Problèmes fréquents
+
+Les cas les plus courants à l'installation. Pour une panne plus tard (tâches qui n'avancent
+plus, page blanche, disque plein, synchronisation arrêtée…) : [depannage.md](depannage.md).
 
 | Symptôme | Cause probable |
 |---|---|

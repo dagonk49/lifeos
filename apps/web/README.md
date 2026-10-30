@@ -8,12 +8,20 @@ origine (cookie de session `SameSite=Strict`).
 |---|---|
 | `/login`, `/enroll` | connexion et enrôlement par passkey (WebAuthn) |
 | `/` | tableau de bord du jour, calculé localement (fonctionne sans IA) |
-| `/chat` | assistant ; mode dégradé explicite, « Conserver » (hors purge 90 j), « Mémoriser » |
-| `/tasks`, `/journal` | tâches et rappels ; journal avec extraction de propositions à valider |
-| `/memory` | faits (origine, confiance, historique de correction) et souvenirs (protection, révisions), export |
-| `/search` | recherche plein texte, filtres type/période/espace |
+| `/chat` | assistant et agents spécialisés ; pièces jointes, dictée, contrôle avant envoi, mode dégradé explicite, « Conserver » (hors purge 90 j), « Mémoriser » |
+| `/tasks` | tâches, rappels, dépendances et étiquettes |
+| `/agenda` | semaine des agendas suivis, conflits, créneaux libres, modifications sous approbation |
+| `/mail` | e-mails copiés des libellés suivis, en texte brut ; import d'une pièce jointe dans Documents |
+| `/journal` | journal (et dictée) avec extraction de propositions à valider |
+| `/goals` | objectifs, jalons, points d'étape, objectifs d'épargne |
+| `/documents` | envoi, lecture locale, correction du texte, sensibilité, conservation de l'original |
+| `/finances` | budgets, opérations, tickets, import de relevés CSV, échéances, projection |
+| `/reviews` | bilans quotidiens, hebdomadaires, mensuels |
+| `/memory` | faits (origine, confiance, historique de correction), souvenirs (protection, révisions), file « À vérifier » |
+| `/search` | recherche plein texte et par le sens, filtres type/période/espace |
 | `/approvals` | actions en attente de votre accord, paramètres exacts |
-| `/settings` | consentement IA par espace, plages de tranquillité, budget IA, passkeys, sessions, permissions d'agents, audit, « Mes données » (archive ZIP JSON/CSV/ICS/Markdown, originaux déchiffrés sur confirmation par passkey) |
+| `/settings` | consentement IA par espace, préférences et plages de tranquillité, notifications, usage IA, agents, comptes connectés, passkeys, sessions, permissions d'agents, audit, « Mes données » (archive ZIP JSON/CSV/ICS/Markdown, originaux déchiffrés sur confirmation par passkey) |
+| `/connexions/retour` | retour du consentement OAuth du fournisseur (transmet le code à l'API) |
 
 Les opérations sensibles (consentement IA, permissions, passkeys) déclenchent une nouvelle
 vérification par passkey si la connexion date de plus de 10 minutes.
@@ -58,13 +66,17 @@ Le backend doit tourner avec `LIFEOS_PUBLIC_ORIGIN=http://localhost:3000`,
 
 ```bash
 pnpm typecheck
-pnpm test           # Vitest : client API, ré-authentification, revue d'approbation, CSP et proxy
+pnpm test           # Vitest : fonctions de src/lib et composants (fichiers *.test.ts(x) voisins)
 pnpm build && pnpm e2e
 ```
 
-`pnpm e2e` (Playwright) démarre l'API (fournisseur LLM factice, base `lifeos_e2e`) et le
-serveur Next, recrée le schéma par les migrations, crée le propriétaire par la CLI puis
-déroule le parcours MVP avec un authentificateur WebAuthn virtuel de Chromium.
+`pnpm e2e` (Playwright) démarre l'API (fournisseurs factices pour le LLM, la dictée, les
+embeddings et les comptes connectés ; base `lifeos_e2e`) et le serveur Next, recrée le schéma
+par les migrations, puis déroule les parcours en série, chacun avec sa propre passkey
+(`lifeos-admin enrollment-token`, authentificateur WebAuthn virtuel de Chromium) :
+`mvp.spec.ts` (MVP), `step3.spec.ts` (intelligence), `step4.spec.ts` (multimodal),
+`step5.spec.ts` (compte connecté, usages par espace, agenda suivi, déconnexion) et
+`security.spec.ts` (CSP, session d'un appareil perdu).
 `e2e/security.spec.ts` vérifie la CSP sur le build de production : un nonce neuf sur chaque
 script de chaque page, un script injecté bloqué, les passkeys, la navigation et l'assistant
 fonctionnels. Tous les parcours échouent à la moindre violation de CSP (`e2e/fixtures.ts`).

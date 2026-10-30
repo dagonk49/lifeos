@@ -1,4 +1,4 @@
-# Guide d'utilisation — LifeOS 1.0
+# Guide d'utilisation de LifeOS
 
 LifeOS est votre assistant personnel, hébergé chez vous. Vos données restent sur votre
 serveur. L'assistant IA (Gemini) n'est sollicité que pour les espaces où vous l'avez
@@ -26,18 +26,61 @@ ferme d'un coup toutes les sessions sauf celle de l'appareil que vous tenez (vot
 est demandée si votre connexion date de plus de 10 minutes). L'appareil déconnecté revient à
 la page de connexion à sa prochaine action.
 
+## Appareil perdu ou volé
+
+Gardez toujours **au moins deux passkeys** sur deux appareils différents (téléphone et
+ordinateur, ou clé de sécurité) : c'est votre secours.
+
+**Vous avez encore un autre appareil connecté** (ou une autre passkey) :
+
+1. Sur cet appareil, ouvrez **Réglages → Appareils et passkeys**.
+2. **Révoquer** la passkey de l'appareil perdu (votre passkey est redemandée si votre
+   connexion date de plus de 10 minutes). Les sessions ouvertes avec cette passkey sont
+   fermées en même temps : l'appareil perdu ne peut plus rien lire ni rien faire.
+3. Par prudence, **Déconnecter les autres sessions** ferme aussi toutes les autres.
+4. Si l'appareil perdu portait un compte Google connecté à LifeOS, rien à faire de plus
+   côté LifeOS : les jetons restent sur votre serveur. Changez néanmoins les accès de votre
+   compte Google si l'appareil lui-même y était connecté.
+
+LifeOS refuse de révoquer votre **dernière** passkey (« Impossible de révoquer votre
+dernière passkey ») : ajoutez-en d'abord une autre sur un appareil que vous avez en main
+(**Ajouter une passkey**), puis révoquez l'ancienne.
+
+**Vous n'avez plus aucun appareil connecté** : la récupération se fait sur le serveur, par
+la personne qui l'administre (vous, en général), avec un accès SSH à la VM :
+
+```bash
+cd /opt/lifeos/infra
+docker compose exec api lifeos-admin revoke-sessions --email moi@exemple.fr    # ferme toutes les sessions
+docker compose exec api lifeos-admin enrollment-token --email moi@exemple.fr   # lien d'enrôlement, 15 minutes
+```
+
+Ouvrez le lien sur votre nouvel appareil pour y créer une passkey, puis, une fois connecté,
+révoquez dans **Réglages → Appareils et passkeys** la passkey de l'appareil perdu.
+
+Une passkey **synchronisée** (badge « Synchronisée » : trousseau Apple, gestionnaire de mots
+de passe Google…) se retrouve sur vos autres appareils du même compte : si c'est ce compte
+qui est compromis, révoquez aussi cette passkey et changez le mot de passe du compte.
+
+Serveur perdu (VM, disque) : voir le [plan de reprise](restauration.md), qui ne demande que
+la fiche de récupération.
+
 ## Pages
 
 ### Accueil
 
-Briefing du jour :
+Briefing du jour, calculé sur votre serveur (il fonctionne sans assistant IA) :
 
-- tâches en retard, du jour et à venir ;
+- **priorités du jour** : tâches en retard et du jour, nombre de tâches sans échéance ;
+- **agenda du jour** (agendas suivis) et conflits d'agenda des 14 prochains jours ;
+- échéances de la semaine ;
 - journal du jour ;
-- approbations en attente ;
+- **à valider** : approbations en attente, notifications non lues ;
 - état de la mémoire ;
 - **budget du mois** (catégories proches de leur budget) ;
 - consommation de l'assistant IA.
+
+Chaque carte indique l'heure à laquelle elle a été calculée.
 
 ### Assistant
 
@@ -365,7 +408,17 @@ indisponible.
 
 ## Ce que cette version ne fait pas encore
 
-L'envoi d'e-mails n'est pas encore disponible ; les e-mails copiés ne sont pas dans la
-recherche. Pas de notifications
-push sur le téléphone (les rappels s'affichent dans l'application) et pas d'application
-mobile native : utilisez le site dans le navigateur du téléphone. Voir le [journal des versions](../CHANGELOG.md).
+- **Envoyer un e-mail** : l'usage « Envoyer des e-mails » peut être accordé dans les
+  comptes connectés, mais LifeOS n'envoie encore aucun e-mail.
+- Les e-mails copiés ne sont pas dans la **Recherche** (ils se consultent dans la page
+  **E-mails**).
+- Pas de **notifications push** sur le téléphone : notifications et rappels s'affichent
+  dans l'application (menu **Notifications**).
+- Pas d'**application mobile native** : utilisez le site dans le navigateur du téléphone.
+- Pas de **tâches récurrentes** ([ADR 0013](adr/0013-taches-recurrentes.md)), pas de
+  connexion bancaire (import de relevés CSV seulement), pas d'autre fournisseur que Google
+  pour l'agenda et les e-mails.
+- L'accueil n'est pas personnalisable (cartes fixes).
+
+En cas de problème : [dépannage](depannage.md). Nouveautés : [journal des
+versions](../CHANGELOG.md).

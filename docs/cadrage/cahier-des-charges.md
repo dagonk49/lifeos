@@ -2,6 +2,9 @@ LifeOS • Version de conception 1.0 • 11 octobre 2026
 
 Statut : document de cadrage — les technologies proposées restent à confirmer par prototypage.
 
+> Document source, conservé tel quel. Ce qui a été retenu à la place de certaines
+> propositions, et l'état de réalisation de chaque exigence : [realisation.md](../realisation.md).
+
 # 1. Objet et vision
 
 LifeOS est une application personnelle d’assistance et de coaching : un interlocuteur unique, accessible par texte, voix, images et documents, avec tableau de bord contextuel. Elle organise le quotidien, suit les objectifs, mémorise les informations pertinentes et prépare des actions, sans déposséder l’utilisateur de ses décisions importantes.

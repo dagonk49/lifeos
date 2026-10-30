@@ -142,7 +142,7 @@ configurée.
    à sa prochaine action ; le journal d'audit montre `auth.session.revoke_others` et, si le
    téléphone a réessayé, `auth.session.rejected`.
 4. **Métriques.** Avec le profil `monitoring`, `lifeos_security_events_total` compte les
-   refus par type ([exploitation.md §5](exploitation.md#5-supervision)).
+   refus par type ([exploitation.md §5](exploitation.md#5-supervision-et-alertes)).
 
 ## 11. Limites connues
 

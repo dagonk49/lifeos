@@ -47,7 +47,8 @@ L'adresse de retour est toujours `LIFEOS_PUBLIC_ORIGIN` + `/connexions/retour`.
      (lire l'agenda) ;
    - `.../auth/calendar.events` (modifier l'agenda) ;
    - `.../auth/gmail.readonly` (lire les e-mails, scope « restreint ») ;
-   - `.../auth/gmail.send` (envoyer des e-mails).
+   - `.../auth/gmail.send` (envoyer des e-mails : l'envoi n'est **pas encore disponible**
+     dans cette version, inutile de l'ajouter pour l'instant).
 5. Utilisateurs de test : ajouter votre ou vos adresses Google.
 6. **Publier l'application** (« En production »). En mode « Test », Google fait expirer les
    jetons de renouvellement au bout d'environ 7 jours, et LifeOS demanderait de reconnecter
@@ -87,13 +88,33 @@ LIFEOS_GOOGLE_CLIENT_ID=123456789-xxxxxxxx.apps.googleusercontent.com
 Puis `docker compose up -d`. Sans la clé des jetons ou sans le client Google, l'API refuse de
 démarrer avec un message explicite (`docker compose logs api`).
 
+Réglages facultatifs, dans `infra/.env` (valeurs par défaut entre parenthèses ; liste complète
+dans [exploitation.md §1](exploitation.md#1-première-installation)) :
+
+| Variable | Rôle |
+|---|---|
+| `LIFEOS_CALENDAR_SYNC_MINUTES` | chaque agenda suivi est relu toutes les N minutes (15 ; de 5 à 1 440) |
+| `LIFEOS_CALENDAR_PAST_DAYS`, `LIFEOS_CALENDAR_FUTURE_DAYS` | fenêtre copiée : jours passés (30) et à venir (365) |
+| `LIFEOS_MAIL_SYNC_MINUTES` | chaque libellé suivi est relu toutes les N minutes (15 ; de 5 à 1 440) |
+| `LIFEOS_MAIL_RETENTION_DAYS` | e-mails copiés : fenêtre du premier passage et durée de conservation de chaque copie (90 ; de 1 à 365) |
+| `LIFEOS_CONNECTORS_TIMEOUT_SECONDS` | délai de chaque appel à Google (15 s) |
+| `LIFEOS_OAUTH_STATE_MINUTES` | délai pour revenir de la page de Google (10 min) |
+
+Le planificateur vérifie toutes les 5 minutes quels agendas et libellés sont à relire : une
+valeur sous 5 minutes n'aurait pas d'effet.
+
+**Pare-feu sortant** : l'API et le worker n'appellent que `oauth2.googleapis.com` (jetons,
+révocation), `www.googleapis.com` (Agenda) et `gmail.googleapis.com` (Gmail), en HTTPS.
+`accounts.google.com` n'est ouvert que par votre navigateur, pendant la connexion.
+
 ## 5. Connecter le compte
 
 Dans LifeOS, **Réglages → Comptes connectés** :
 
 1. Choisir l'espace (personnel ou professionnel) et cocher les usages : lire l'agenda,
    modifier l'agenda, lire les e-mails, envoyer des e-mails. Au départ, seule la lecture de
-   l'agenda est cochée.
+   l'agenda est cochée. « Envoyer des e-mails » peut être accordé, mais LifeOS n'envoie encore
+   aucun e-mail dans cette version.
 2. « Connecter un compte Google » : LifeOS demande une confirmation par passkey si la
    dernière date de plus de 10 minutes.
 3. Chez Google : choisir le compte. Avertissement « Google n'a pas validé cette
@@ -108,7 +129,30 @@ Ensuite, dans le même panneau, cochez ou décochez chaque usage espace par espa
 que Google n'a pas encore accordé ouvre de nouveau la page de Google, pour cet accès
 seulement.
 
-## 6. Déconnecter, révoquer
+## 6. Choisir ce que LifeOS copie
+
+Une fois le compte connecté, rien n'est copié tant que vous n'avez pas choisi quoi suivre,
+toujours dans **Réglages → Comptes connectés** :
+
+- **Choisir les agendas à suivre** : pour chaque agenda du compte, l'espace qu'il alimente
+  (seuls les espaces où « Lire l'agenda » est autorisé sont proposés). LifeOS copie
+  30 jours passés et un an à venir, et relit chaque agenda environ toutes les 15 minutes ;
+  **Synchroniser** le relit tout de suite. Les événements apparaissent dans la page
+  **Agenda** et sur l'accueil.
+- **Modifier l'agenda** : créer, déplacer ou annuler un événement passe **toujours** par une
+  approbation, avec l'aperçu exact du changement ([ADR 0016](adr/0016-ecritures-externes-sous-approbation.md)).
+- **Choisir les libellés à suivre** (Gmail) : pour chaque libellé (Boîte de réception,
+  Importants, vos libellés…), l'espace qu'il alimente, parmi ceux où « Lire les e-mails » est
+  autorisé. Le scope `gmail.readonly` ouvre toute la boîte chez Google : c'est ce choix qui
+  limite ce que LifeOS copie. Seuls les 90 derniers jours sont copiés, en texte brut ;
+  chaque copie est supprimée 90 jours après sa réception, ou dès que l'e-mail quitte le
+  libellé ([ADR 0017](adr/0017-lecture-des-e-mails.md)).
+- **Ne plus suivre** un agenda ou un libellé supprime ses copies dans LifeOS, jamais chez
+  Google.
+
+Le détail de chaque page est dans le [guide d'utilisation](guide-utilisateur.md#réglages).
+
+## 7. Déconnecter, révoquer
 
 - **Décocher un usage** dans un espace le coupe immédiatement, sans passkey.
 - **Déconnecter** révoque l'accès chez Google, efface les jetons et retire toutes les
@@ -119,7 +163,7 @@ seulement.
 - Google révoque tout l'accord d'un coup. Pour réduire les accès accordés chez Google,
   déconnectez puis reconnectez avec moins de cases cochées.
 
-## 7. « Reconnexion nécessaire »
+## 8. « Reconnexion nécessaire »
 
 Le compte passe à « Reconnexion nécessaire » quand Google refuse de renouveler l'accès.
 LifeOS efface alors les jetons et envoie une notification. Causes connues (à revérifier dans
@@ -145,3 +189,9 @@ Cliquer « Reconnecter le compte » : les autorisations par espace sont conserv�
 | « Cette demande de connexion a expiré ou a déjà servi » | plus de 10 minutes passées chez Google, ou page de retour rechargée : recommencer |
 | « L'accès n'a pas été accordé chez le fournisseur » | consentement refusé ou fenêtre de Google fermée |
 | Reconnexion demandée chaque semaine | application restée en mode « Test » (§2, étape 6) |
+| « Fournisseur non configuré sur ce serveur » sous un agenda ou un libellé | `LIFEOS_CONNECTORS_PROVIDER` est repassé à `disabled` (par exemple après `restore-drill.sh`) : remettre `google` (§4) |
+| « Lecture … non autorisée dans cet espace : synchronisation arrêtée » | l'usage a été décoché pour cet espace : le recocher, ou ne plus suivre cet agenda ou ce libellé |
+| « Lecture … non accordée chez le fournisseur » | l'accès a été décoché chez Google : recocher l'usage dans LifeOS, qui rouvre la page de Google |
+| « Trop de requêtes chez le fournisseur : nouvel essai automatique » | quota de Google atteint : LifeOS réessaie seul au passage suivant |
+| Un agenda ou des e-mails ne se mettent plus à jour, sans message | worker ou planificateur arrêté : [dépannage](depannage.md#3-tâches-de-fond-rappels-et-synchronisations) |
+| « Fournisseur injoignable : nouvel essai automatique » qui ne disparaît pas | Google Calendar API ou Gmail API non activée dans le projet (§1, étape 3), ou pare-feu sortant (§4) : `docker compose logs worker`, qui ne montre que le code d'erreur |
