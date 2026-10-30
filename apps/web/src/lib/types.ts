@@ -286,6 +286,30 @@ export interface NotificationPreferences {
   critical_bypass_quiet_hours: boolean;
 }
 
+/** GET /v1/notifications/push/config (503 push_not_configured when disabled). */
+export interface PushConfig {
+  enabled: boolean;
+  /** applicationServerKey (VAPID public key, base64url). */
+  public_key: string;
+}
+
+/** What the lock screen shows: a generic text, or the notification's title. */
+export type PushPreview = "generic" | "full";
+
+/** A phone or browser receiving Web Push (never its endpoint nor its keys). */
+export interface PushDevice {
+  id: Uuid;
+  label: string;
+  preview: PushPreview;
+  user_agent: string | null;
+  created_at: string;
+  consented_at: string;
+  last_success_at: string | null;
+  failure_count: number;
+  /** Registered by the session of this browser. */
+  current: boolean;
+}
+
 export type SearchType =
   | "tasks"
   | "journal"

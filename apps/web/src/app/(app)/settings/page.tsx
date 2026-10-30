@@ -7,6 +7,7 @@ import { AgentAccessPanel } from "@/components/AgentAccessPanel";
 import { ConnectorsPanel } from "@/components/ConnectorsPanel";
 import { DataExport } from "@/components/DataExport";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { PushDevicesSection } from "@/components/PushDevicesSection";
 import { SessionList } from "@/components/SessionList";
 import { UsagePanel } from "@/components/UsagePanel";
 import {
@@ -490,6 +491,10 @@ export default function SettingsPage() {
         <SpacesSection />
         <PreferencesSection />
         <NotificationPreferences className="lg:col-span-2" />
+        {/* Web Push on this phone and the devices that receive it (ADR 0019). */}
+        <div id="notifications-telephone" className="scroll-mt-4 lg:col-span-2">
+          <PushDevicesSection />
+        </div>
         {/* Anchor of the dashboard's "Réglages de l'assistant" link. */}
         <div id="assistant-ia" className="scroll-mt-4 lg:col-span-2">
           <UsagePanel />

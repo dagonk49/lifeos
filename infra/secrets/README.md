@@ -10,6 +10,7 @@ Docker secrets (one value per file, never committed). Create them with
 | `lifeos_hf_token` | Hugging Face read token, only to download a gated embedding model (usually empty) |
 | `lifeos_connectors_key` | AES-256-GCM key of the OAuth tokens of the connected accounts: base64 of 32 random bytes. Losing it only forces reconnecting the accounts; rotation: `2:<new>,1:<old>` (docs/exploitation.md) |
 | `lifeos_google_client_secret` | secret of the Google OAuth client (empty unless `LIFEOS_CONNECTORS_PROVIDER=google`) |
+| `lifeos_vapid_private_key` | VAPID key of Web Push (ADR 0019): P-256 private key, PEM PKCS#8 (`openssl ecparam -name prime256v1 -genkey -noout \| openssl pkcs8 -topk8 -nocrypt`). Losing it only forces every phone to enable notifications again; keep a copy with the recovery sheet |
 | `alertmanager.yml` | Alertmanager configuration with the alert channel's tokens (ntfy, SMTP, Telegram) and the dead man's switch URL: written by `infra/scripts/install-monitoring.sh` (run it again rather than editing it), not by `init-secrets.sh`; profile `monitoring` only |
 
 Backups never hold these files. On a new machine (docs/restauration.md), only

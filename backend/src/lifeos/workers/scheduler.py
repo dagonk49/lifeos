@@ -120,6 +120,19 @@ def build_scheduler() -> BlockingScheduler:
         id="build_suggestion_digests",
         misfire_grace_time=60,
     )
+    # Web Push (ADR 0019): due notifications, retries and test pushes, every minute.
+    if settings.push_provider != "disabled":
+        scheduler.add_job(
+            actors.send_push.send,
+            IntervalTrigger(minutes=1, timezone=tz),
+            id="send_push",
+            misfire_grace_time=60,
+        )
+    scheduler.add_job(
+        actors.purge_push_records.send,
+        CronTrigger(hour=3, minute=35, timezone=tz),
+        id="purge_push_records",
+    )
     scheduler.add_job(
         actors.index_embeddings.send,
         IntervalTrigger(minutes=2, timezone=tz),

@@ -61,3 +61,65 @@ class NotificationPreference(Base):
     # suggestion: ["HH:MM"], the local times of the digests.
     digest_times: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     updated_at: Mapped[datetime]
+
+
+class PushDevice(UUIDPrimaryKey, Base):
+    """A browser subscribed to Web Push (ADR 0019). `endpoint`, `p256dh` and `auth_secret`
+    form a capability: whoever holds them can send to the phone. They are never logged,
+    audited nor exported."""
+
+    __tablename__ = "push_devices"
+    __table_args__ = (CheckConstraint("preview IN ('generic', 'full')", name="preview"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # The session (and its passkey) that registered it: revoking them revokes the device.
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_sessions.id", ondelete="SET NULL"), index=True
+    )
+    credential_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("passkey_credentials.id", ondelete="SET NULL"), index=True
+    )
+    label: Mapped[str] = mapped_column(Text)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(Text)
+    auth_secret: Mapped[str] = mapped_column(Text)
+    user_agent: Mapped[str | None] = mapped_column(Text)
+    # What the lock screen shows: a generic text, or the notification's title.
+    preview: Mapped[str] = mapped_column(Text, default="generic", server_default="generic")
+    consented_at: Mapped[datetime]
+    last_success_at: Mapped[datetime | None]
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    revoked_at: Mapped[datetime | None]
+    # user, session, passkey, logout, others, all, expired, account.
+    revoked_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime]
+
+
+class PushDelivery(UUIDPrimaryKey, Base):
+    """One notification for one device: the per-device sent marker (at most one row per
+    pair). `notification_id` NULL: a test push asked from the settings."""
+
+    __tablename__ = "push_deliveries"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'sent', 'failed', 'expired', 'cancelled')", name="status"
+        ),
+        UniqueConstraint("notification_id", "device_id", name="uq_push_deliveries_pair"),
+    )
+
+    notification_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("notifications.id", ondelete="CASCADE")
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("push_devices.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(Text, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Next try; while a send is in flight, the end of its lease.
+    next_attempt_at: Mapped[datetime] = mapped_column(index=True)
+    sent_at: Mapped[datetime | None]
+    # HTTP status or failure kind (http_429, timeout...), never a response body.
+    error_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(index=True)

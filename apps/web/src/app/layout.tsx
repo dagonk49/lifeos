@@ -10,9 +10,16 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   description: "Assistant personnel et coach, local-first.",
   robots: { index: false, follow: false },
+  // Installed on a phone's home screen (src/app/manifest.ts): required by iOS for push.
+  appleWebApp: { capable: true, title: "LifeOS", statusBarStyle: "default" },
+  // Listed together: an `icons` entry replaces the link Next.js derives from app/icon.svg.
+  icons: {
+    icon: { url: "/icon.svg", type: "image/svg+xml" },
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1 };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0f766e" };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   // Every page is rendered per request, never prerendered at build time: Next.js puts the

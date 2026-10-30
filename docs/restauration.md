@@ -18,6 +18,7 @@ La restauration est réussie quand :
 | Fiche de récupération (`infra/scripts/export-keys.sh`) | gestionnaire de mots de passe | — |
 | … dont la clé des documents (`lifeos_documents_key`) | sur la fiche | les originaux sont perdus, sauvegardes comprises |
 | … dont la clé des comptes connectés (`lifeos_connectors_key`), facultative | sur la fiche | les comptes connectés (Google) sont à reconnecter ; rien d'autre n'est perdu |
+| … dont la clé des notifications push (`lifeos_vapid_private_key`), facultative | sur la fiche | chaque téléphone doit réactiver les notifications ; rien d'autre n'est perdu |
 | … dont le mot de passe restic (et celui de la copie hors site) | sur la fiche | les sauvegardes sont illisibles |
 | … dont les réglages des sauvegardes (`/etc/lifeos/backup.env` : dépôts, identifiants B2/S3, alertes) | sur la fiche | pas d'accès au dépôt |
 | Clé SSH du dépôt (dépôt `sftp:`) | gestionnaire de mots de passe | pas d'accès au dépôt |
@@ -128,6 +129,16 @@ pas pouvoir utiliser les comptes du propriétaire.
 sudo bash -c 'umask 077 && cat > /root/connectors-key'  # coller la clé, Entrée, puis Ctrl-D
 sudo install -m 644 /root/connectors-key infra/secrets/lifeos_connectors_key
 sudo shred -u /root/connectors-key
+```
+
+Clé des notifications push, **vraie reprise seulement** (facultatif, même raison) : sans
+elle, une clé neuve est créée et chaque téléphone doit réactiver les notifications (les
+anciens abonnements échouent en `403`). Coller le bloc PEM entier de la fiche :
+
+```bash
+sudo bash -c 'umask 077 && cat > /root/vapid-key'  # coller le bloc PEM, Entrée, puis Ctrl-D
+sudo install -m 644 /root/vapid-key infra/secrets/lifeos_vapid_private_key
+sudo shred -u /root/vapid-key
 ```
 
 ### Étape 5 : restaurer en une commande (recommandé)

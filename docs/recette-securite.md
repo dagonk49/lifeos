@@ -128,7 +128,18 @@ configurée.
 | Script en ligne, nonce deviné, script de même origine, gestionnaire d'événement injectés | bloqués, la page reste fonctionnelle | `security.spec.ts` « a script injected without the nonce is blocked » |
 | Passkeys, navigation, assistant | aucune violation de CSP | `security.spec.ts` « passkeys, navigation and assistant work under the policy » |
 
-## 10. Recette sur le déploiement réel
+## 10. Notifications push (T38 à T40)
+
+| Scénario | Résultat attendu | Code | Audit | Test |
+|---|---|---|---|---|
+| Rappel poussé à un appareil par défaut | texte générique, ni titre ni corps | — | `notification.push.send` (nombres) | `test_push.py::test_due_notifications_are_pushed_once_per_device` |
+| Afficher le titre sur l'écran verrouillé avec une connexion ancienne | refusé, l'appareil reste générique | `403 reauthentication_required` | `notification.push_preview` `denied` | `test_push.py::test_showing_titles_on_the_lock_screen_is_reinforced` |
+| Abonnement vers un hôte qui n'est pas un service de push, ou clés invalides | refusé, la saisie n'est pas renvoyée | `422 push_endpoint_not_allowed`, `422 push_subscription_invalid` | — | `test_push.py::test_subscriptions_are_checked_and_never_echoed` |
+| Appareil d'un autre compte (modifier, révoquer, tester) | `404`, rien ne change | `device_not_found` | — | `test_push.py::test_another_users_device_is_not_found` |
+| Appareil révoqué (directement, avec sa session, sa passkey, les autres sessions, toutes) | plus aucun envoi, envois en attente annulés | — | `notification.device.revoke` | `test_push.py::test_a_revoked_device_gets_nothing`, `…revoking_*` |
+| Audit et export | jamais l'adresse d'abonnement ni ses clés | — | — | `test_push.py`, `test_export.py` |
+
+## 11. Recette sur le déploiement réel
 
 À dérouler après l'installation et à chaque changement de domaine ou de reverse proxy :
 
@@ -148,7 +159,7 @@ configurée.
 4. **Métriques.** Avec le profil `monitoring`, `lifeos_security_events_total` compte les
    refus par type ([exploitation.md §5](exploitation.md#5-supervision-et-alertes)).
 
-## 11. Limites connues
+## 12. Limites connues
 
 - Un cookie copié reste utilisable jusqu'à sa révocation, son expiration (30 jours) ou
   7 jours d'inactivité : le changement de navigateur est signalé, jamais bloqué (un

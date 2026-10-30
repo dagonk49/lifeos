@@ -185,6 +185,33 @@ class Settings(BaseSettings):
     mail_approval_redact_days: int = Field(default=30, ge=1, le=90)
     connectors_timeout_seconds: float = Field(default=15.0, gt=0)
 
+    # Web Push to the owner's phones (ADR 0019). "webpush": RFC 8291 encryption and RFC
+    # 8292 (VAPID) signature, sent by the worker; "fake": tests and end-to-end runs (no
+    # network); "disabled": no device can be registered. The key is checked when the API
+    # starts and when the worker first sends (`notifications.push.load_vapid_key`).
+    push_provider: Literal["disabled", "fake", "webpush"] = "disabled"
+    # P-256 private key, PEM (PKCS#8), Docker secret `lifeos_vapid_private_key`. Losing it
+    # only forces every device to subscribe again.
+    vapid_private_key: SecretStr | None = None
+    # Contact given to the push services in every signature: mailto: or https: URL.
+    vapid_subject: str = "mailto:admin@localhost"
+    # How long a push service keeps a message for an unreachable phone (TTL header), and
+    # the age after which a due notification is no longer pushed (in-app only).
+    push_ttl_seconds: int = Field(default=6 * 3600, ge=0, le=7 * 24 * 3600)
+    push_max_age_minutes: int = Field(default=6 * 60, ge=1, le=7 * 24 * 60)
+    push_max_attempts: int = Field(default=5, ge=1, le=20)
+    push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Hosts (or parent domains) a subscription endpoint may point to: the browsers' push
+    # services. Anything else is refused at registration (the worker would call it).
+    push_allowed_hosts: list[str] = Field(
+        default_factory=lambda: [
+            "fcm.googleapis.com",
+            "push.apple.com",
+            "push.services.mozilla.com",
+            "notify.windows.com",
+        ]
+    )
+
     @model_validator(mode="after")
     def _check_llm(self) -> Self:
         if self.llm_provider != "gemini":

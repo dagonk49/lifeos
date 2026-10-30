@@ -151,6 +151,35 @@ Puis **Réglages → Comptes connectés** dans LifeOS. La clé qui chiffre les j
 (`infra/secrets/lifeos_connectors_key`) est créée par `init-secrets.sh`. La perdre oblige
 seulement à reconnecter les comptes.
 
+### Notifications sur le téléphone (facultatif)
+
+Rappels et alertes sur le téléphone, même LifeOS fermé (Web Push, ADR 0019). La clé
+`infra/secrets/lifeos_vapid_private_key` est créée par `init-secrets.sh` (il faut `openssl`).
+
+```bash
+cd /opt/lifeos/infra
+sed -i 's/^LIFEOS_PUSH_PROVIDER=.*/LIFEOS_PUSH_PROVIDER=webpush/' .env
+sed -i 's/^LIFEOS_VAPID_SUBJECT=.*/LIFEOS_VAPID_SUBJECT=mailto:moi@exemple.fr/' .env
+docker compose up -d
+```
+
+Sur le téléphone, qui doit faire confiance au certificat HTTPS du domaine (une autorité
+privée doit y être installée) :
+
+- **Android (Chrome)** : ouvrir LifeOS, **Réglages → Notifications sur le téléphone →
+  Activer sur cet appareil**, accepter la demande du navigateur, puis **Envoyer un test**.
+  Pour éviter les retards, exempter Chrome de l'optimisation de batterie (Paramètres →
+  Applications → Chrome → Batterie → Non restreinte).
+- **iPhone, iPad (iOS 16.4 ou plus récent)** : dans Safari, **Partager → Sur l'écran
+  d'accueil**, puis ouvrir LifeOS **depuis cette icône** (pas dans Safari) et activer comme
+  ci-dessus. Safari seul ne reçoit pas de notification push.
+
+Par défaut, l'écran verrouillé n'affiche qu'un texte générique (« Nouveau rappel ») ; la
+case « Afficher le titre sur l'écran verrouillé » change cela par appareil (passkey
+demandée). Si le pare-feu filtre les sorties : [exploitation.md](exploitation.md#notifications-sur-le-téléphone-web-push).
+Avec un accès par VPN seulement, la notification arrive, mais l'appui ne l'ouvre qu'avec le
+VPN actif.
+
 ## 6. Certificat et premier accès
 
 1. Certificat : déposer `fullchain.pem` et `privkey.pem` dans `infra/traefik/certs/`, puis

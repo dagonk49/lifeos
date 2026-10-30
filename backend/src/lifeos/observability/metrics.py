@@ -27,6 +27,13 @@ LLM_TOKENS = Counter(
 
 # Incremented in the worker process, scraped from its own endpoint (workers/metrics.py).
 # `task`, not `job`: Prometheus reserves `job` for the scrape job of the target.
+# Worker process: Web Push sends by outcome (sent, retried, failed, expired), ADR 0019.
+PUSH_SENDS = Counter(
+    "lifeos_push_sends_total",
+    "Web Push sends by outcome",
+    ["outcome"],
+)
+
 JOB_RUNS = Counter(
     "lifeos_job_runs_total",
     "Background task runs by task and outcome",

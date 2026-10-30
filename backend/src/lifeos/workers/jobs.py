@@ -14,6 +14,7 @@ from lifeos.modules.documents.extraction import Extractor, build_extractor
 from lifeos.modules.documents.storage import DocumentStore
 from lifeos.modules.llm import build_provider
 from lifeos.modules.llm.base import LLMProvider
+from lifeos.modules.notifications.push import PushSender, build_push_sender
 from lifeos.modules.retrieval.embedders import Embedder, build_embedder
 from lifeos.modules.voice.transcriber import Transcriber, build_transcriber
 from lifeos.observability.metrics import JOB_RUNS
@@ -28,6 +29,8 @@ _extractor_built = False
 _transcriber: Transcriber | None = None
 _transcriber_built = False
 _connectors: Connectors | None = None
+_push_sender: PushSender | None = None
+_push_sender_built = False
 
 
 def llm() -> LLMProvider:
@@ -68,6 +71,16 @@ def connectors() -> Connectors:
     if _connectors is None:
         _connectors = build_connectors(get_settings())
     return _connectors
+
+
+def push_sender() -> PushSender | None:
+    """The Web Push sender (None: push disabled). A webpush setup without a usable VAPID
+    key raises here: the job fails loudly (the API refused to start anyway)."""
+    global _push_sender, _push_sender_built
+    if not _push_sender_built:
+        _push_sender = build_push_sender(get_settings())
+        _push_sender_built = True
+    return _push_sender
 
 
 def document_store() -> DocumentStore:

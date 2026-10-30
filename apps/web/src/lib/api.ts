@@ -267,6 +267,14 @@ const MESSAGES: Record<string, string> = {
   // Home page (task 23)
   dashboard_layout_invalid:
     "Cette disposition de l'accueil est invalide (carte inconnue ou en double) : rechargez la page puis recommencez.",
+  // Web Push (task 19)
+  push_not_configured:
+    "Les notifications sur le téléphone ne sont pas activées sur ce serveur (voir le guide d'exploitation).",
+  device_not_found: "Cet appareil ne reçoit plus de notifications (révoqué ou expiré).",
+  push_endpoint_not_allowed:
+    "Le service de notifications de ce navigateur n'est pas reconnu : essayez Chrome, Safari, Firefox ou Edge.",
+  push_subscription_invalid: "L'abonnement du navigateur est invalide : réessayez.",
+  push_device_conflict: "Activation déjà en cours sur cet appareil : réessayez dans un instant.",
   // E-mails (task 17)
   mail_not_found: "Cet e-mail est introuvable dans cet espace (supprimé, ou libellé plus suivi).",
   mail_sensitive:

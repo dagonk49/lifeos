@@ -197,6 +197,12 @@ def next_delivery(
     return now
 
 
+def in_quiet_hours(instant: datetime, policy: DeliveryPolicy) -> bool:
+    """Whether this instant falls inside the owner's quiet hours (local wall clock)."""
+    local = instant.astimezone(ZoneInfo(policy.timezone))
+    return _in(_quiet(policy), local.hour * 3600 + local.minute * 60 + local.second)
+
+
 def quiet_hours_delivery(
     now: datetime,
     timezone: str,

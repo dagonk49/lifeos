@@ -19,7 +19,7 @@ from lifeos.core.errors import ProblemError
 from lifeos.modules.audit import service as audit
 from lifeos.modules.identity import passkeys
 from lifeos.modules.identity import service as identity
-from lifeos.modules.identity.models import PasskeyCredential, User
+from lifeos.modules.identity.models import PasskeyCredential, User, UserSession
 from lifeos.modules.identity.schemas import (
     AuthenticationVerifyRequest,
     CeremonyOptions,
@@ -34,6 +34,7 @@ from lifeos.modules.identity.schemas import (
     SpaceOut,
     UserOut,
 )
+from lifeos.modules.notifications.revocation import relink_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -57,8 +58,8 @@ async def _open_session(
     settings: Settings,
     user: User,
     passkey: PasskeyCredential,
-) -> None:
-    _, token = await identity.create_session(
+) -> UserSession:
+    record, token = await identity.create_session(
         db,
         settings,
         user=user,
@@ -67,6 +68,7 @@ async def _open_session(
         ip=client_ip(request),
     )
     _set_session_cookie(response, settings, token)
+    return record
 
 
 @router.post("/passkeys/registration/options")
@@ -149,6 +151,7 @@ async def authentication_verify(
     except ProblemError:
         await db.commit()
         raise
+    replaced = None
     if auth is not None and auth.user.id == user.id:
         # Re-authentication: the fresh session replaces the current one.
         await identity.revoke_session(
@@ -158,7 +161,11 @@ async def authentication_verify(
             reason="reauthenticated",
             actor_id=user.id,
         )
-    await _open_session(request, response, db, settings, user, passkey)
+        replaced = auth.session.id
+    opened = await _open_session(request, response, db, settings, user, passkey)
+    if replaced is not None:
+        # The push devices of the replaced session follow it (ADR 0019).
+        await relink_session(db, replaced, opened)
     return UserOut.model_validate(user)
 
 

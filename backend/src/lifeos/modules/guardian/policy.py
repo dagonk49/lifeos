@@ -158,6 +158,14 @@ _SPECS = [
         Level.REINFORCED,
         None,
     ),
+    # ADR 0019: the lock screen of a phone shows the notification's title only with this
+    # consent, per device (a stolen session alone cannot turn it on).
+    ActionSpec(
+        "notification.push_preview",
+        "Afficher le titre des notifications sur l'écran verrouillé",
+        Level.REINFORCED,
+        None,
+    ),
     ActionSpec("data.bulk_delete", "Destruction importante de données", Level.REINFORCED, None),
     # Reversibility (task 33): only the owner exports, after a recent passkey sign-in (the
     # whole of their data leaves the server: a stolen session alone is not enough).

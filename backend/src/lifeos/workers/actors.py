@@ -24,6 +24,7 @@ from lifeos.modules.mail import drafts as mail_drafts
 from lifeos.modules.mail import send as mail_send  # noqa: F401  (registers the send actions)
 from lifeos.modules.mail import sync as mail_sync
 from lifeos.modules.mail.service import purge_expired as purge_expired_mail
+from lifeos.modules.notifications.devices import purge_push, send_pending_pushes
 from lifeos.modules.notifications.service import build_digests, dispatch_reminders
 from lifeos.modules.notifications.service import purge_old as purge_old_notifications
 from lifeos.modules.retrieval.indexer import drop_other_models, index_pending
@@ -38,6 +39,7 @@ from lifeos.workers.jobs import (
     embedder,
     extractor,
     llm,
+    push_sender,
     run_job,
     run_task,
     transcriber,
@@ -128,6 +130,24 @@ async def build_suggestion_digests() -> None:
     """Due suggestions grouped into one digest per owner (F09); a push sender only sees
     the digest."""
     await run_job("build_suggestion_digests", build_digests)
+
+
+# Also sent by the API after a test push is asked (lifeos.workers.queue.enqueue): keep the
+# name stable.
+@dramatiq.actor(queue_name="realtime", max_retries=0, time_limit=5 * 60_000)
+async def send_push() -> None:
+    """Due notifications pushed to the owner's devices (ADR 0019); retries are rows with
+    their own backoff, not message retries."""
+    sender = push_sender()
+    if sender is None:
+        return
+    await run_task("send_push", lambda: send_pending_pushes(database(), get_settings(), sender))
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_push_records() -> None:
+    """Push deliveries older than 30 days and devices revoked 30 days ago."""
+    await run_job("purge_push", purge_push)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=2, time_limit=15 * 60_000)

@@ -31,6 +31,8 @@ from lifeos.modules.journal.router import router as journal_router
 from lifeos.modules.llm import build_provider
 from lifeos.modules.mail.router import router as mail_router
 from lifeos.modules.memory.router import router as memory_router
+from lifeos.modules.notifications.devices_router import router as push_router
+from lifeos.modules.notifications.push import check_config as check_push_config
 from lifeos.modules.notifications.router import router as notifications_router
 from lifeos.modules.planning.router import router as planning_router
 from lifeos.modules.privacy.router import router as privacy_router
@@ -62,6 +64,7 @@ def build_v1_router() -> APIRouter:
         search_router,
         approvals_router,
         guardian_router,
+        push_router,  # before notifications_router (/push/config)
         notifications_router,
         privacy_router,
         connectors_router,
@@ -90,6 +93,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.embedder = build_embedder(settings)
         if not hasattr(app.state, "connectors"):
             app.state.connectors = build_connectors(settings)
+        # Web Push chosen without a usable VAPID key or subject: refuse to start.
+        check_push_config(settings)
         # Queue, backlog and dependency gauges (docs/exploitation.md §5).
         refresher = (
             asyncio.create_task(gauges.refresh_forever(app.state, settings.metrics_refresh_seconds))

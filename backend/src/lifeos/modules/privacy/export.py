@@ -57,6 +57,7 @@ EXPORTED: tuple[str, ...] = (
     "notifications",
     "notification_preferences",
     "dashboard_preferences",
+    "push_devices",
     "approvals",
     "agent_permissions",
     "connector_accounts",
@@ -81,6 +82,10 @@ EXPORT_EXCLUDED: dict[str, str] = {
     "finance_import_rows": (
         "transitoires (24 h) : lignes d'aperçu d'un import de relevé ; les opérations "
         "importées sont exportées"
+    ),
+    "push_deliveries": (
+        "transitoires (30 jours) : suivi d'envoi des notifications push, identifiants et "
+        "états seulement ; les notifications elles-mêmes sont exportées"
     ),
     "external_operations": (
         "internes : réservations des écritures chez un fournisseur (identifiants seulement), "
@@ -110,6 +115,12 @@ OMITTED_COLUMNS: dict[str, dict[str, str]] = {
         "sign_count": "compteur anti-clonage",
     },
     "user_sessions": {"token_hash": "empreinte du cookie de session"},
+    # ADR 0019: whoever holds them can send to the phone.
+    "push_devices": {
+        "endpoint": "adresse d'abonnement push : une capacité d'envoi vers l'appareil",
+        "p256dh": "clé de chiffrement de l'abonnement push",
+        "auth_secret": "secret de l'abonnement push",
+    },
 }
 
 

@@ -131,6 +131,8 @@ services:
       # Connected accounts (ADR 0012): key of the sealed OAuth tokens, Google client secret.
       - lifeos_connectors_key
       - lifeos_google_client_secret
+      # Web Push (ADR 0019): the worker signs with it, the api publishes the public key.
+      - lifeos_vapid_private_key
     volumes: &documents-volume [documents:/data/documents]
     mem_limit: 768m
     depends_on:
@@ -157,6 +159,7 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+    # `egress`: also the push services (FCM, Apple, Mozilla) for Web Push, ADR 0019.
     networks: [internal, egress]
 
   scheduler:
@@ -429,6 +432,9 @@ secrets:
   # Secret of the Google OAuth client (empty while LIFEOS_CONNECTORS_PROVIDER is not google).
   lifeos_google_client_secret:
     file: ./secrets/lifeos_google_client_secret
+  # P-256 VAPID key of Web Push, PEM (infra/scripts/init-secrets.sh, ADR 0019).
+  lifeos_vapid_private_key:
+    file: ./secrets/lifeos_vapid_private_key
   # Alertmanager configuration with the alert channel (install-monitoring.sh).
   alertmanager_config:
     file: ./secrets/alertmanager.yml

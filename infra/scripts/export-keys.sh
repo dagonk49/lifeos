@@ -9,7 +9,7 @@
 #   sudo infra/scripts/export-keys.sh --verify   paste your saved copies (hidden): do they match?
 #
 # The sheet: lifeos_documents_key and its fingerprint, lifeos_connectors_key (connected accounts),
-# the restic passwords, the backup settings
+# lifeos_vapid_private_key (phone notifications), the restic passwords, the backup settings
 # (/etc/lifeos/backup.env: repositories and their credentials, alerts), the instance settings
 # (domain and WebAuthn RP ID, overlays) and the version. Not on it: the database passwords
 # (a restore creates new ones) and the Gemini key (another one can be created in AI Studio).
@@ -28,6 +28,9 @@ env_value() { sed -n "s/^$1=//p" .env 2>/dev/null | tail -1; }
 # Key of the OAuth tokens (ADR 0012). Optional on the sheet: losing it only forces reconnecting
 # the connected accounts.
 connectors_key_file=secrets/lifeos_connectors_key
+# VAPID key of Web Push (ADR 0019). Optional too: losing it only forces every phone to enable
+# notifications again.
+vapid_key_file=secrets/lifeos_vapid_private_key
 
 case "$mode" in
   --check)
@@ -82,6 +85,18 @@ case "$mode" in
         fi
       fi
     fi
+    if [[ -s "$vapid_key_file" ]]; then
+      echo "Paste the saved lifeos_vapid_private_key on one line (hidden, Enter to skip): "
+      read -r -s saved
+      if [[ -n "$saved" ]]; then
+        if [[ "$(printf '%s' "$saved" | tr -d '[:space:]')" == "$(tr -d '[:space:]' < "$vapid_key_file")" ]]; then
+          echo "web push key: your copy matches"
+        else
+          echo "web push key: your copy does NOT match (phones would have to enable notifications again)"
+          status=1
+        fi
+      fi
+    fi
     for variable in RESTIC_PASSWORD_FILE RESTIC_COPY_PASSWORD_FILE; do
       file="${!variable:-}"
       [[ -n "$file" && -s "$file" ]] || continue
@@ -116,6 +131,10 @@ $(tr -d '[:space:]' < "$key_file")
 1b. Connectors key (infra/secrets/lifeos_connectors_key): without it, the connected accounts
     (Google) must be connected again; nothing else is lost.
 $( [[ -s "$connectors_key_file" ]] && tr -d '[:space:]' < "$connectors_key_file" || echo "(absent: run scripts/init-secrets.sh)")
+
+1c. Web Push key (infra/secrets/lifeos_vapid_private_key): without it, every phone must
+    enable notifications again; nothing else is lost.
+$( [[ -s "$vapid_key_file" ]] && cat "$vapid_key_file" || echo "(absent: run scripts/init-secrets.sh)")
 
 2. Restic repositories
    main:     ${RESTIC_REPOSITORY:-(not configured: install-backups.sh)}

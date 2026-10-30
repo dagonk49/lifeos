@@ -30,6 +30,9 @@ const backendEnv = {
   // sends the browser back to /connexions/retour; tokens sealed with a throw-away key.
   LIFEOS_CONNECTORS_PROVIDER: "fake",
   LIFEOS_CONNECTORS_KEY: "ZTJlLW9ubHktY29ubmVjdG9ycy1rZXktMzJieXRlcyE=",
+  // Web Push (task 19): devices are registered for real, the worker's fake sender sends
+  // nothing (the browser's subscription is stubbed in e2e/push.spec.ts).
+  LIFEOS_PUSH_PROVIDER: "fake",
   LIFEOS_LOG_LEVEL: "WARNING",
 };
 

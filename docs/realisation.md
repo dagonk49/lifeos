@@ -58,7 +58,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | Étape | État |
 |---|---|
 | 0 à 4 | réalisées (version 1.0.0) |
-| 5 — Connecteurs | en cours : comptes Google, lecture de l'agenda, modifications d'agenda sous approbation, lecture de Gmail, envoi d'e-mails sous approbation, notifications adaptatives dans l'application. **Prévu** : notifications push sur le téléphone |
+| 5 — Connecteurs | en cours : comptes Google, lecture de l'agenda, modifications d'agenda sous approbation, lecture de Gmail, envoi d'e-mails sous approbation, notifications adaptatives, dans l'application et sur le téléphone (Web Push) |
 | 6 — Stabilisation | en cours : recette de sécurité, CSP à nonces, exercices de restauration scriptés, alertes, mises à jour avec retour arrière, documentation d'exploitation et de dépannage. **Reste** : exercice de restauration réel sur une VM vierge (journal vide), recette sur la machine cible, accessibilité |
 
 ## 4. Couverture du cahier des charges
@@ -68,14 +68,14 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | Exigence | Statut | Ce qui est réalisé, ce qui manque |
 |---|---|---|
 | F01 — Conversation multimodale | Partiel | texte, pièces jointes (texte extrait), dictée, lecture vocale, correction des documents, historique, recherche, export, purge à 90 jours. Manque : conversation liée à l'écran courant (seul « Discuter de cet e-mail » existe), streaming |
-| F02 — Accueil et tableau de bord | Partiel | briefing calculé localement : priorités, agenda du jour et conflits, semaine, journal, approbations, mémoire, budget, usage IA, heure de calcul. Manque : cartes configurables, suggestions ; **prévu** (tableau de bord) |
+| F02 — Accueil et tableau de bord | Réalisé | briefing calculé localement : priorités, agenda du jour et conflits, semaine, journal, approbations, mémoire, budget, usage IA, heure de calcul ; vue Semaine, suggestions sourcées (bilans, regroupements, budgets), cartes et ordre personnalisables. Manque : conversation liée à une carte |
 | F03 — Tâches et calendrier | Réalisé | création, étiquettes, échéances, rappels, dépendances et état bloqué ; conflits et créneaux calculés localement ; lecture de l'agenda Google et modifications sous approbation. Hors F03 strict : pas de tâches récurrentes |
 | F04 — Finances | Réalisé | saisie, tickets, import CSV en aperçu, catégorisation apprise et corrigeable, budgets, échéances récurrentes, objectifs d'épargne, projections marquées connu / prévu / estimé. Aucune connexion bancaire (import de fichiers seulement), aucun paiement |
 | F05 — Journal et coaching | Réalisé | bilans quotidiens, hebdomadaires, mensuels ; faits séparés de la lecture de l'assistant |
 | F06 — Objectifs et projets | Partiel | objectifs mesurables ou qualitatifs, jalons, points d'étape, archivage, tâches rattachées. Manque : suivi de projets avec décisions et raisons, suggestions adaptatives |
 | F07 — Mémoire Premium | Réalisé | purge à 90 jours, extraction validée, recherche hybride et temporelle, souvenirs protégés, contradictions, préférences anciennes, origine des faits |
 | F08 — Automatisation et agents | Partiel | agents Planification, Coaching, Mémoire et Finances à la demande, accès explicites ; audit et journal des appels LLM. Manque : agents Projets et Documents |
-| F09 — Notifications | Partiel | catégories critique / importante / suggestion, créneaux, maximum par jour, regroupement, tranquillité, anti-doublons, permission pour les alertes critiques ([ADR 0015](adr/0015-notifications-adaptatives.md)). Manque : notifications push sur le téléphone (**prévu**) |
+| F09 — Notifications | Réalisé | catégories critique / importante / suggestion, créneaux, maximum par jour, regroupement, tranquillité, anti-doublons, permission pour les alertes critiques ([ADR 0015](adr/0015-notifications-adaptatives.md)) ; sur le téléphone par Web Push, texte générique par défaut ([ADR 0019](adr/0019-notifications-mobiles-web-push.md)) |
 | F10 — Gestion documentaire | Partiel | détection locale des documents sensibles, originaux chiffrés à durée définie, pièces jointes d'e-mails importées avec leur provenance. Manque : rattachement d'un document à un événement |
 
 ### Politique d'autonomie (§5) et vie privée (§6)
@@ -106,7 +106,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | Performance | Partiel | traitements locaux sans cloud ; mesures à faire sur la machine cible ([recette-serveur.md](recette-serveur.md)) |
 | Fiabilité | Réalisé | idempotence, reprise des tâches, aucune double écriture chez le fournisseur ([ADR 0016](adr/0016-ecritures-externes-sous-approbation.md)) |
 | Observabilité | Réalisé | journaux JSON sans contenu, métriques, alertes |
-| Accessibilité | Partiel | pas encore auditée (clavier, lecteurs d'écran, contrastes) ; audit et corrections **prévus** |
+| Accessibilité | Partiel | contrôles automatiques WCAG 2.2 AA (contrastes clair et sombre, noms, tailles de cible, clavier, téléphone 360 px) à chaque CI ([accessibilite.md](accessibilite.md)) ; reste : passages avec lecteurs d'écran et essais sur les appareils cibles |
 | Interopérabilité | Réalisé | API `/v1`, export JSON, CSV, ICS, Markdown |
 | Réversibilité | Réalisé | fournisseur IA derrière une abstraction, export complet |
 

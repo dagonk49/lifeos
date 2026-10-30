@@ -53,7 +53,7 @@ from lifeos.modules.memory.models import (
     MemoryRevision,
     memory_facts,
 )
-from lifeos.modules.notifications.models import Notification, NotificationPreference
+from lifeos.modules.notifications.models import Notification, NotificationPreference, PushDevice
 from lifeos.modules.privacy import ics
 from lifeos.modules.privacy.archive import neutral, safe_name
 from lifeos.modules.privacy.export import (
@@ -72,7 +72,15 @@ NOW = datetime(2026, 10, 20, 8, 30, tzinfo=UTC)
 NOTES = 'Virgule, point-virgule; "guillemets"\nseconde ligne — été'
 MERCHANT = '=HYPERLINK("http://example.org")'
 # Values that must never leave the server.
-SECRETS = ("SEALED-REFRESH-TOKEN", "SEALED-ACCESS-TOKEN", "PAGE-TOKEN-CURSOR")
+SECRETS = (
+    "SEALED-REFRESH-TOKEN",
+    "SEALED-ACCESS-TOKEN",
+    "PAGE-TOKEN-CURSOR",
+    # A push subscription is a capability (ADR 0019).
+    "PUSH-ENDPOINT-CAPABILITY",
+    "PUSH-P256DH-KEY",
+    "PUSH-AUTH-SECRET",
+)
 
 
 @pytest.fixture
@@ -289,6 +297,18 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
         )
     )
     add(
+        PushDevice(
+            user_id=user_id,
+            label=f"{mark} téléphone",
+            endpoint=f"https://fcm.googleapis.com/fcm/send/PUSH-ENDPOINT-CAPABILITY-{mark}",
+            p256dh="PUSH-P256DH-KEY",
+            auth_secret="PUSH-AUTH-SECRET",
+            preview="generic",
+            consented_at=NOW,
+            created_at=NOW,
+        )
+    )
+    add(
         Approval(
             **owned,
             action="task.delete",
@@ -486,7 +506,9 @@ def test_every_user_table_is_exported_or_excluded_with_a_reason() -> None:
 
 
 def test_no_secret_column_is_exported() -> None:
-    suspicious = re.compile(r"(_enc|_hash|token|secret|verifier|public_key|credential_id)$")
+    suspicious = re.compile(
+        r"(_enc|_hash|token|secret|verifier|public_key|credential_id|endpoint|p256dh)$"
+    )
     for name in EXPORTED:
         for column in Base.metadata.tables[name].c:
             if column.name in omitted(name):

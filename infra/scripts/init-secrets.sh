@@ -49,3 +49,16 @@ if [[ ! -e "$dir/lifeos_google_client_secret" ]]; then
   : > "$dir/lifeos_google_client_secret"
   echo "created: lifeos_google_client_secret (empty: paste the Google OAuth client secret to connect Google accounts)"
 fi
+# VAPID key of Web Push (ADR 0019): a P-256 private key, PEM (PKCS#8). Losing it only forces
+# every phone to enable notifications again; the worker signs with it, the API publishes its
+# public half.
+if [[ -e "$dir/lifeos_vapid_private_key" ]]; then
+  echo "exists:  lifeos_vapid_private_key"
+elif command -v openssl >/dev/null 2>&1; then
+  openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt > "$dir/lifeos_vapid_private_key"
+  echo "created: lifeos_vapid_private_key"
+else
+  # A missing file is created by the next run; compose needs it even with push disabled.
+  : > "$dir/lifeos_vapid_private_key"
+  echo "created: lifeos_vapid_private_key (empty: install openssl, delete it and run this script again before LIFEOS_PUSH_PROVIDER=webpush)" >&2
+fi

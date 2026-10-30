@@ -22,6 +22,7 @@ from lifeos.modules.identity.models import (
     User,
     UserSession,
 )
+from lifeos.modules.notifications.revocation import revoke_for_sessions
 
 DEFAULT_SPACES = (("personal", "Personnel"), ("professional", "Professionnel"))
 _TOUCH_INTERVAL = timedelta(minutes=1)
@@ -276,6 +277,15 @@ async def revoke_session(
         raise not_found("session_not_found", "Session not found")
     target.revoked_at = utcnow()
     target.revoked_reason = reason
+    if reason != "reauthenticated":
+        # Its push devices stop with it (a re-authentication hands them to the new
+        # session instead: notifications.revocation.relink_session).
+        await revoke_for_sessions(
+            session,
+            user_id,
+            reason="logout" if reason == "logout" else "session",
+            session_id=session_id,
+        )
     await audit.record(
         session,
         action="auth.session.revoke",
@@ -303,6 +313,10 @@ async def revoke_other_sessions(
         .values(revoked_at=utcnow(), revoked_reason="others")
     )
     count = int(result.rowcount or 0)  # type: ignore[attr-defined]
+    # A lost phone: every push device but this session's, even one whose session is gone.
+    await revoke_for_sessions(
+        session, user_id, reason="others", except_session_id=current_session_id
+    )
     await audit.record(
         session,
         action="auth.session.revoke_others",
@@ -323,6 +337,7 @@ async def revoke_all_sessions(session: AsyncSession, *, user_id: uuid.UUID, reas
         .values(revoked_at=utcnow(), revoked_reason=reason)
     )
     count = int(result.rowcount or 0)  # type: ignore[attr-defined]
+    await revoke_for_sessions(session, user_id, reason="all", everything=True)
     await audit.record(
         session,
         action="auth.session.revoke_all",
@@ -381,6 +396,7 @@ async def revoke_passkey(
         .where(UserSession.credential_id == passkey.id, UserSession.revoked_at.is_(None))
         .values(revoked_at=now, revoked_reason="passkey_revoked")
     )
+    await revoke_for_sessions(session, user_id, reason="passkey", credential_id=passkey.id)
     await audit.record(
         session,
         action="auth.passkey.revoke",

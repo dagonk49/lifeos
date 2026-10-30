@@ -486,8 +486,53 @@ leurs métadonnées (T26) ne sont pas incluses.
   audités (`notification.critical_bypass`, `{enabled}`). Sans cette permission, une alerte
   critique attend la fin des plages de tranquillité. Changer le fuseau, les plages ou cette
   permission reprogramme aussi les notifications en attente.
-- Pour un envoi push (tâche 19) : `notifications.service.due(now)` donne les conditions
-  d'une notification à envoyer (livrée, hors synthèse, pas une suggestion en attente).
+- Envoi push (tâche 19) : `notifications.service.due(now)` donne les conditions d'une
+  notification à envoyer (livrée, hors synthèse, pas une suggestion en attente), plus le
+  statut `pending` ; voir ci-dessous.
+
+## Notifications sur le téléphone : Web Push (tâche 19, ADR 0019)
+
+Routes de session du propriétaire (les agents n'y ont pas accès). Aucune réponse, aucun
+audit ni export ne contient l'adresse d'abonnement ni ses clés.
+
+- `GET /v1/notifications/push/config` : `{"enabled": true, "public_key": "<clé VAPID
+  publique, base64url>"}` (le `applicationServerKey` de `PushManager.subscribe`) ;
+  `503 push_not_configured` quand `LIFEOS_PUSH_PROVIDER=disabled` (de même pour
+  l'enregistrement et le test).
+- `POST /v1/notifications/devices` (accepte `Idempotency-Key`) : `PushSubscription.toJSON()`
+  du navigateur, `{"endpoint", "keys": {"p256dh", "auth"}, "label?", "previous_endpoint?"}`.
+  `201` avec l'appareil `{id, label, preview, user_agent, created_at, consented_at,
+  last_success_at, failure_count, current}` (`current` : enregistré par la session de la
+  requête). Le même abonnement renvoie le même appareil (session et clés rafraîchies) ; un
+  appareil révoqué réactivé repart avec un nouveau consentement et `preview: "generic"`.
+  `previous_endpoint` (envoyé par le service worker sur `pushsubscriptionchange`) remplace
+  l'abonnement d'un appareil **actif**, sinon `404 device_not_found` : jamais de création.
+  Erreurs : `422 push_endpoint_not_allowed` (pas en HTTPS vers un service de push connu,
+  `LIFEOS_PUSH_ALLOWED_HOSTS`), `422 push_subscription_invalid` (clé qui n'est pas un point
+  P-256, secret de 16 octets attendu), `409 push_device_conflict` (deux enregistrements
+  simultanés). Audit `notification.device.register` (`reactivated`) ou
+  `notification.device.renew`.
+- `GET /v1/notifications/devices` : appareils actifs, du plus ancien au plus récent.
+- `PATCH /v1/notifications/devices/{id}` `{"label?", "preview?": "generic" | "full"}` :
+  passer à `full` (titre de la notification sur l'écran verrouillé, jamais son corps) est
+  **renforcé** (`notification.push_preview` : `403 reauthentication_required` sans passkey
+  récente, refus audité) ; revenir à `generic` est immédiat. Audit
+  `notification.device.update` (noms des champs, `preview`).
+- `DELETE /v1/notifications/devices/{id}` : `204` ; les envois en attente sont annulés.
+  Audit `notification.device.revoke`. Révoquer une session (`DELETE /v1/auth/sessions/{id}`,
+  `POST /v1/auth/logout`), une passkey, « les autres sessions » ou `lifeos-admin
+  revoke-sessions` révoque aussi les appareils liés (audit par nombre).
+- `POST /v1/notifications/devices/{id}/test` : `202 {"queued": bool}` (`false` : un test
+  attend déjà) ; envoyé par le worker dans la minute. Audit `notification.device.test`.
+- Appareil d'un autre compte, révoqué ou inconnu : `404 device_not_found`.
+- Message poussé (JSON chiffré, RFC 8291) : `{"title": "LifeOS", "body", "url", "tag"}`.
+  `body` est générique (« Nouveau rappel », « Une tâche a changé », « Nouvelles
+  suggestions », « Un compte connecté demande votre attention », « Alerte », « Nouvelle
+  notification ») ou, en `preview: "full"`, le titre (200 caractères au plus) ; `url` est un
+  chemin de même origine (`/tasks`, `/reviews`, `/settings#connexions`, `/`) ; `tag` =
+  `lifeos-<id>`. En-têtes `TTL` (`LIFEOS_PUSH_TTL_SECONDS`), `Topic` (identifiant de la
+  notification), `Urgency: high` pour une alerte critique remise pendant la tranquillité
+  avec la permission, `normal` sinon.
 
 ## Accueil (tâche 23)
 

@@ -32,6 +32,12 @@ export function buildContentSecurityPolicy(nonce: string, { dev }: { dev: boolea
     "img-src 'self' data:",
     "font-src 'self'",
     "connect-src 'self'",
+    // The push service worker (/sw.js, ADR 0019). Without it, workers fall back to
+    // script-src, where 'strict-dynamic' ignores 'self' and blocks the registration.
+    "worker-src 'self'",
+    // The web app manifest (/manifest.webmanifest): installing LifeOS on a phone's home
+    // screen, which iOS requires for Web Push.
+    "manifest-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

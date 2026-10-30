@@ -85,3 +85,15 @@ def test_the_api_refuses_to_start_without_the_key_or_the_client() -> None:
         "fake"
     ]
     assert build_connectors(Settings()) == {}
+
+
+def test_web_push_secret_goes_to_the_api_and_the_worker_only() -> None:
+    """The worker signs pushes (egress to the push services), the api publishes the public
+    key; migrate and the scheduler start with LIFEOS_PUSH_PROVIDER=webpush and no key."""
+    services = _services()
+    for name in ("api", "worker"):
+        assert "lifeos_vapid_private_key" in services[name]["secrets"], name
+    assert "egress" in services["worker"]["networks"]
+    for name in WITHOUT_CONNECTORS:
+        assert "lifeos_vapid_private_key" not in services[name].get("secrets", []), name
+    assert Settings(push_provider="webpush").vapid_private_key is None

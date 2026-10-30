@@ -210,6 +210,21 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   digest:suggestion:<première suggestion>`) : créée par la tâche `build_suggestion_digests`
   (chaque minute) avec les suggestions dues ; son corps ne donne qu'un nombre. Effacer la
   dernière suggestion d'une synthèse efface la synthèse.
+- **`push_devices`** (ADR 0019) : `id`, `user_id`, `session_id null` (FK `user_sessions`,
+  `SET NULL`, indexée), `credential_id null` (FK `passkey_credentials`, `SET NULL`, indexée) :
+  la session et la passkey qui l'ont enregistré ; `label`, `endpoint` (unique), `p256dh`,
+  `auth_secret` (l'abonnement du navigateur : une **capacité**, jamais journalisée, auditée
+  ni exportée), `user_agent`, `preview` (`generic` \| `full`, défaut `generic` : ce que
+  montre l'écran verrouillé), `consented_at`, `last_success_at`, `failure_count`,
+  `revoked_at`, `revoked_reason` (`user`, `session`, `logout`, `passkey`, `others`, `all`,
+  `expired`), `created_at`. Révoquer la session ou la passkey liée révoque l'appareil.
+- **`push_deliveries`** : le marqueur d'envoi par appareil. `id`, `notification_id null` (FK
+  `notifications`, `CASCADE` ; NULL : envoi de test), `device_id` (FK `push_devices`,
+  `CASCADE`, indexée), `status` (`pending` \| `sent` \| `failed` \| `expired` \|
+  `cancelled`), `attempts`, `next_attempt_at` (indexée : prochain essai, ou fin du bail
+  pendant un envoi), `sent_at`, `error_code` (`http_429`, `timeout`… jamais une réponse),
+  `created_at` (indexée). Unique (`notification_id`, `device_id`) : une notification part au
+  plus une fois par appareil.
 - **`notification_preferences`** : clé primaire (`user_id`, `category`), `category`
   (`important` \| `suggestion`), `enabled boolean` (défaut vrai), `max_per_day integer null`
   (1 à 100), `windows jsonb` (`[{start, end}]` en `HH:MM`, `important`), `digest_times jsonb`

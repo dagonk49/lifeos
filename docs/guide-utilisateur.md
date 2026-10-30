@@ -309,6 +309,23 @@ demandent votre passkey au moment d'approuver.
 
 - **Appareils et passkeys** : vos appareils, vos sessions, leur révocation une à une ou
   **Déconnecter les autres sessions**.
+- **Notifications sur le téléphone** (si l'administrateur les a activées) : rappels et
+  alertes sur le téléphone, même LifeOS fermé.
+  - **Activer sur cet appareil** : le navigateur demande la permission (une seule fois).
+    Sur iPhone et iPad, ajoutez d'abord LifeOS à l'écran d'accueil (Partager → « Sur
+    l'écran d'accueil ») et ouvrez-le depuis l'icône : Safari seul ne les reçoit pas.
+  - **Ce qui s'affiche** : par défaut un texte générique sur l'écran verrouillé
+    (« Nouveau rappel », « Nouvelles suggestions », « Alerte »), jamais le contenu. La case
+    **Afficher le titre sur l'écran verrouillé** montre le titre de la notification (jamais
+    son texte) pour cet appareil seulement ; elle demande votre passkey.
+  - Les plages de tranquillité et le regroupement des suggestions s'appliquent : une
+    notification retenue part à la fin des plages, les suggestions arrivent en une seule
+    notification. Une alerte critique ne traverse les plages qu'avec votre permission, et le
+    « Ne pas déranger » du téléphone reste maître.
+  - **Envoyer un test** : une notification de test arrive dans la minute. **Révoquer** (ou
+    **Désactiver sur cet appareil**) arrête aussitôt les envois. Se déconnecter, révoquer la
+    session ou la passkey de l'appareil, ou **Déconnecter les autres sessions** les arrête
+    aussi.
 - **Espaces et assistant IA** : autoriser l'IA par espace, consommation du jour et du mois,
   **pause de l'assistant IA** (arrêt d'urgence : plus aucun appel cloud).
 - **Agents spécialisés / Permissions des agents** : accès accordés, avec leur échéance et
@@ -485,9 +502,8 @@ indisponible.
 - Un e-mail envoyé par LifeOS est en **texte brut** (pas de mise en forme).
 - Les e-mails copiés ne sont pas dans la **Recherche** (ils se consultent dans la page
   **E-mails**).
-- Pas de **notifications push** sur le téléphone : notifications et rappels s'affichent
-  dans l'application (menu **Notifications**).
-- Pas d'**application mobile native** : utilisez le site dans le navigateur du téléphone.
+- Pas d'**application mobile native** : utilisez le site dans le navigateur du téléphone,
+  ou ajoutez-le à l'écran d'accueil (nécessaire sur iPhone pour les notifications).
 - Pas de **tâches récurrentes** ([ADR 0013](adr/0013-taches-recurrentes.md)), pas de
   connexion bancaire (import de relevés CSV seulement), pas d'autre fournisseur que Google
   pour l'agenda et les e-mails.

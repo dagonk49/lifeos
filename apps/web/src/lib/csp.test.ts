@@ -41,6 +41,14 @@ describe("buildContentSecurityPolicy", () => {
     expect(directive(policy, "form-action")).toEqual(["'self'"]);
     expect(directive(policy, "frame-ancestors")).toEqual(["'none'"]);
   });
+
+  it("allows only same-origin workers and manifest (push, ADR 0019)", () => {
+    const policy = buildContentSecurityPolicy("abc", { dev: false });
+    expect(directive(policy, "worker-src")).toEqual(["'self'"]);
+    expect(directive(policy, "manifest-src")).toEqual(["'self'"]);
+    // Still no inline script, even for the worker.
+    expect(directive(policy, "worker-src")).not.toContain("'unsafe-inline'");
+  });
 });
 
 describe("newNonce", () => {
