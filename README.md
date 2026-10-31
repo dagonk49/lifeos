@@ -72,8 +72,8 @@ ensuite le lien d'enrôlement affiché pour créer la première passkey. Pas à 
   localement, tâches rattachées.
 - **Bilans** quotidiens, hebdomadaires, mensuels : faits calculés localement, séparés de la
   lecture de l'assistant (hypothèses présentées comme telles) ; automatiques sur demande.
-- **Agents spécialisés à la demande** (planification, coaching, mémoire) avec accès explicite,
-  limité aux ressources utiles, 90 jours, révocable.
+- **Agents spécialisés à la demande** (planification, coaching, mémoire, finances, projets,
+  documents) avec accès explicite, limité aux ressources utiles, 90 jours, révocable.
 - **Coûts maîtrisés** : Gemini sans compte de facturation (zéro frais possible), plafonds
   quotidiens par palier, arrêt d'urgence, suivi de la consommation.
 

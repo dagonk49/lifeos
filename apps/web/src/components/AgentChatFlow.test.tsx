@@ -53,6 +53,20 @@ function agents(missing: string[]): AgentInfo[] {
       missing_permissions: missing,
     },
     { name: "memory", label: "Mémoire", description: "Retrouve ce que LifeOS sait.", resources: [], missing_permissions: [] },
+    {
+      name: "projects",
+      label: "Projets",
+      description: "Suit l'avancement de vos projets.",
+      resources: ["goals", "tasks", "facts"],
+      missing_permissions: [],
+    },
+    {
+      name: "documents",
+      label: "Documents",
+      description: "Retrouve et résume vos documents non sensibles.",
+      resources: ["documents"],
+      missing_permissions: [],
+    },
   ];
 }
 
@@ -182,6 +196,23 @@ describe("Assistant page: specialised agents", () => {
     fireEvent.click(chip);
     expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("planning");
     expect(screen.queryByRole("button", { name: /pourrait vous aider/ })).toBeNull();
+  });
+
+  it.each([
+    ["Projets", "projects"],
+    ["Documents", "documents"],
+  ])("sends the message to the %s agent once chosen", async (label, name) => {
+    const calls = mockApi([sent({ agent: name as SendResult["agent"] })]);
+    renderPage();
+    await openConversation();
+    await screen.findByRole("option", { name: label });
+    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: name } });
+    expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe(name);
+    fireEvent.change(screen.getByLabelText("Votre message"), { target: { value: "Où en suis-je ?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Envoyer" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.url === "/v1/chat/conversations/c1/messages")?.body).toMatchObject({ agent: name }),
+    );
   });
 
   it("lets the owner dismiss the suggestion", async () => {

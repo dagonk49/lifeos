@@ -46,7 +46,7 @@ class Checked:
     sensitivity: list[str] = field(default_factory=list)
 
 
-def _sensitivity(document: Document) -> list[str]:
+def current_sensitivity(document: Document) -> list[str]:
     """Stored categories, plus those the current rules find in the text now: a document
     read before a detection fix is protected without waiting for its reclassification."""
     found = set(document.sensitivity or [])
@@ -80,7 +80,7 @@ async def check(
             checked.append(Checked(document_id, None, "not_found"))
         elif document.status != "ready":
             checked.append(Checked(document_id, document, "not_ready"))
-        elif sensitivity := _sensitivity(document):
+        elif sensitivity := current_sensitivity(document):
             checked.append(Checked(document_id, document, "sensitive", sensitivity))
         elif document.local_only:
             checked.append(Checked(document_id, document, "local_only"))
@@ -141,15 +141,22 @@ _TITLE_CHARS = str.maketrans(dict.fromkeys('[]\u00ab\u00bb<>"', " "))
 TITLE_CHARS = 120
 
 
-def _title(title: str) -> str:
+def clean_title(title: str) -> str:
     """The title on one line, without the characters that frame the header."""
     return " ".join(title.translate(_TITLE_CHARS).split())[:TITLE_CHARS] or "sans titre"
 
 
-def _data(text: str) -> str:
+def as_data(text: str) -> str:
     """The extracted text, with any run of three delimiter characters or more replaced
     by as many single angle quotation marks."""
     return _DELIMITER_RUNS.sub(lambda m: _HARMLESS[m.group()[0]] * len(m.group()), text)
+
+
+def source_label(document: Document) -> str:
+    """Where the text comes from, so the assistant knows how far to trust it."""
+    if document.text_corrected_at is not None:
+        return "texte vérifié par la personne"
+    return _SOURCES.get(document.text_source or "", "texte extrait localement")
 
 
 def block(documents: list[Document]) -> str:
@@ -161,12 +168,10 @@ def block(documents: list[Document]) -> str:
     """
     parts = []
     for index, document in enumerate(documents, start=1):
-        text = _data((document.extracted_text or "").strip())
+        text = as_data((document.extracted_text or "").strip())
         truncated = len(text) > ATTACHMENT_CHARS
-        source = _SOURCES.get(document.text_source or "", "texte extrait localement")
-        if document.text_corrected_at is not None:
-            source = "texte vérifié par la personne"
-        header = f"[Pièce jointe {index} : « {_title(document.title)} » ({source})"
+        source = source_label(document)
+        header = f"[Pièce jointe {index} : « {clean_title(document.title)} » ({source})"
         if truncated:
             header += f", tronquée aux {ATTACHMENT_CHARS} premiers caractères"
         parts.append(f"{header}]\n{_OPEN}\n{text[:ATTACHMENT_CHARS]}\n{_CLOSE}")

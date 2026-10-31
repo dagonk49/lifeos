@@ -39,10 +39,11 @@ async function nav(page: Page, name: string): Promise<void> {
   await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name }).click();
 }
 
+// Today in the browser's and the owner's zone (Europe/Paris), not the test runner's: around
+// midnight the two dates differ.
 function todayAtNoon(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T12:00`;
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Paris" }).format(new Date());
+  return `${today}T12:00`;
 }
 
 test("Task 23 journey: home cards hidden and kept, week view with today's task", async ({ page }) => {

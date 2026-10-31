@@ -1,6 +1,7 @@
 """Imports every model so that `Base.metadata` is complete (Alembic, tests)."""
 
 from lifeos.core.idempotency import IdempotencyKey
+from lifeos.modules.agents.models import AgentRun
 from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.calendar.models import CalendarEvent
 from lifeos.modules.chat.models import Conversation, Message
@@ -51,6 +52,7 @@ from lifeos.modules.tasks.models import Task, TaskDependency
 
 __all__ = [
     "AgentPermission",
+    "AgentRun",
     "Approval",
     "AuditEvent",
     "AuthChallenge",

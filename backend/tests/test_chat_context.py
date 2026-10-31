@@ -260,6 +260,13 @@ async def test_agent_without_resource_cannot_use_context(
             f"/v1/agents/{agent}/access", json={"space_id": personal, "enabled": True}
         )
         assert granted.status_code == 200, granted.text
+    # Granted for another purpose: an agent still reads only its own resources (task 27).
+    for agent, resource in (("finance", "tasks"), ("finance", "goals"), ("coaching", "tasks")):
+        extra = await client.post(
+            "/v1/guardian/permissions",
+            json={"agent": agent, "space_id": personal, "resource": resource, "purpose": "Autre"},
+        )
+        assert extra.status_code == 201, extra.text
     conversation = await _conversation(client, personal)
     task_ref = {"type": "task", "id": task["id"]}
     goal_ref = {"type": "goal", "id": goal["id"]}

@@ -161,9 +161,20 @@ Chaque carte indique l'heure à laquelle elle a été calculée.
 
 - Conversation avec l'assistant, qui s'appuie sur les souvenirs et faits pertinents de
   l'espace.
-- **Agents spécialisés** (Planification, Coaching, Mémoire, Finances) : choisissez-en un
-  dans la liste. À la première utilisation, il demande un accès en lecture limité à ce dont
-  il a besoin (90 jours, révocable).
+- **Agents spécialisés** (Planification, Coaching, Mémoire, Finances, Projets,
+  Documents) : choisissez-en un dans la liste. À la première utilisation, il demande un
+  accès en lecture limité à ce dont il a besoin (90 jours, révocable). Un agent ne lit que
+  ses propres ressources, même si vous lui avez accordé autre chose pour un autre usage.
+  - **Projets** suit vos objectifs comme des projets : avancement (calculé sur votre
+    serveur), jalons faits ou en retard, prochain jalon, derniers points d'étape ; avec
+    l'accès « tâches », les tâches ouvertes rattachées ; avec l'accès « faits », les
+    décisions enregistrées (seulement les faits de type « décision »).
+  - **Documents** voit les titres de vos 20 derniers documents de l'espace et des extraits
+    (2 000 caractères chacun, 6 000 au plus) des trois documents les plus proches de votre
+    question. Jamais un document sensible ou gardé en local (pas même son titre), ni une
+    dictée, ni un document d'un autre espace. Un document reçu d'un tiers (pièce jointe
+    d'e-mail) est signalé comme tel, sans l'adresse de l'expéditeur. Chaque document montré
+    à l'agent est inscrit au journal d'audit (`document.agent_context`, sans contenu).
 - **Joindre un document** : le fichier est lu sur votre serveur. Seul son texte accompagne
   le message, et jamais celui d'un document sensible ou gardé en local. « Vérifier le
   texte » ouvre le document pour corriger la lecture avant d'envoyer.
@@ -267,6 +278,18 @@ et tâches rattachées. La progression est calculée localement.
 
 ### Finances
 
+- **Évaluer un achat important** : indiquez ce que vous envisagez d'acheter et le montant.
+  L'agent Finances calcule sur votre serveur votre marge (solde du mois, budget restant,
+  solde estimé et marge après l'achat, moyennes des trois derniers mois) ; l'agent Coaching
+  relève vos objectifs actifs (seulement les objectifs, jamais votre journal) ; puis
+  l'assistant formule **une** recommandation (un seul appel à l'IA) qui cite les chiffres
+  (F1, F2…) et objectifs (G1…) sur lesquels repose chaque raison. Chaque raison dit quel
+  agent l'appuie ; un montant écrit par l'assistant qui ne correspond à aucun calcul est
+  signalé, et la confiance baisse quand une donnée manque. « Ce qui a été consulté » montre
+  ce que chaque agent a lu. Il faut l'accès de l'agent Finances à l'espace (sinon rien
+  n'est envoyé) ; sans l'agent Coaching, l'évaluation se fait sans vos objectifs. Rien
+  n'est acheté ni déplacé. L'évaluation est gardée 90 jours ; « Effacer cette évaluation »
+  la supprime tout de suite.
 - **Mois** : naviguez avec « Mois précédent » et « Mois suivant ». Le budget du mois est calculé
   localement, en montants exacts.
 - **Catégories** : créez-les, ou « Créer les catégories par défaut », et fixez un budget

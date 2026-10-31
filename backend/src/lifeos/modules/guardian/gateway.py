@@ -7,6 +7,10 @@ never pay) or the daily/monthly cost budgets (paid billing), with a safety margi
 0010). After the call, the reservation is settled with the real usage, without storing any
 content; a reservation whose process died is released by a sweep. Provider failures become
 explicit degraded-mode errors.
+
+A run that makes several calls for one request (a workflow, task 28) passes a `CallLimit`:
+its calls carry the run's id (`llm_calls.correlation_id`) and are counted under the same
+lock as the quotas, so the run can never make more than its allowance, even when retried.
 """
 
 import asyncio
@@ -251,13 +255,27 @@ async def release_stale_reservations(
 
 
 @dataclass(frozen=True)
+class CallLimit:
+    """Cloud calls one run may make: counted in `llm_calls` by `correlation_id`."""
+
+    run_id: uuid.UUID
+    max_calls: int
+
+
+@dataclass(frozen=True)
 class _Prepared:
     request: LLMRequest
     redactions: int
 
 
 async def _meter(
-    ctx: Ctx, *, space_id: uuid.UUID, request: LLMRequest, outcome: str, error_code: str
+    ctx: Ctx,
+    *,
+    space_id: uuid.UUID,
+    request: LLMRequest,
+    outcome: str,
+    error_code: str,
+    limit: CallLimit | None = None,
 ) -> None:
     """A local refusal: nothing reached the provider."""
     LLM_CALLS.labels(ctx.llm.name, request.purpose, outcome).inc()
@@ -272,6 +290,7 @@ async def _meter(
                 tier=request.tier,
                 outcome=outcome,
                 error_code=error_code,
+                correlation_id=limit.run_id if limit else None,
                 created_at=utcnow(),
             )
         )
@@ -285,6 +304,7 @@ async def _refuse(
     outcome: str,
     problem: ProblemError,
     audit_denial: bool = True,
+    limit: CallLimit | None = None,
 ) -> ProblemError:
     if audit_denial:
         await audit.record_detached(
@@ -297,7 +317,14 @@ async def _refuse(
             space_id=space_id,
             details={"purpose": request.purpose, "reason": problem.code},
         )
-    await _meter(ctx, space_id=space_id, request=request, outcome=outcome, error_code=problem.code)
+    await _meter(
+        ctx,
+        space_id=space_id,
+        request=request,
+        outcome=outcome,
+        error_code=problem.code,
+        limit=limit,
+    )
     return problem
 
 
@@ -315,7 +342,9 @@ def _masked(request: LLMRequest) -> _Prepared:
     return _Prepared(request.model_copy(update={"system": system, "messages": messages}), total)
 
 
-async def _prepare(ctx: Ctx, space_id: uuid.UUID, request: LLMRequest) -> _Prepared:
+async def _prepare(
+    ctx: Ctx, space_id: uuid.UUID, request: LLMRequest, limit: CallLimit | None = None
+) -> _Prepared:
     """Checks that need no counter: emergency stop, policy, consent; then local masking."""
     if ctx.user.llm_paused:
         raise await _refuse(
@@ -323,6 +352,7 @@ async def _prepare(ctx: Ctx, space_id: uuid.UUID, request: LLMRequest) -> _Prepa
             space_id,
             request,
             outcome="denied",
+            limit=limit,
             problem=ProblemError(503, "llm_paused", "The AI assistant is paused"),
         )
     decision = evaluate(ctx.principal, "llm.cloud_call", space_id)
@@ -332,6 +362,7 @@ async def _prepare(ctx: Ctx, space_id: uuid.UUID, request: LLMRequest) -> _Prepa
             space_id,
             request,
             outcome="denied",
+            limit=limit,
             problem=ProblemError(403, "cloud_call_denied", "Cloud call not allowed"),
         )
     space = await ctx.db.get(Space, space_id)
@@ -341,6 +372,7 @@ async def _prepare(ctx: Ctx, space_id: uuid.UUID, request: LLMRequest) -> _Prepa
             space_id,
             request,
             outcome="denied",
+            limit=limit,
             problem=ProblemError(
                 403,
                 "cloud_consent_required",
@@ -391,8 +423,23 @@ async def _quota_refusal(
     return None
 
 
+async def _calls_of_run(session: AsyncSession, limit: CallLimit) -> int:
+    """Calls of a run that reached (or may have reached) the provider."""
+    count = await session.scalar(
+        select(func.count()).where(
+            LLMCall.correlation_id == limit.run_id, LLMCall.outcome.in_(REQUEST_OUTCOMES)
+        )
+    )
+    return int(count or 0)
+
+
 async def _reserve(
-    ctx: Ctx, space_id: uuid.UUID, request: LLMRequest, prepared: _Prepared, extra_chars: int
+    ctx: Ctx,
+    space_id: uuid.UUID,
+    request: LLMRequest,
+    prepared: _Prepared,
+    extra_chars: int,
+    limit: CallLimit | None = None,
 ) -> uuid.UUID:
     """Atomically checks the caps and reserves this call's share (ADR 0010).
 
@@ -408,7 +455,16 @@ async def _reserve(
         await release_stale_reservations(
             session, ttl=ctx.settings.llm_reservation_ttl, now=now, user_id=ctx.user.id
         )
-        refusal = await _quota_refusal(session, ctx, request.tier, tokens, cost, now)
+        refusal = None
+        if limit is not None and await _calls_of_run(session, limit) >= limit.max_calls:
+            refusal = ProblemError(
+                429,
+                "workflow_call_limit",
+                "Cloud call limit reached for this request",
+                extra={"limit": limit.max_calls},
+            )
+        if refusal is None:
+            refusal = await _quota_refusal(session, ctx, request.tier, tokens, cost, now)
         if refusal is None:
             session.add(
                 LLMCall(
@@ -422,12 +478,20 @@ async def _reserve(
                     reserved_tokens=tokens,
                     reserved_cost_usd=cost,
                     redactions=prepared.redactions,
+                    correlation_id=limit.run_id if limit else None,
                     created_at=now,
                 )
             )
     if refusal is not None:
         raise await _refuse(
-            ctx, space_id, request, outcome="budget_exceeded", audit_denial=False, problem=refusal
+            ctx,
+            space_id,
+            request,
+            outcome="budget_exceeded",
+            # Quotas are expected; a run exceeding its allowance is not.
+            audit_denial=refusal.code == "workflow_call_limit",
+            problem=refusal,
+            limit=limit,
         )
     return reservation_id
 
@@ -511,9 +575,10 @@ async def _run[R](
     result_response: Any,
     *,
     extra_input_chars: int = 0,
+    limit: CallLimit | None = None,
 ) -> R:
-    prepared = await _prepare(ctx, space_id, request)
-    reservation = await _reserve(ctx, space_id, request, prepared, extra_input_chars)
+    prepared = await _prepare(ctx, space_id, request, limit)
+    reservation = await _reserve(ctx, space_id, request, prepared, extra_input_chars, limit)
     started = time.perf_counter()
     # Settlements are shielded: a cancelled request still settles its reservation.
     try:
@@ -554,13 +619,22 @@ async def _run[R](
     return result
 
 
-async def complete(ctx: Ctx, *, space_id: uuid.UUID, request: LLMRequest) -> LLMResponse:
-    response: LLMResponse = await _run(ctx, space_id, request, ctx.llm.generate, lambda r: r)
+async def complete(
+    ctx: Ctx, *, space_id: uuid.UUID, request: LLMRequest, limit: CallLimit | None = None
+) -> LLMResponse:
+    response: LLMResponse = await _run(
+        ctx, space_id, request, ctx.llm.generate, lambda r: r, limit=limit
+    )
     return response
 
 
 async def complete_structured[T: BaseModel](
-    ctx: Ctx, *, space_id: uuid.UUID, request: LLMRequest, schema: type[T]
+    ctx: Ctx,
+    *,
+    space_id: uuid.UUID,
+    request: LLMRequest,
+    schema: type[T],
+    limit: CallLimit | None = None,
 ) -> tuple[T, LLMResponse]:
     async def call(prepared: LLMRequest) -> tuple[T, LLMResponse]:
         return await ctx.llm.generate_structured(prepared, schema)
@@ -568,7 +642,7 @@ async def complete_structured[T: BaseModel](
     # The response schema is sent with the request: it counts as input.
     schema_chars = len(json.dumps(schema.model_json_schema()))
     result: tuple[T, LLMResponse] = await _run(
-        ctx, space_id, request, call, lambda r: r[1], extra_input_chars=schema_chars
+        ctx, space_id, request, call, lambda r: r[1], extra_input_chars=schema_chars, limit=limit
     )
     return result
 

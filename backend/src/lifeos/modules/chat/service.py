@@ -11,6 +11,7 @@ from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import Page, keyset, page
 from lifeos.core.security import utcnow
 from lifeos.modules.agents.context import build_sections, one_line
+from lifeos.modules.agents.models import AgentRun
 from lifeos.modules.agents.registry import AGENT_SPECS, suggest_agent
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat import attachments, context_ref
@@ -317,7 +318,8 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         else None
     )
     # Checked before anything is saved: a refused attachment leaves no trace of the message.
-    reader = agent or ctx.principal
+    # An agent reads only its own resources, whatever else it was granted (task 27).
+    reader = agent.restricted(AGENT_SPECS[data.agent].resources) if agent else ctx.principal
     try:
         attached = await attachments.load(ctx.db, reader, conversation.space_id, data.attachments)
     except ProblemError as exc:
@@ -427,7 +429,8 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
                 "Grant it read access in the settings to use it.",
                 missing=missing,
             )
-        call_ctx = replace(ctx, principal=agent)
+        # The agent reads its own scope only (spec ∩ grants), whatever else it was granted.
+        call_ctx = replace(ctx, principal=agent.restricted(spec.resources))
         sections = await build_sections(call_ctx, spec, space.id, data.content)
         system = (
             await _system_prompt(ctx, space, data.context.screen, [])
@@ -571,7 +574,8 @@ async def remember_message(ctx: Ctx, message_id: uuid.UUID) -> Memory:
 
 
 async def purge_expired_messages(session: AsyncSession) -> dict[str, Any]:
-    """Daily purge of raw conversations (Mémoire Premium, 90 days), with proof of run."""
+    """Daily purge of raw conversations (Mémoire Premium, 90 days) and of agent runs, with
+    proof of run."""
     now = utcnow()
     messages = await session.execute(
         delete(Message).where(Message.purge_after.is_not(None), Message.purge_after < now)
@@ -586,9 +590,12 @@ async def purge_expired_messages(session: AsyncSession) -> dict[str, Any]:
         )
     )
     conversations = await session.execute(delete(Conversation).where(Conversation.id.in_(empty)))
+    # Coordinated agent runs (task 28) hold figures and goals: same 90 days.
+    runs = await session.execute(delete(AgentRun).where(AgentRun.purge_after < now))
     counts = {
         "messages": int(messages.rowcount or 0),  # type: ignore[attr-defined]
         "conversations": int(conversations.rowcount or 0),  # type: ignore[attr-defined]
+        "agent_runs": int(runs.rowcount or 0),  # type: ignore[attr-defined]
     }
     await audit.record(
         session,

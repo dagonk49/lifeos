@@ -60,6 +60,7 @@ EXPORTED: tuple[str, ...] = (
     "push_devices",
     "approvals",
     "agent_permissions",
+    "agent_runs",
     "connector_accounts",
     "connector_grants",
     "connector_sources",

@@ -26,6 +26,7 @@ from lifeos.config import Settings
 from lifeos.core.security import utcnow
 from lifeos.db.base import Base
 from lifeos.main import create_app
+from lifeos.modules.agents.models import AgentRun
 from lifeos.modules.audit.models import AuditEvent
 from lifeos.modules.calendar.models import CalendarEvent
 from lifeos.modules.chat.models import Conversation, Message
@@ -327,6 +328,19 @@ async def seed(db: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, mark: 
             resource="tasks",
             access="read",
             purpose=f"{mark} planifier",
+            created_at=NOW,
+        )
+    )
+    add(
+        AgentRun(
+            **owned,
+            workflow="purchase",
+            question={"space_id": str(space_id), "amount": "450.00", "label": f"{mark} vélo"},
+            steps=[{"agent": "finance", "resources_read": ["finances"], "missing": []}],
+            findings={"figures": [], "goals": [], "hypotheses": [], "error": None},
+            advice=None,
+            error_code="cloud_consent_required",
+            purge_after=NOW + timedelta(days=90),
             created_at=NOW,
         )
     )

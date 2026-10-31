@@ -305,6 +305,16 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
   - `correlation_id uuid null` : exécution à l'origine de l'appel (sans clé étrangère) ;
   - index partiel `ix_llm_calls_reserved (user_id, created_at) WHERE outcome = 'reserved'`.
 
+### Coordination d'agents (tâche 28, migration 0024, ADR 0021)
+
+- **`agent_runs`** (`Owned`) : une évaluation coordonnée. `workflow` (`purchase`),
+  `question jsonb` (montant, libellé), `steps jsonb` (par agent : ressources lues,
+  permissions manquantes, éléments, durée, appels), `findings jsonb` (chiffres `F…`,
+  objectifs `G…`, hypothèses, chacun avec l'agent qui l'a produit ; erreur), `advice jsonb
+  null` (synthèse après contrôle), `error_code text null`, `cloud_calls integer`,
+  `purge_after timestamptz` (90 jours, index), `created_at`. Son appel au LLM porte son
+  identifiant dans `llm_calls.correlation_id`.
+
 ## 5. Étape 4 — multimodal (migrations 0004 et 0005)
 
 ### Documents (F10, ADR 0008)

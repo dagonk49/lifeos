@@ -171,7 +171,9 @@ export interface ConversationDetail extends Conversation {
   messages: Message[];
 }
 
-export type AgentName = "planning" | "coaching" | "memory" | "finance";
+/** Specialised agents of the backend registry (agents/registry.py AGENT_SPECS), in order. */
+export const AGENT_NAMES = ["planning", "coaching", "memory", "finance", "projects", "documents"] as const;
+export type AgentName = (typeof AGENT_NAMES)[number];
 
 export interface SendResult {
   user_message: Message;
@@ -1374,4 +1376,89 @@ export interface FinanceProjection {
   savings_goals: SavingsGoalProjection[] | null;
   assumptions: ProjectionNote[];
   warnings: ProjectionNote[];
+}
+
+// --- Coordinated agents (task 28, UC03 « achat important ») ------------------------------
+
+export type FindingAgent = "finance" | "coaching";
+export type StepAgent = FindingAgent | "core";
+export type Confidence = "faible" | "moyenne" | "élevée";
+export type Verdict = "raisonnable" | "à reporter" | "déconseillé" | "incertain";
+
+export interface PurchaseQuestion {
+  space_id: string;
+  amount: Decimal;
+  label: string;
+}
+
+export interface PurchaseFigure {
+  key: string;
+  agent: FindingAgent;
+  label: string;
+  value: Decimal;
+  unit: "EUR" | "%" | "mois";
+  low: Decimal | null;
+  high: Decimal | null;
+  basis: string;
+}
+
+export interface PurchaseGoal {
+  key: string;
+  agent: FindingAgent;
+  goal_id: string;
+  title: string;
+  progress: number | null;
+  progress_basis: "metric" | "milestones" | "none";
+  due_date: string | null;
+  financial: boolean;
+  current: Decimal | null;
+  target: Decimal | null;
+  unit: string | null;
+  remaining: Decimal | null;
+  monthly_contribution: Decimal | null;
+  purchase_months: Decimal | null;
+}
+
+export interface PurchaseStep {
+  agent: StepAgent;
+  label: string;
+  role: string;
+  resources_read: string[];
+  missing: string[];
+  items: number;
+  cloud_calls: number;
+  duration_ms: number;
+}
+
+export interface PurchaseReason {
+  text: string;
+  refs: string[];
+  agents: FindingAgent[];
+  supported: boolean;
+}
+
+export interface PurchaseAdvice {
+  verdict: Verdict;
+  confidence: Confidence;
+  recommendation: string;
+  reasons: PurchaseReason[];
+  hypotheses: string[];
+  uncertainties: string[];
+  unknown_refs: string[];
+  unmatched_amounts: string[];
+}
+
+export interface PurchaseResult {
+  run_id: string;
+  space_id: string;
+  created_at: string;
+  question: PurchaseQuestion;
+  steps: PurchaseStep[];
+  figures: PurchaseFigure[];
+  goals: PurchaseGoal[];
+  hypotheses: { agent: StepAgent; text: string }[];
+  advice: PurchaseAdvice | null;
+  error: { code: string; title: string; detail: string | null; missing: string[] } | null;
+  cloud_calls: number;
+  max_cloud_calls: number;
 }

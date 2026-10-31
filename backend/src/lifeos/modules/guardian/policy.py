@@ -101,6 +101,11 @@ _SPECS = [
     ),
     # Data access is checked section by section with the principal's own read rights.
     ActionSpec("review.generate", "Établir un bilan", Level.AUTOMATIC, Level.RULE),
+    # Coordinated agents (task 28): the owner starts it; an agent never does. Reads go
+    # through each agent's own permissions; nothing is executed.
+    ActionSpec(
+        "workflow.purchase", "Évaluer un achat important", Level.AUTOMATIC, None, None, "read"
+    ),
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),
     # E-mail sending (task 18, ADR 0018): every e-mail is approved by the owner from its
     # exact content; a new recipient (never written to from LifeOS in this space) or a

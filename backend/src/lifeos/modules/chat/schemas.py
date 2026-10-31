@@ -85,7 +85,9 @@ class ChatContext(BaseModel):
     ref: ContextRef | None = None
 
 
-AgentChoice = Literal["core", "planning", "coaching", "memory", "finance"]
+# Every agent of lifeos.modules.agents.registry.AGENT_SPECS, plus the general assistant
+# (kept in sync by tests/test_agents.py).
+AgentChoice = Literal["core", "planning", "coaching", "memory", "finance", "projects", "documents"]
 MAX_CONTENT_CHARS = 8000
 
 

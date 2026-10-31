@@ -1,7 +1,8 @@
 """Who is acting, and on which spaces."""
 
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from sqlalchemy import or_, select
@@ -58,6 +59,15 @@ class Principal:
             return True
         # Write access implies read access.
         return access == "read" and (space_id, resource, "write") in self.grants
+
+    def restricted(self, resources: Iterable[str]) -> "Principal":
+        """The same agent limited to these resources: an agent reads the intersection of
+        its own scope and its grants, never what was granted to it for another purpose."""
+        if self.kind != "agent":
+            return self
+        keep = frozenset(resources)
+        grants = frozenset(g for g in self.grants if g[1] in keep)
+        return replace(self, grants=grants, space_ids=frozenset(g[0] for g in grants))
 
 
 async def user_space_ids(session: AsyncSession, user_id: uuid.UUID) -> frozenset[uuid.UUID]:

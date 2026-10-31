@@ -132,7 +132,7 @@ async def test_retention_purge_and_remember(
     await db.commit()
     counts = await purge_expired_messages(db)
     await db.commit()
-    assert counts == {"messages": 1, "conversations": 0}
+    assert counts == {"messages": 1, "conversations": 0, "agent_runs": 0}
     remaining = list(await db.scalars(select(Message.content).order_by(Message.content)))
     assert remaining == ["message conservé", "message récent"]
     # The memory created from a message survives the purge of raw conversations.

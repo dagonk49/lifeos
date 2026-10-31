@@ -504,7 +504,10 @@ export default function SettingsPage() {
         <div id="assistant-ia" className="scroll-mt-4 lg:col-span-2">
           <UsagePanel />
         </div>
-        <AgentAccessPanel className="lg:col-span-2" />
+        {/* Anchor of the « achat important » evaluation's access hint (finances page). */}
+        <div id="agents" className="scroll-mt-4 lg:col-span-2">
+          <AgentAccessPanel />
+        </div>
         {/* Anchor of the return page of a connection (/connexions/retour). */}
         <div id="connexions" className="scroll-mt-4 lg:col-span-2">
           <ConnectorsPanel />

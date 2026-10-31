@@ -9,6 +9,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Catégorie | Durée | Mécanisme |
 |---|---|---|
 | Messages de conversation (bruts) | **90 jours**, sauf conservation explicite | `purge_after` ; purge quotidienne avec événement d'audit (nombre supprimé) |
+| Évaluations d'un achat (`agent_runs`, tâche 28) | **90 jours** (**à valider**) | question, chiffres et objectifs calculés, synthèse vérifiée ; purge quotidienne avec les messages (audit, nombre) ; exportées ; effacées avec l'objectif qu'elles citent ou à la demande |
 | Enregistrements de dictée (audio) | **jusqu'à la transcription** (au plus 24 heures) | chiffrés comme les documents ; supprimés dès que le texte existe ou que l'enregistrement est refusé ([ADR 0009](adr/0009-voix-locale.md)) |
 | Dictées (texte transcrit, en attente de relecture) | 24 heures | effacées par le client une fois utilisées, sinon par une purge horaire ; le texte gardé vit là où le propriétaire l'a enregistré (journal, message) |
 | Faits, souvenirs, journal, tâches | tant que le propriétaire ne les supprime pas | souvenirs `protected` jamais purgés automatiquement |
@@ -57,7 +58,8 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
     nomme que la tâche débloquée ; le rappel d'une tâche bloquée compte ce qu'elle attend
     sans le nommer) ;
   - les bilans qui l'avaient retenu : il est retiré de leurs faits, et leur lecture par
-    l'assistant est effacée (« Établir à nouveau » la refait).
+    l'assistant est effacée (« Établir à nouveau » la refait) ;
+  - les évaluations d'un achat qui citent un objectif supprimé (tâche 28).
   Il ne revient plus ni dans la recherche (plein texte et sémantique), ni dans le contexte
   envoyé à l'assistant ou aux agents, ni dans l'export (`backend/tests/test_erasure.py`).
 - **Un fait** : sa suppression efface toute sa chaîne de corrections (versions précédentes
@@ -270,6 +272,29 @@ contenir des noms de personnes : ils passent par le masquage habituel avant tout
 Avec l'accès « documents », il
 voit aussi ce qui a été lu sur les tickets (marchand, date, total), jamais le texte extrait
 ni un document sensible ou gardé en local.
+Chaque agent lit l'**intersection** de ses ressources et de ses accès : un accès accordé
+pour un autre usage (le journal à l'agent Mémoire, les objectifs à l'agent Finances) ne
+change pas ce qu'il voit.
+L'agent Projets voit les objectifs actifs de l'espace avec leurs jalons, leurs trois derniers
+points d'étape et leur avancement calculé localement ; les tâches rattachées seulement avec
+l'accès « tâches », et les faits de type « décision » seulement avec l'accès « faits ».
+L'agent Documents est un **nouveau canal** vers le fournisseur (en plus des pièces jointes
+choisies message par message) : il reçoit les titres des 20 documents les plus récents de
+l'espace et des extraits bornés (2 000 caractères par document, 6 000 au total) des trois
+documents les plus proches de la question, trouvés localement (plein texte et sens). Mêmes
+règles qu'une pièce jointe : jamais un document sensible (catégories enregistrées et
+détection refaite avec les règles en vigueur), gardé en local, en cours de lecture ni une
+dictée, et ni son texte ni son titre ; extraits délimités comme données, masqués par la
+passerelle ; document reçu d'un tiers signalé sans l'adresse de l'expéditeur ; chaque
+document montré audité (`document.agent_context`, nombre de caractères seulement). **À
+valider par le propriétaire** avant d'accorder cet agent.
+Évaluation d'un achat important (tâche 28, [ADR 0021](adr/0021-coordination-des-agents.md)) :
+les agents Finances et Coaching calculent **localement**, chacun avec ses seuls droits
+(« finances » ; « objectifs » seulement pour le coach). Un seul appel est fait, et il ne
+reçoit que leurs résultats : le libellé et le montant de l'achat, les chiffres agrégés
+(soldes, budgets, moyennes), les titres et l'avancement des objectifs actifs, et les
+hypothèses ; jamais une opération, un commerçant, une catégorie ni le journal. Sans
+l'accès de l'agent Finances, rien n'est envoyé.
 L'agent Planification ne voit l'agenda qu'avec l'accès « agenda » de l'espace : les 7
 prochains jours de cet espace seulement (titre, horaire, statut ; jamais la description, le
 lieu ni les participants), plus les conflits et créneaux calculés localement. Les

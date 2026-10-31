@@ -8,6 +8,7 @@ import { FinanceCategories } from "@/components/FinanceCategories";
 import { FinanceImport, ImportHistory } from "@/components/FinanceImport";
 import { FinanceProjection } from "@/components/FinanceProjection";
 import { FinanceSummary } from "@/components/FinanceSummary";
+import { PurchaseAdvisor } from "@/components/PurchaseAdvisor";
 import { ReceiptImport } from "@/components/ReceiptImport";
 import { RecurringList } from "@/components/RecurringList";
 import { TransactionForm } from "@/components/TransactionForm";
@@ -226,7 +227,10 @@ function FinancesView() {
 
       {budgetSpace && (
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
-          <FinanceProjection key={budgetSpace} spaceId={budgetSpace} />
+          <div className="flex flex-col gap-4">
+            <FinanceProjection key={budgetSpace} spaceId={budgetSpace} />
+            <PurchaseAdvisor key={`purchase-${budgetSpace}`} spaceId={budgetSpace} />
+          </div>
           <div className="flex flex-col gap-4">
             <RecurringList key={budgetSpace} spaceId={budgetSpace} today={today} />
             <ImportHistory spaceId={budgetSpace} onOpen={(id) => setParam("import", id)} />

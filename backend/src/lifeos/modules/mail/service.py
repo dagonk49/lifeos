@@ -24,7 +24,7 @@ from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import MAX_LIMIT, Page, decode_cursor, encode_cursor
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
-from lifeos.modules.chat.attachments import _data, _title
+from lifeos.modules.chat.attachments import as_data, clean_title
 from lifeos.modules.connectors import Connectors, tokens
 from lifeos.modules.connectors.base import (
     AttachmentTooLargeError,
@@ -221,11 +221,11 @@ def block(messages: list[MailMessage]) -> str:
     """
     parts = []
     for index, message in enumerate(messages, start=1):
-        text = _data(message.body_text.strip())
+        text = as_data(message.body_text.strip())
         truncated = message.body_truncated or len(text) > MAIL_CHARS
         header = (
-            f"[E-mail {index} : de « {_title(sender(message))} », reçu le "
-            f"{_received(message.received_at)}, objet « {_title(message.subject)} »"
+            f"[E-mail {index} : de « {clean_title(sender(message))} », reçu le "
+            f"{_received(message.received_at)}, objet « {clean_title(message.subject)} »"
         )
         if truncated:
             header += ", tronqué"

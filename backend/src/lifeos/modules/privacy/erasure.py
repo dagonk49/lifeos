@@ -10,7 +10,9 @@ owner's deletions and for the replay alike:
 - the approvals that quote a deleted journal entry or conversation (proposed tasks, facts);
 - the notifications about a deleted task or review (« Rappel : <titre> »);
 - in past reviews, the titles and statements of deleted tasks, goals and facts, and the
-  assistant's reading built from them or from a deleted journal entry.
+  assistant's reading built from them or from a deleted journal entry;
+- the coordinated agent runs (task 28) that quote a deleted goal: their findings hold its
+  title and the synthesis was written from it.
 
 Derived objects (facts and tasks proposed from a journal entry or a conversation, memories
 saved from a message) stay unless the owner asks for them too (`derived_from`).
@@ -41,6 +43,7 @@ from sqlalchemy.orm import aliased
 
 from lifeos.core.idempotency import IdempotencyKey
 from lifeos.core.security import utcnow
+from lifeos.modules.agents.models import AgentRun
 from lifeos.modules.audit import service as audit
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.documents.models import Document
@@ -195,6 +198,24 @@ def _strip(value: Any, texts: set[str]) -> Any:
     return value
 
 
+async def forget_runs(
+    session: AsyncSession, user_id: uuid.UUID, space_id: uuid.UUID, ids: Iterable[uuid.UUID]
+) -> int:
+    """Agent runs whose findings quote one of `ids` (a goal): the whole run goes, its
+    recommendation having been written from it."""
+    values = sorted({str(i) for i in ids})
+    if not values:
+        return 0
+    result = await session.execute(
+        delete(AgentRun).where(
+            AgentRun.user_id == user_id,
+            AgentRun.space_id == space_id,
+            _any_of(AgentRun.findings, values),
+        )
+    )
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
+
 async def scrub_reviews(
     session: AsyncSession,
     user_id: uuid.UUID,
@@ -265,6 +286,8 @@ async def erase(session: AsyncSession, obj: Erasable) -> dict[str, int]:
         counts["notifications"] = await forget_notifications(session, user_id, "task", [obj.id])
     elif isinstance(obj, Review):
         counts["notifications"] = await forget_notifications(session, user_id, "review", [obj.id])
+    if isinstance(obj, Goal):
+        counts["agent_runs"] = await forget_runs(session, user_id, space_id, [obj.id])
     if texts or day is not None:
         counts["reviews"] = await scrub_reviews(session, user_id, space_id, texts=texts, day=day)
     return {key: value for key, value in counts.items() if value}

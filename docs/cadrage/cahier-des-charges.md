@@ -158,6 +158,11 @@ Une photo est analysée ; les montants, la date et le marchand sont vérifiables
 
 L’agent Finance calcule la marge budgétaire ; Coaching compare aux objectifs ; Core formule une recommandation avec incertitudes.
 
+> Suivi (tâche 28, [ADR 0021](../adr/0021-coordination-des-agents.md)) : réalisé — page Finances,
+> « Évaluer un achat important ». Chiffres et objectifs calculés localement, chacun sous les
+> droits de son agent ; une seule synthèse qui cite leurs clés ; hypothèses, incertitudes et
+> « Ce qui a été consulté » affichés (§9) ; `backend/tests/test_workflows.py`.
+
 ## UC04 — Action externe
 
 LifeOS prépare un e-mail, affiche destinataire, contenu et pièces jointes, puis attend une confirmation explicite.

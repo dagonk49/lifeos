@@ -146,6 +146,8 @@ const MESSAGES: Record<string, string> = {
   cloud_call_denied: "Cet appel à l'IA n'est pas autorisé.",
   agent_permission_required:
     "Cet agent n'a pas encore accès aux données nécessaires dans cet espace.",
+  workflow_call_limit: "Cette évaluation a déjà utilisé son appel à l'IA : rien de plus n'a été envoyé.",
+  agent_run_not_found: "Cette évaluation est introuvable ou a été effacée.",
   nothing_to_consolidate: "Aucun nouveau message à consolider dans cette conversation.",
   review_in_future: "Cette période n'a pas encore commencé.",
   goal_target_required: "Un objectif mesurable demande une valeur cible.",

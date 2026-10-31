@@ -134,6 +134,11 @@ le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
 `agent_permission_required` (agent sans permission valide dans l'espace) est audité
 (`chat.agent_reply`) et rien n'est envoyé au LLM.
 
+`agent` vaut `core` (assistant général, par défaut) ou le nom d'un agent de `GET
+/v1/agents` : `planning`, `coaching`, `memory`, `finance`, `projects`, `documents` ; toute
+autre valeur répond `422 validation_error`. Un agent ne lit que ses ressources propres
+(`resources` de `GET /v1/agents`), même avec d'autres permissions.
+
 `context.screen` n'accepte qu'une valeur d'une liste fermée (aujourd'hui `"chat"`), jamais
 un texte libre : toute autre valeur répond `422 validation_error`. `context` n'accepte aucune
 autre clé que `screen` et `ref` (`422`).
@@ -668,6 +673,30 @@ conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu**
   `on_track`. `assumptions[]` et `warnings[]` (`code`, `label`, `value`) : historique court,
   autres devises non converties, versement non déclaré…
 
+## Coordination d'agents : achat important (tâche 28, ADR 0021)
+
+- `POST /v1/agents/workflows/purchase` (`space_id`, `amount` décimal exact > 0 avec deux
+  décimales au plus, `label` 1 à 120 caractères ; `Idempotency-Key` accepté : un rejeu rend
+  le résultat gardé sans nouvel appel) → `201` `{run_id, space_id, created_at, question,
+  steps[], figures[], goals[], hypotheses[], advice, error, cloud_calls, max_cloud_calls}`.
+  `steps` : `{agent (finance|coaching|core), label, role, resources_read, missing, items,
+  cloud_calls, duration_ms}` ; `figures` : `{key (F1…), agent, label, value, unit
+  (EUR|%|mois), low, high, basis}` ; `goals` : `{key (G1…), agent, goal_id, title,
+  progress, financial, remaining, monthly_contribution, purchase_months…}` ; `advice` :
+  `{verdict, confidence, recommendation, reasons[{text, refs, agents, supported}],
+  hypotheses, uncertainties, unknown_refs, unmatched_amounts}`.
+- Mode dégradé (toujours `201`, `advice: null`) : `error.code` vaut
+  `agent_permission_required` (`missing: ["finances"]`, rien n'est envoyé) ou le code de la
+  passerelle (`cloud_consent_required`, `llm_daily_quota_reached`, `llm_paused`…) ; les
+  chiffres et objectifs locaux restent dans la réponse.
+- `429 workflow_call_limit` : une exécution a déjà fait son appel (`extra.limit`), mesuré
+  (`llm_calls.outcome = budget_exceeded`) et audité (`llm.cloud_call` refusé).
+- `GET /v1/agents/runs/{id}` : le résultat gardé ; `DELETE /v1/agents/runs/{id}` → `204`
+  (`agent_run.delete` audité) ; `404 agent_run_not_found` hors de vos espaces ou pour un
+  agent. Démarrer une évaluation est réservé au propriétaire (`workflow.purchase`,
+  `403 action_denied` pour un agent). Audit : `agent.read` par étape (agent, ressources,
+  manquantes, éléments) et `workflow.purchase` (appels, manquantes, erreur).
+
 ## Familles de routes
 
 | Préfixe | Étape | Contenu |
@@ -687,7 +716,7 @@ conservé, seule son empreinte SHA-256 l'est), ses lignes forment un **aperçu**
 | `/v1/notifications` | 2, V1 | liste, lecture, synthèses de suggestions, préférences par catégorie (activation, maximum par jour, créneaux, heures de regroupement) |
 | `/v1/dashboard` | 2, V1 | briefing du jour, agenda et semaine, suggestions sourcées, disposition des cartes (tâche 23) |
 | `/v1/goals` | 3 | objectifs, jalons, points d'étape, tâches rattachées, objectifs d'épargne |
-| `/v1/reviews`, `/v1/agents` | 3 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès |
+| `/v1/reviews`, `/v1/agents` | 3, V1 | bilans quotidiens / hebdomadaires / mensuels, agents spécialisés et leurs accès, évaluation coordonnée d'un achat (tâche 28) |
 | `/v1/documents` | 4 | envoi, liste, détail, original chiffré, correction du texte, conservation, relecture, suppression |
 | `/v1/finance` | 4 | catégories et budgets, opérations, proposition depuis un ticket, budget du mois, import de relevés CSV, échéances récurrentes, projection |
 | `/v1/voice` | 4 | statut, dictées (transcription locale, puis suppression de l'audio) |
