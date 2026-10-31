@@ -8,7 +8,7 @@ origine (cookie de session `SameSite=Strict`).
 |---|---|
 | `/login`, `/enroll` | connexion et enrôlement par passkey (WebAuthn) |
 | `/` | tableau de bord du jour, calculé localement (fonctionne sans IA) |
-| `/chat` | assistant et agents spécialisés ; pièces jointes, dictée, contrôle avant envoi, mode dégradé explicite, « Conserver » (hors purge 90 j), « Mémoriser » |
+| `/chat` | assistant et agents spécialisés ; pièces jointes, dictée, contrôle avant envoi, mode dégradé explicite, « Conserver » (hors purge 90 j), « Mémoriser » ; `?about=task:<id>` ou `?about=goal:<id>` (« Discuter de… ») : élément joint visible et retirable, conversation ouverte dans son espace |
 | `/tasks` | tâches, rappels, dépendances et étiquettes |
 | `/agenda` | semaine des agendas suivis, conflits, créneaux libres, modifications sous approbation |
 | `/mail` | e-mails copiés des libellés suivis, en texte brut ; import d'une pièce jointe dans Documents |

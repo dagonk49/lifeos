@@ -4,8 +4,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 
 import { TaskDependencies } from "@/components/TaskDependencies";
-import { Badge, Button, CheckboxTarget } from "@/components/ui";
+import { Badge, Button, buttonClasses, CheckboxTarget } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { chatHref } from "@/lib/chatContext";
 import { sourceHref, taskSourceLabel } from "@/lib/dashboard";
 import { formatDateTime, PRIORITY_LABELS } from "@/lib/format";
 import { useSpace } from "@/lib/space";
@@ -105,11 +106,21 @@ export function TaskRow({
         )}
         {candidates && !done && <TaskDependencies task={task} candidates={candidates} />}
       </div>
-      {onDelete && (
-        <Button variant="ghost" size="sm" onClick={onDelete} aria-label={`Supprimer « ${task.title} »`}>
-          Supprimer
-        </Button>
-      )}
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+        {/* The assistant receives this task only, as data, in a conversation of its space. */}
+        <Link
+          href={chatHref({ type: "task", id: task.id })}
+          aria-label={`Discuter de « ${task.title} »`}
+          className={buttonClasses({ variant: "ghost", size: "sm" })}
+        >
+          Discuter
+        </Link>
+        {onDelete && (
+          <Button variant="ghost" size="sm" onClick={onDelete} aria-label={`Supprimer « ${task.title} »`}>
+            Supprimer
+          </Button>
+        )}
+      </div>
     </li>
   );
 }

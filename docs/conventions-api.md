@@ -135,7 +135,27 @@ le code (`cloud_consent_required`, `llm_unavailable`, `llm_budget_exceeded`…).
 (`chat.agent_reply`) et rien n'est envoyé au LLM.
 
 `context.screen` n'accepte qu'une valeur d'une liste fermée (aujourd'hui `"chat"`), jamais
-un texte libre : toute autre valeur répond `422 validation_error`.
+un texte libre : toute autre valeur répond `422 validation_error`. `context` n'accepte aucune
+autre clé que `screen` et `ref` (`422`).
+
+Élément choisi (tâche 24, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
+`context.ref = {"type": "task" | "goal", "id": "<uuid>"}` désigne la tâche ou l'objectif dont
+le propriétaire veut parler (« Discuter de… »). Le serveur le relit avec les droits de celui
+qui répond, **dans l'espace de la conversation seulement**, puis l'ajoute au message de ce
+seul tour comme bloc de données délimité et borné ; le message enregistré le référence
+(`MessageOut.context`, même forme, `null` sinon). Il n'est jamais renvoyé implicitement au
+message suivant. Refus **avant** tout enregistrement, audités (`chat.context`, `denied`,
+raison et type) :
+
+- `404 context_not_found` : élément inconnu, d'un autre compte ou d'un **autre espace** que
+  la conversation (même un espace du propriétaire) ;
+- `403 context_not_allowed` : agent qui ne lit jamais ce type d'élément (Finances, ou
+  Coaching pour une tâche). Un agent dont c'est une ressource mais qui n'y a pas encore accès
+  répond comme d'habitude `201` avec `agent_permission_required` : rien n'est envoyé, le
+  message ne référence pas l'élément, le client le renvoie après l'autorisation ;
+- `422 validation_error` : type hors de la liste ou identifiant qui n'est pas un UUID.
+
+Un envoi réussi est audité `chat.context` (`success`, cible `task` ou `goal`, `message_id`).
 
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :

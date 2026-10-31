@@ -22,6 +22,15 @@ const VARIANTS: Record<Variant, string> = {
   danger: "bg-red-700 text-white hover:bg-red-800 disabled:bg-red-700/50",
 };
 
+/** A button's look, also for a link that navigates (`<Link className={buttonClasses(…)}>`). */
+export function buttonClasses({ variant = "primary", size = "md" }: { variant?: Variant; size?: "sm" | "md" } = {}) {
+  return cx(
+    "inline-flex items-center justify-center gap-1.5 rounded-md font-medium no-underline transition-colors disabled:cursor-not-allowed",
+    size === "sm" ? "px-2.5 py-1 text-sm" : "px-3.5 py-2 text-sm",
+    VARIANTS[variant],
+  );
+}
+
 export function Button({
   variant = "primary",
   size = "md",
@@ -29,18 +38,7 @@ export function Button({
   type = "button",
   ...props
 }: ComponentPropsWithRef<"button"> & { variant?: Variant; size?: "sm" | "md" }) {
-  return (
-    <button
-      type={type}
-      className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:cursor-not-allowed",
-        size === "sm" ? "px-2.5 py-1 text-sm" : "px-3.5 py-2 text-sm",
-        VARIANTS[variant],
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <button type={type} className={cx(buttonClasses({ variant, size }), className)} {...props} />;
 }
 
 // Borders at 3:1 or more against the field and the page (WCAG 1.4.11), placeholders at

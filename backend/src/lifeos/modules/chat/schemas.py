@@ -29,6 +29,22 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
 
+# What the owner may explicitly attach to a message as its subject (task 24): a closed list.
+ContextType = Literal["task", "goal"]
+
+
+class ContextRef(BaseModel):
+    """One object of the conversation's space, chosen by the owner (« Discuter de… »).
+
+    A reference only: the server loads it with the replying principal's rights, in the
+    conversation's space, and sends it as delimited data (never as instructions).
+    """
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+    type: ContextType
+    id: uuid.UUID
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -40,6 +56,8 @@ class MessageOut(BaseModel):
     agent: str | None = None
     # Documents attached by the owner (their extracted text was sent with the message).
     attachments: list[uuid.UUID] = []
+    # Task or goal the owner explicitly chose for this message (task 24): a reference only.
+    context: ContextRef | None = None
     purge_after: datetime | None
     created_at: datetime
 
@@ -61,7 +79,10 @@ Screen = Literal["chat"]
 class ChatContext(BaseModel):
     """Interface context explicitly selected by the client (never implicit data)."""
 
+    model_config = ConfigDict(extra="forbid")
     screen: Screen | None = None
+    # Sent with this message only: later messages do not carry it unless sent again.
+    ref: ContextRef | None = None
 
 
 AgentChoice = Literal["core", "planning", "coaching", "memory", "finance"]

@@ -91,6 +91,14 @@ describe("TaskRow", () => {
     expect(screen.getByText("maison")).toBeTruthy();
   });
 
+  it("opens the assistant about this task only", () => {
+    renderRow(FREE);
+    const link = screen.getByRole("link", { name: "Discuter de « Payer l'acompte »" });
+    expect(link.getAttribute("href")).toBe("/chat?about=task:t3");
+    // Its visible text is part of its accessible name (WCAG 2.5.3).
+    expect(link.textContent).toBe("Discuter");
+  });
+
   it("says an overdue task is late in words, not only in red", () => {
     renderRow({ ...FREE, due_at: "2020-01-01T08:00:00Z" });
     expect(screen.getByText("En retard")).toBeTruthy();

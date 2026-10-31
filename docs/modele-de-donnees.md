@@ -345,6 +345,11 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     et des embeddings.
 - **`messages.attachments uuid[]`** : documents joints par le propriétaire (seul leur texte
   extrait a accompagné le message ; références conservées même si le document est supprimé).
+- **`messages.context_type text null`** (`task` \| `goal`) et **`messages.context_id uuid
+  null`** (migration 0023, tâche 24, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
+  tâche ou objectif choisi par le propriétaire comme sujet du message (« Discuter de… »).
+  Références seules, sans clé étrangère (comme `attachments`) : l'élément supprimé reste
+  référencé. Les deux colonnes sont nulles ensemble (`ck_messages_context_ref`).
 - **`embeddings.object_type`** : s'étend à `document` et `transaction` (suppression par
   trigger).
 

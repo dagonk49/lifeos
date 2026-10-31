@@ -60,5 +60,12 @@ async function auditEveryPage(page: Page): Promise<void> {
     await expect(page.getByRole("group", { name: "Notifications" })).toBeVisible();
     await expectNoIssues(page, `notifications (${scheme})`);
     await page.keyboard.press("Escape");
+    // « Discuter de… » (task 24): the assistant with the chosen task's chip.
+    await openPage(page, pageAt("/tasks"));
+    await page.getByRole("link", { name: `Discuter de « ${TASK} »` }).click();
+    await expect(
+      page.getByRole("group", { name: "Élément joint au message" }).getByText(`À propos de « ${TASK} » (Tâche)`),
+    ).toBeVisible();
+    await expectNoIssues(page, `/chat?about=task (${scheme})`);
   }
 }

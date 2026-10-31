@@ -141,6 +141,14 @@ export interface Conversation {
   created_at: string;
 }
 
+export type ChatContextType = "task" | "goal";
+
+/** An object of the conversation's space, explicitly chosen by the owner (« Discuter de… »). */
+export interface ChatContextRef {
+  type: ChatContextType;
+  id: Uuid;
+}
+
 export interface Message {
   id: Uuid;
   conversation_id: Uuid;
@@ -152,6 +160,8 @@ export interface Message {
   agent: AgentName | null;
   /** Documents attached by the owner (their extracted text went with the message). */
   attachments?: Uuid[];
+  /** Task or goal chosen by the owner as the subject of this message (a reference only). */
+  context?: ChatContextRef | null;
   purge_after: string | null;
   retained: boolean;
   created_at: string;

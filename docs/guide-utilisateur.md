@@ -173,6 +173,15 @@ Chaque carte indique l'heure à laquelle elle a été calculée.
   valeurs). **Confirmer l'envoi** envoie le message ; **Retirer** enlève une pièce jointe ;
   **Annuler** (ou Échap) garde le message sans rien envoyer. Sans rien à signaler, le
   message part directement.
+- **Discuter d'une tâche ou d'un objectif** : **Discuter** sur une tâche, ou **Discuter de
+  cet objectif** dans le détail d'un objectif, ouvre l'assistant avec un encadré « À propos
+  de « … » ». Tant qu'il est affiché, cet élément (et lui seul : titre, statut, échéance,
+  notes ; pour un objectif, progression, jalons ouverts et derniers points d'étape)
+  accompagne vos messages, comme une donnée à analyser. **Retirer le contexte** l'enlève. La
+  conversation est toujours celle de l'espace de l'élément : si la conversation ouverte est
+  d'un autre espace, une nouvelle est ouverte. Le message garde un lien « Tâche liée » ou
+  « Objectif lié ». Un agent ne le reçoit que s'il lit ce type d'élément (Planification :
+  tâches et objectifs ; Coaching : objectifs) ; sinon la page vous le dit avant l'envoi.
 - **Dicter** : le texte dicté s'ajoute au message, que vous relisez avant d'envoyer.
 - **Écouter** : lit une réponse à voix haute avec une voix de votre appareil. Le bouton
   n'apparaît que si l'appareil a une voix française locale.
@@ -518,6 +527,7 @@ demandent votre passkey au moment d'approuver.
 | les souvenirs et faits pertinents du même espace | le texte d'un document sensible ou gardé en local |
 | le texte d'une autre pièce jointe, avec ce message | votre voix (transcrite sur le serveur) |
 | le texte d'un e-mail que vous joignez, avec ce message | un e-mail sensible, ou que vous n'avez pas joint |
+| la tâche ou l'objectif que vous avez choisi (« Discuter de… »), du même espace, avec ce message | une autre tâche ou un autre objectif que l'assistant général n'a pas trouvé pertinent ; un élément d'un autre espace |
 | pour un agent : uniquement les ressources que vous lui avez ouvertes | les vecteurs de recherche, les budgets, les faits des bilans |
 
 Les e-mails, numéros de téléphone, IBAN, numéros de carte, numéros de sécurité sociale, mots

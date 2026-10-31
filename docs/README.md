@@ -44,6 +44,7 @@
 | [0017](adr/0017-lecture-des-e-mails.md) | Lecture des e-mails : libellés choisis, texte brut, jamais une instruction | Acceptée |
 | [0018](adr/0018-envoi-des-e-mails-sous-approbation.md) | Envoi des e-mails : brouillon, aperçu exact, approbation, jamais deux fois | Acceptée |
 | [0019](adr/0019-notifications-mobiles-web-push.md) | Notifications sur le téléphone par Web Push (VAPID), contenu générique par défaut | Acceptée |
+| [0020](adr/0020-conversation-liee-a-un-element.md) | Conversation liée à l'écran courant : un élément choisi, jamais l'écran | Acceptée |
 | [0022](adr/0022-client-mobile-web-dabord.md) | Client mobile : l'application web installée d'abord, pas d'application native (partage, page hors connexion sans données) | Acceptée |
 
 ## Points encore ouverts

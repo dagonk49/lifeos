@@ -7,6 +7,12 @@ import { enterSends } from "@/lib/composer";
 import { SpaceProvider } from "@/lib/space";
 
 vi.mock("@/lib/passkeys", () => ({ loginWithPasskey: vi.fn(async () => ({})) }));
+// The assistant page reads `?about=` (« Discuter de… »): no object chosen here.
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(""),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/chat",
+}));
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

@@ -7,6 +7,12 @@ import { SpaceProvider } from "@/lib/space";
 import type { AgentInfo, ConversationDetail, Message, SendResult } from "@/lib/types";
 
 vi.mock("@/lib/passkeys", () => ({ loginWithPasskey: vi.fn(async () => ({})) }));
+// The assistant page reads `?about=` (« Discuter de… »): no object chosen here.
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(""),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/chat",
+}));
 
 function msg(overrides: Partial<Message>): Message {
   return {

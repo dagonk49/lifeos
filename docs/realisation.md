@@ -67,7 +67,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 
 | Exigence | Statut | Ce qui est réalisé, ce qui manque |
 |---|---|---|
-| F01 — Conversation multimodale | Partiel | texte, pièces jointes (texte extrait), dictée, lecture vocale, correction des documents, historique, recherche, export, purge à 90 jours. Manque : conversation liée à l'écran courant (seul « Discuter de cet e-mail » existe), streaming |
+| F01 — Conversation multimodale | Partiel | texte, pièces jointes (texte extrait), dictée, lecture vocale, correction des documents, historique, recherche, export, purge à 90 jours ; conversation liée à un élément choisi (« Discuter de cet e-mail », de cette tâche, de cet objectif, ADR 0020). Manque : streaming |
 | F02 — Accueil et tableau de bord | Réalisé | briefing calculé localement : priorités, agenda du jour et conflits, semaine, journal, approbations, mémoire, budget, usage IA, heure de calcul ; vue Semaine, suggestions sourcées (bilans, regroupements, budgets), cartes et ordre personnalisables. Manque : conversation liée à une carte |
 | F03 — Tâches et calendrier | Réalisé | création, étiquettes, échéances, rappels, dépendances et état bloqué ; conflits et créneaux calculés localement ; lecture de l'agenda Google et modifications sous approbation. Hors F03 strict : pas de tâches récurrentes |
 | F04 — Finances | Réalisé | saisie, tickets, import CSV en aperçu, catégorisation apprise et corrigeable, budgets, échéances récurrentes, objectifs d'épargne, projections marquées connu / prévu / estimé. Aucune connexion bancaire (import de fichiers seulement), aucun paiement |

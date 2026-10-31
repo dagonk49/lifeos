@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { GoalDue, GoalProgressBar, GoalStatusBadge } from "@/components/GoalCard";
@@ -8,8 +9,9 @@ import { GoalCheckins } from "@/components/GoalCheckins";
 import { GoalEditForm } from "@/components/GoalEditForm";
 import { GoalMilestones } from "@/components/GoalMilestones";
 import { GoalTasks } from "@/components/GoalTasks";
-import { Alert, Badge, Button, Spinner } from "@/components/ui";
+import { Alert, Badge, Button, buttonClasses, Spinner } from "@/components/ui";
 import { api, errorMessage, isApiError } from "@/lib/api";
+import { chatHref } from "@/lib/chatContext";
 import { financeKeys } from "@/lib/finance";
 import { formatDate, formatDateTime, todayLocal } from "@/lib/format";
 import {
@@ -141,7 +143,13 @@ export function GoalDetailPanel({ goalId, onClose }: { goalId: string; onClose: 
             <Badge>{spaceName(goal.space_id)}</Badge>
           </div>
         </div>
-        {closeButton}
+        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+          {/* The assistant receives this goal only, as data, in a conversation of its space. */}
+          <Link href={chatHref({ type: "goal", id: goal.id })} className={buttonClasses({ variant: "secondary", size: "sm" })}>
+            Discuter de cet objectif
+          </Link>
+          {closeButton}
+        </div>
       </div>
 
       {editing ? (

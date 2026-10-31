@@ -260,6 +260,11 @@ const MESSAGES: Record<string, string> = {
   attachment_not_allowed:
     "Cet agent n'a pas accès aux documents de cet espace : retirez la pièce jointe ou accordez-lui l'accès.",
   space_not_found: "Cet espace est introuvable.",
+  // « Discuter de… » (task 24)
+  context_not_found:
+    "Cet élément n'existe pas (ou plus) dans l'espace de cette conversation : retirez-le ou ouvrez une nouvelle conversation.",
+  context_not_allowed:
+    "Cet agent n'a pas accès à ce type d'élément dans cet espace : choisissez l'assistant général ou retirez l'élément.",
   // Notifications (F09)
   notification_preferences_invalid:
     "Ces réglages de notifications sont invalides : vérifiez les créneaux, les heures de regroupement et le maximum par jour.",

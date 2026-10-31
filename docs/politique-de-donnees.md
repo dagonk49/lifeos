@@ -153,7 +153,15 @@ Conditions cumulatives pour tout appel cloud (vérifiées par le Guardian, hors 
 Contenu transmis :
 
 - uniquement le **paquet de contexte minimal** construit pour la requête (message courant,
-  derniers échanges de la conversation, souvenirs pertinents du même espace) ;
+  derniers échanges de la conversation, souvenirs pertinents du même espace) et, s'il l'a
+  choisi explicitement (« Discuter de… »), **un seul élément** : la tâche ou l'objectif
+  sélectionné, **du même espace** que la conversation, relu avec les droits de celui qui
+  répond (un agent n'en reçoit que s'il a le droit `tasks` ou `goals` dans l'espace), borné
+  (notes et description 1 000 caractères, motivation 400, jalons ouverts et trois derniers
+  points d'étape, 2 500 caractères au plus), délimité et annoncé comme des **données, jamais
+  des instructions**, joint au seul message envoyé avec lui et audité (`chat.context`, sans
+  contenu). L'écran d'où vient la demande n'est jamais transmis comme texte libre
+  ([ADR 0020](adr/0020-conversation-liee-a-un-element.md)) ;
 - après **masquage local** des données détectées, remplacées par une étiquette (`[IBAN]`,
   `[TÉLÉPHONE]`…) : adresses e-mail (y compris écrites « jean . dupont @ example . org »,
   « (at) », « arobase »), numéros de téléphone (`0…`, `+33`, `0033`, `+33 (0)`, numéros

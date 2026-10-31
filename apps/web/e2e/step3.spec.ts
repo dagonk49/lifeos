@@ -114,4 +114,20 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
   await goalHit.getByRole("link", { name: "Ouvrir" }).click();
   await expect(page).toHaveURL(/\/goals\?id=/);
   await expect(page.getByRole("progressbar").first()).toHaveAttribute("aria-valuenow", "50");
+
+  // « Discuter de cet objectif » (task 24): this goal only, sent as data with the message,
+  // shown in a chip the owner can remove, and linked from the message.
+  await page.getByRole("link", { name: "Discuter de cet objectif" }).click();
+  await expect(page).toHaveURL(/\/chat\?about=goal:[0-9a-f-]{36}$/);
+  const chip = page.getByRole("group", { name: "Élément joint au message" });
+  await expect(chip.getByText("À propos de « Courir 10 km » (Objectif)")).toBeVisible();
+  await page.getByLabel("Votre message").fill("Où en suis-je ?");
+  await page.getByRole("button", { name: "Envoyer" }).click();
+  const thread = page.getByRole("list", { name: "Messages" });
+  // The fake model echoes what it received: the question, then the goal as delimited data.
+  await expect(thread.getByText(/^\[fake\] Où en suis-je \?[\s\S]*\[Objectif : « Courir 10 km »\]/)).toBeVisible();
+  await expect(thread.getByRole("link", { name: "Objectif lié" })).toHaveAttribute("href", /\/goals\?id=/);
+  await chip.getByRole("button", { name: "Retirer le contexte" }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(chip).toHaveCount(0);
 });
