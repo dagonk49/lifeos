@@ -973,6 +973,12 @@ export interface Dictation {
   /** The transcript once ready ("" when nothing was said). */
   text: string | null;
   duration: number | null;
+  /** While transcribed: share of the recording done, in [0, 1] (coarse steps). */
+  progress?: number | null;
+  /** While waiting: dictations ahead of this one (0: next or current). */
+  queue_position?: number | null;
+  /** While transcribed: estimated seconds left, once the server knows the length. */
+  estimated_seconds?: number | null;
   expires_at: string;
   created_at: string;
 }

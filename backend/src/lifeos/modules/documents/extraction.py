@@ -16,7 +16,8 @@ Request fields:
   truncating them.
 
 Responses:
-- `200` JSON `{"text", "source", "pages", "confidence", "sanitized_b64", "sanitized_mime"}`:
+- `200` JSON `{"text", "source", "pages", "confidence", "sanitized_b64", "sanitized_mime",
+  "preprocessing"}`:
   - `text` (str): extracted text, reading order, pages separated by a form feed;
   - `source`: `"pdf"` (text layer of a PDF) or `"ocr"` (image, or scanned PDF);
   - `pages` (int | null): page count (1 for an image);
@@ -24,7 +25,15 @@ Responses:
   - `sanitized_b64` (str | null): images only, the picture re-encoded from its pixels
     (orientation applied, every metadata block such as EXIF/GPS dropped), base64; the API
     stores it INSTEAD of the upload;
-  - `sanitized_mime` (`image/png` | `image/jpeg` | `image/webp` | null).
+  - `sanitized_mime` (`image/png` | `image/jpeg` | `image/webp` | null);
+  - `preprocessing` (object | null, may be absent from older services): how the picture
+    was read, null for a text layer. `{"rotation": 0 | 90 | 180 | 270` (clockwise quarter
+    turn found by orientation detection, also applied to the sanitized picture),
+    `"skew": float` (degrees straightened for the kept reading, 0.0 when none),
+    `"enhanced": bool` (the kept reading used the cleaned-up picture: lighting evened out,
+    contrast stretched, sharpened when blurred), `"pass": "a" | "b"` (plain or cleaned-up
+    reading)`}`. For a scanned PDF: first rotation, largest straightening, any page
+    enhanced. Informative only: a malformed value is ignored, never trusted.
 - `422` JSON `{"code": ...}`: the file cannot be read; it is not retried. Codes:
   `unreadable` (corrupt, or a decoder failed on it), `encrypted`, `too_many_pages`,
   `image_too_large` (dimensions checked before decoding), `too_large` (the isolated reader
@@ -59,6 +68,28 @@ TextSource = Literal["pdf", "ocr", "text"]
 SANITIZED_MIMES = ("image/png", "image/jpeg", "image/webp")
 # The ml service queues a request up to 90 s, then reads it within 240 s.
 TIMEOUT_S = 360.0
+QUARTERS = (0, 90, 180, 270)
+# The service straightens up to 15° (`lifeos.ml.preprocess.MAX_SKEW_DEG`).
+MAX_SKEW = 45.0
+
+
+@dataclass(frozen=True)
+class Reading:
+    """How the ml service read a picture (`preprocessing`): stored in
+    `Document.analysis["reading"]` to explain the result, never content."""
+
+    rotation: int = 0
+    skew: float = 0.0
+    enhanced: bool = False
+    kept: Literal["a", "b"] = "a"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "rotation": self.rotation,
+            "skew": self.skew,
+            "enhanced": self.enhanced,
+            "pass": self.kept,
+        }
 
 
 @dataclass(frozen=True)
@@ -70,6 +101,8 @@ class Extraction:
     # Re-encoded image without metadata, stored instead of the upload.
     sanitized: bytes | None = None
     sanitized_mime: str | None = None
+    # How the picture was read (`preprocessing` in the contract), when the service says.
+    reading: Reading | None = None
 
 
 class ExtractionError(Exception):
@@ -171,6 +204,26 @@ def _sanitized(payload: dict[str, Any]) -> tuple[bytes | None, str | None]:
     return data, mime
 
 
+def _reading(value: Any) -> Reading | None:
+    """The `preprocessing` record, or None when absent or malformed (it only explains a
+    result: a bad one must not fail the document)."""
+    if not isinstance(value, dict):
+        return None
+    rotation, skew = value.get("rotation"), value.get("skew")
+    enhanced, kept = value.get("enhanced"), value.get("pass")
+    if not isinstance(rotation, int) or isinstance(rotation, bool) or rotation not in QUARTERS:
+        return None
+    if (
+        not isinstance(skew, int | float)
+        or isinstance(skew, bool)
+        or not -MAX_SKEW <= skew <= MAX_SKEW
+    ):
+        return None
+    if not isinstance(enhanced, bool) or kept not in ("a", "b"):
+        return None
+    return Reading(rotation=rotation, skew=round(float(skew), 1), enhanced=enhanced, kept=kept)
+
+
 def parse_response(payload: Any) -> Extraction:
     """Validates the ml service's answer: nothing it returns is trusted blindly."""
     if not isinstance(payload, dict):
@@ -193,6 +246,7 @@ def parse_response(payload: Any) -> Extraction:
         confidence=confidence,
         sanitized=sanitized,
         sanitized_mime=sanitized_mime,
+        reading=_reading(payload.get("preprocessing")),
     )
 
 

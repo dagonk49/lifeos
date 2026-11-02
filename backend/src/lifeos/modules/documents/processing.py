@@ -296,6 +296,11 @@ async def _save(
         document.text_corrected_at = None
         document.pages = extraction.pages
         document.sensitivity = categories
+        if extraction.reading is not None:
+            # Explains the result afterwards (« image tournée, redressée »): no content.
+            analysis["reading"] = extraction.reading.as_dict()
+        else:
+            analysis.pop("reading", None)  # a reprocessing without OCR: no stale record
         document.analysis = analysis
         document.status = "ready"
         document.error = None
@@ -309,6 +314,7 @@ async def _save(
             source=extraction.source,
             sensitivity=",".join(categories),
             sanitized=replaced,
+            rotation=extraction.reading.rotation if extraction.reading else 0,
         )
     return "ready"
 

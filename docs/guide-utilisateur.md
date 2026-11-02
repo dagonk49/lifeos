@@ -238,6 +238,13 @@ Il n'y a pas encore de **tâches récurrentes** : recréez la tâche après l'av
 - Écrivez votre journée, ou **Dicter ma journée** : l'enregistrement est transcrit sur le
   serveur puis supprimé ; le texte s'ajoute au formulaire pour que vous le corrigiez avant
   d'enregistrer.
+- **Pendant la transcription**, une barre montre l'avancement (par paliers d'environ
+  30 secondes d'audio) et un temps restant estimé, appris des dictées précédentes sur votre
+  serveur ; si une autre dictée passe avant, le nombre de dictées en attente s'affiche.
+  Vous pouvez quitter la page : le texte vous attend 24 heures.
+- **Annuler** : pendant l'envoi, **Annuler l'envoi** arrête le téléversement ; pendant la
+  transcription, **Annuler la transcription** supprime l'enregistrement du serveur et libère
+  la transcription pour la dictée suivante.
 - **Extraire tâches et faits** : l'assistant propose des tâches et des faits tirés de
   l'entrée. Cochez ceux à garder, ajustez-les, puis approuvez.
 
@@ -261,6 +268,12 @@ et tâches rattachées. La progression est calculée localement.
   passe de « Lecture en cours » à « Prêt ».
 - **Texte extrait** : corrigez-le si la lecture est incertaine (la confiance est affichée).
   Une correction refait la détection des données sensibles.
+- **Photo de travers** : une photo tournée d'un quart de tour ou à l'envers est remise
+  droite (l'image conservée aussi), et un ticket penché ou mal éclairé est relu sur une copie
+  redressée et égalisée, gardée seulement si elle se lit mieux. Tout reste sur votre serveur.
+- **Relire le document** relance la lecture sur l'original conservé : utile après une mise
+  à jour qui améliore l'OCR. Le texte que vous aviez corrigé est alors remplacé par la
+  nouvelle lecture.
 - **Original** : il est conservé chiffré 90 jours par défaut. Cochez « Conserver l'original
   sans limite » pour le garder. Après la purge, le texte extrait reste disponible.
 - Badges **Identité / Santé / Banque** : document sensible, jamais transmis à l'IA (les
@@ -298,7 +311,9 @@ et tâches rattachées. La progression est calculée localement.
   de la catégorie. LifeOS retient votre choix pour ce commerçant : les opérations suivantes
   sont classées seules, marquées « classée automatiquement », et restent corrigeables.
 - **Scanner un ticket** : photographiez le ticket. LifeOS lit le commerçant, la date et le
-  total en indiquant la ligne d'où vient chaque valeur. Vérifiez et corrigez, puis
+  total en indiquant la ligne d'où vient chaque valeur. Pour une bonne lecture : ticket à
+  plat sur un fond sombre et uni, en entier dans l'image, sans ombre du téléphone, net
+  (touchez l'écran pour faire la mise au point) ; un ticket froissé se lit mieux déplié. Vérifiez et corrigez, puis
   **Ajouter l'opération**. Rien n'est enregistré sans votre clic, et LifeOS prévient si le
   ticket a déjà été enregistré.
 - **Importer un relevé (CSV)** : exportez vos opérations au format CSV depuis l'espace en

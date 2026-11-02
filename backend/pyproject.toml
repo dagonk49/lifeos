@@ -29,12 +29,14 @@ dependencies = [
 
 [project.optional-dependencies]
 # Only needed by the `ml` service: local embeddings (ONNX Runtime, no PyTorch), and local
-# text extraction (PDF text layer and rendering, image re-encoding; OCR by Tesseract).
+# text extraction (PDF text layer and rendering, image re-encoding; OCR by Tesseract;
+# picture clean-up before a second OCR pass with numpy, no OpenCV).
 ml = [
     "fastembed>=0.9,<0.10",
     "pypdfium2>=5.14,<6",
     "pillow>=13.0",
     "pillow-heif>=1.8,<2",
+    "numpy>=2.2,<3",
 ]
 # Only needed by the `stt` service: local speech-to-text (ADR 0009). Pinned together:
 # PyAV 19 breaks faster-whisper 1.2.1; CTranslate2 4.8 still ships Pascal (sm_61) kernels.

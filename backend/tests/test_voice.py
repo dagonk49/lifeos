@@ -1,9 +1,11 @@
+import asyncio
 import base64
 import os
 import uuid
 from collections.abc import AsyncIterator
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import dramatiq
 import pytest
@@ -27,12 +29,14 @@ from lifeos.modules.voice import processing
 from lifeos.modules.voice.service import purge_dictations
 from lifeos.modules.voice.transcriber import (
     FakeTranscriber,
+    Progress,
     RemoteTranscriber,
     Transcriber,
     Transcription,
     TranscriptionError,
     UntranscribableAudio,
     build_transcriber,
+    parse_progress,
     parse_response,
 )
 from lifeos.workers.broker import broker
@@ -355,3 +359,144 @@ async def test_a_recording_that_crashes_the_service_fails_after_a_few_attempts(
     failed = (await client.get(f"/v1/voice/dictations/{dictation['id']}")).json()
     assert (failed["status"], failed["error"]) == ("failed", "transcription_crashed")
     assert _files(voice_settings.documents_dir) == []  # the recording is deleted
+
+
+# --- Progress, cancellation and estimates (ADR 0009) ----------------------------------------
+
+
+async def _wait_until(condition: Any) -> None:
+    for _ in range(250):  # 5 s at most
+        if await condition():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("timed out")
+
+
+async def test_progress_is_shown_and_the_queue_counted(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    voice_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(processing, "PROGRESS_POLL_S", 0.05)
+    first = await dictate(client, spaces["personal"])
+    second = await dictate(client, spaces["personal"], OGG)
+    assert (first["queue_position"], second["queue_position"]) == (0, 1)
+    assert first["progress"] is None and first["estimated_seconds"] is None
+
+    gate = asyncio.Event()
+    transcriber = FakeTranscriber(
+        SAID, gate=gate, steps=(0.25, 0.5), audio_seconds=120.0, elapsed=60.0
+    )
+    running = asyncio.create_task(run(database, store, transcriber, voice_settings))
+
+    async def progressed() -> bool:
+        body = (await client.get(f"/v1/voice/dictations/{first['id']}")).json()
+        return bool(body["progress"] == 0.5)
+
+    await _wait_until(progressed)
+    busy = (await client.get(f"/v1/voice/dictations/{first['id']}")).json()
+    assert busy["status"] == "processing" and busy["queue_position"] == 0
+    # No dictation measured yet: LIFEOS_VOICE_RTF_ESTIMATE x what is left of the audio.
+    assert busy["estimated_seconds"] == pytest.approx(
+        voice_settings.voice_rtf_estimate * 120 * 0.5, abs=0.1
+    )
+    waiting = (await client.get(f"/v1/voice/dictations/{second['id']}")).json()
+    assert (waiting["status"], waiting["queue_position"]) == ("pending", 1)
+    async with database.sessionmaker() as session:
+        row = await session.get(Document, uuid.UUID(str(first["id"])))
+        assert row is not None and row.version == 1  # progress never bumps the version
+    gate.set()
+    assert await running == {"ready": 2}
+
+    done = (await client.get(f"/v1/voice/dictations/{first['id']}")).json()
+    assert done["status"] == "ready" and done["progress"] is None
+    assert done["queue_position"] is None and done["estimated_seconds"] is None
+    async with database.sessionmaker() as session:
+        row = await session.get(Document, uuid.UUID(str(first["id"])))
+        assert row is not None
+        assert row.analysis == {"duration": 1.0, "elapsed": 60.0, "device": "cpu"}
+        [event] = await session.scalars(
+            select(AuditEvent).where(
+                AuditEvent.target_id == str(first["id"]),
+                AuditEvent.action == "dictation.transcribe",
+            )
+        )
+    assert event.details["device"] == "cpu" and event.details["elapsed"] == 60.0
+
+
+async def test_estimates_come_from_the_dictations_measured_here(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    voice_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(processing, "PROGRESS_POLL_S", 0.05)
+    # Measured: 2 s of work per second of audio (the fake's recordings last 1 s).
+    for _ in range(2):
+        await dictate(client, spaces["personal"])
+    assert await run(database, store, FakeTranscriber(SAID, elapsed=2.0), voice_settings) == {
+        "ready": 2
+    }
+    dictation = await dictate(client, spaces["personal"])
+    gate = asyncio.Event()
+    transcriber = FakeTranscriber(SAID, gate=gate, steps=(0.0,), audio_seconds=30.0)
+    running = asyncio.create_task(run(database, store, transcriber, voice_settings))
+
+    async def measured() -> bool:
+        body = (await client.get(f"/v1/voice/dictations/{dictation['id']}")).json()
+        return body["estimated_seconds"] is not None
+
+    await _wait_until(measured)
+    body = (await client.get(f"/v1/voice/dictations/{dictation['id']}")).json()
+    assert body["estimated_seconds"] == pytest.approx(60.0)
+    gate.set()
+    await running
+
+
+async def test_deleting_a_dictation_cancels_its_transcription(
+    client: AsyncClient,
+    spaces: dict[str, str],
+    database: Database,
+    store: DocumentStore,
+    voice_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owner gives up while it is transcribed: the worker stops waiting, tells the
+    service (which frees its single slot), and the recording is gone."""
+    monkeypatch.setattr(processing, "PROGRESS_POLL_S", 0.05)
+    dictation = await dictate(client, spaces["personal"])
+    gate = asyncio.Event()  # never set: a dictation that would take half an hour
+    transcriber = FakeTranscriber(SAID, gate=gate, steps=(0.1,))
+    running = asyncio.create_task(run(database, store, transcriber, voice_settings))
+    await asyncio.wait_for(transcriber.started.wait(), 5)
+    assert (await client.delete(f"/v1/voice/dictations/{dictation['id']}")).status_code == 204
+    assert await asyncio.wait_for(running, 5) == {"skipped": 1}
+    assert transcriber.cancelled == [uuid.UUID(str(dictation["id"])).hex]
+    assert transcriber.running is None  # the request itself was cancelled
+    assert _files(voice_settings.documents_dir) == []
+
+
+def test_transcription_answer_extras_are_validated_leniently() -> None:
+    base = {"text": "bonjour", "duration": 2.5}
+    full = parse_response(
+        {**base, "device": "cuda", "rtf": 0.31, "timings": {"total": 4.2}, "extra": [1]}
+    )
+    assert (full.device, full.rtf, full.elapsed) == ("cuda", 0.31, 4.2)
+    for extras in (
+        {"device": "tpu", "rtf": "fast", "timings": "x"},
+        {"device": 1, "rtf": -1, "timings": {"total": float("inf")}},
+        {"rtf": True, "timings": {"total": None}},
+    ):
+        parsed = parse_response({**base, **extras})
+        assert parsed == Transcription("bonjour", 2.5), extras
+    assert parse_progress({"job": "a", "progress": 0.4, "audio_seconds": 60}, "a") == Progress(
+        job="a", progress=0.4, audio_seconds=60.0
+    )
+    assert parse_progress({"job": "b", "progress": 0.4}, "a") is None
+    assert parse_progress({"job": "a", "progress": "x"}, "a") is None
+    assert parse_progress(None, "a") is None

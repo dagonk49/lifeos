@@ -25,6 +25,12 @@ scrape_configs:
     static_configs:
       - targets: ["worker:9101"]
 
+  # Transcription (ADR 0009): real-time factor and answer time per device. Down when
+  # dictation is disabled (`docker compose stop stt`): no alert depends on this job.
+  - job_name: lifeos-stt
+    static_configs:
+      - targets: ["stt:8200"]
+
   # The VM: disk, memory, OOM kills, and the backup metrics (textfile collector).
   - job_name: node
     static_configs:

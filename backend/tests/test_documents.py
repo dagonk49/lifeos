@@ -26,9 +26,11 @@ from lifeos.modules.documents.extraction import (
     Extraction,
     ExtractionError,
     FakeExtractor,
+    Reading,
     RemoteExtractor,
     UnreadableDocument,
     build_extractor,
+    parse_response,
 )
 from lifeos.modules.documents.models import Document
 from lifeos.modules.documents.router import content_disposition
@@ -394,6 +396,7 @@ async def test_images_are_ocrd_sanitized_and_classified_locally(
             confidence=0.87654,
             sanitized=sanitized,
             sanitized_mime="image/png",
+            reading=Reading(rotation=90, skew=-5.2, enhanced=True, kept="b"),
         )
 
     document = await created(client, spaces["personal"], JPEG, filename="rib.jpg")
@@ -405,6 +408,15 @@ async def test_images_are_ocrd_sanitized_and_classified_locally(
     assert (detail["text_source"], detail["pages"], detail["text_confidence"]) == ("ocr", 1, 0.877)
     assert detail["sensitivity"] == ["bank"]
     assert "IBAN" in detail["analysis"]["sensitivity_reasons"]["bank"]
+    # How it was read, to explain the result afterwards (no content).
+    assert detail["analysis"]["reading"] == {
+        "rotation": 90,
+        "skew": -5.2,
+        "enhanced": True,
+        "pass": "b",
+    }
+    [ready] = [e for e in await _audit(database, document["id"]) if e.action == "document.process"]
+    assert ready.details["rotation"] == 90
     # The sanitized image replaced the upload.
     assert (detail["mime"], detail["size_bytes"]) == ("image/png", len(sanitized))
     assert detail["version"] == document["version"] + 1
@@ -914,6 +926,7 @@ async def test_remote_extractor_contract(doc_settings: Settings) -> None:
                 "confidence": 1.4,
                 "sanitized_b64": base64.b64encode(sanitized).decode(),
                 "sanitized_mime": "image/jpeg",
+                "preprocessing": {"rotation": 270, "skew": 4.96, "enhanced": True, "pass": "b"},
             },
         )
 
@@ -927,6 +940,7 @@ async def test_remote_extractor_contract(doc_settings: Settings) -> None:
         confidence=1.0,
         sanitized=sanitized,
         sanitized_mime="image/jpeg",
+        reading=Reading(rotation=270, skew=5.0, enhanced=True, kept="b"),
     )
     [request] = seen
     assert str(request.url) == doc_settings.ml_url.rstrip("/") + "/extract"
@@ -953,6 +967,29 @@ async def test_remote_extractor_contract(doc_settings: Settings) -> None:
     )
     with pytest.raises(ExtractionError):
         await down.extract(PDF, "application/pdf", purpose="document", max_pages=3)
+
+
+def test_preprocessing_record_is_validated_or_ignored() -> None:
+    """The `preprocessing` record only explains a result: a malformed one is dropped, the
+    document is still read."""
+    base = {"text": "x", "source": "ocr", "pages": 1, "confidence": 0.5}
+    good = {"rotation": 0, "skew": 0.0, "enhanced": False, "pass": "a"}
+    assert parse_response({**base, "preprocessing": good}).reading == Reading()
+    assert parse_response(base).reading is None  # an older service
+    for malformed in (
+        "rotated",
+        {**good, "rotation": 45},
+        {**good, "rotation": True},
+        {**good, "skew": "5"},
+        {**good, "skew": 400.0},
+        {**good, "skew": float("nan")},
+        {**good, "enhanced": 1},
+        {**good, "pass": "c"},
+        {"rotation": 90},
+    ):
+        extraction = parse_response({**base, "preprocessing": malformed})
+        assert extraction.reading is None, malformed
+        assert extraction.text == "x"
 
 
 def test_extractor_selection_and_download_names(doc_settings: Settings) -> None:

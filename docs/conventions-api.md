@@ -232,8 +232,11 @@ puis envoie le message avec les seules pièces jointes `sent`.
 - `POST /v1/voice/dictations` (champs `file`, `space_id`) répond `202` avec une dictée
   `pending` :
   - suivre `GET /v1/voice/dictations/{id}` jusqu'à `ready` (texte) ou `failed` (`too_long`,
-    `unreadable`…) ;
-  - puis `DELETE` une fois le texte utilisé ;
+    `unreadable`…) ; en attente, `queue_position` (dictées avant celle-ci) ; pendant la
+    transcription, `progress` (0 à 1, par paliers) et `estimated_seconds` (temps restant
+    estimé, une fois la durée connue) ;
+  - puis `DELETE` une fois le texte utilisé ; un `DELETE` pendant la transcription l'annule
+    aussi sur le service `stt` ;
   - `503 transcription_unavailable` si la dictée est désactivée (`GET /v1/voice/status`).
 
 ## Comptes connectés (OAuth, ADR 0012)

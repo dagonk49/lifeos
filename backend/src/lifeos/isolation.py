@@ -27,6 +27,8 @@ import multiprocessing
 import os
 import resource
 import signal
+import threading
+import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -54,6 +56,15 @@ class ChildDiedError(Exception):
     def __init__(self, signal: int | None = None) -> None:
         super().__init__(signal)
         self.signal = signal
+
+
+class ChildCancelledError(Exception):
+    """The caller gave up (its `cancel` event was set): the child was killed, with what it
+    started."""
+
+
+# How often a waiting parent checks its `cancel` event.
+CANCEL_POLL_S = 0.25
 
 
 @dataclass(frozen=True)
@@ -109,15 +120,34 @@ def _stop(process: Any) -> None:
         process.close()
 
 
+def _wait(receiver: Connection, timeout_s: float, cancel: threading.Event | None) -> bool:
+    """True when the child answered (or closed its end) within `timeout_s`."""
+    if cancel is None:
+        return receiver.poll(timeout_s)
+    deadline = time.monotonic() + timeout_s
+    while not cancel.is_set():
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        if receiver.poll(min(CANCEL_POLL_S, left)):
+            return True
+    raise ChildCancelledError
+
+
 def run(
-    target: Callable[..., Any], args: tuple[Any, ...], *, memory_mb: int, timeout_s: float
+    target: Callable[..., Any],
+    args: tuple[Any, ...],
+    *,
+    memory_mb: int,
+    timeout_s: float,
+    cancel: threading.Event | None = None,
 ) -> Answer:
     """`target(*args)` in a confined child; returns what it returned (it must be a
     module-level function, and its value picklable). Blocking: run it in a thread.
 
-    Raises ChildTimeoutError or ChildDiedError (with the signal that ended the child, if
-    any). The child is always killed and reaped before this returns, with the processes it
-    started.
+    Raises ChildTimeoutError, ChildCancelledError (`cancel` set while waiting) or
+    ChildDiedError (with the signal that ended the child, if any). The child is always
+    killed and reaped before this returns, with the processes it started.
     """
     receiver, sender = _context.Pipe(duplex=False)
     process = _context.Process(
@@ -126,7 +156,7 @@ def run(
     process.start()
     sender.close()
     try:
-        if not receiver.poll(timeout_s):
+        if not _wait(receiver, timeout_s, cancel):
             raise ChildTimeoutError
         try:
             value, peak = receiver.recv()

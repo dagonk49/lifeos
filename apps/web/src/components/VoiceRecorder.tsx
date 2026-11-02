@@ -11,7 +11,9 @@ import {
   formatSeconds,
   isDictationDone,
   pickRecordingType,
+  progressLabel,
   recordingFileName,
+  waitingText,
 } from "@/lib/voice";
 
 type Phase = "idle" | "starting" | "recording" | "sending" | "transcribing";
@@ -68,6 +70,8 @@ export function VoiceRecorder({
   const startToken = useRef(0);
   const startedAt = useRef(0);
   const stopTimer = useRef<number | null>(null);
+  // Aborts the upload when the owner cancels while it is sent.
+  const sending = useRef<AbortController | null>(null);
   const maxSeconds = status.data?.max_seconds ?? 900;
 
   const supported =
@@ -80,14 +84,25 @@ export function VoiceRecorder({
       const form = new FormData();
       form.append("space_id", spaceId ?? "");
       form.append("file", blob, recordingFileName(blob.type));
-      return upload<Dictation>("/v1/voice/dictations", form);
+      const controller = new AbortController();
+      sending.current = controller;
+      return upload<Dictation>("/v1/voice/dictations", form, { signal: controller.signal });
     },
     onSuccess: (dictation) => {
+      sending.current = null;
+      if (!mounted.current) return;
       setDictationId(dictation.id);
       setPhase("transcribing");
     },
     onError: (failure) => {
-      setError(errorMessage(failure));
+      const aborted = sending.current?.signal.aborted ?? false;
+      sending.current = null;
+      if (!mounted.current) return;
+      if (aborted) {
+        setNotice("Dictée annulée : rien n'a été envoyé.");
+      } else {
+        setError(errorMessage(failure));
+      }
       setPhase("idle");
     },
   });
@@ -138,6 +153,7 @@ export function VoiceRecorder({
       mounted.current = false;
       startToken.current += 1;
       discard.current = true;
+      sending.current?.abort();
       if (stopTimer.current !== null) window.clearTimeout(stopTimer.current);
       if (recorder.current?.state === "recording") recorder.current.stop();
       stream.current?.getTracks().forEach((track) => track.stop());
@@ -215,6 +231,30 @@ export function VoiceRecorder({
     recorder.current?.stop();
   }
 
+  function cancelSending() {
+    sending.current?.abort();
+  }
+
+  // Deleting the dictation stops its transcription on the server too (the worker sees it
+  // and frees the single transcription slot).
+  function cancelTranscription() {
+    const id = dictationId;
+    if (!id) return;
+    delivered.current = id;
+    setDictationId(null);
+    setPhase("idle");
+    setNotice("Transcription annulée : l'enregistrement est supprimé du serveur.");
+    void api(`/v1/voice/dictations/${id}`, { method: "DELETE" }).catch(() => undefined);
+  }
+
+  const current = phase === "transcribing" ? dictation.data : undefined;
+  const percent = progressLabel(current?.progress);
+  const done =
+    current?.progress !== null && current?.progress !== undefined
+      ? Math.round(Math.min(1, Math.max(0, current.progress)) * 100)
+      : null;
+  const waiting = waitingText(current);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -236,16 +276,43 @@ export function VoiceRecorder({
           </Button>
         )}
         {phase === "sending" && (
-          <span role="status" className="text-sm text-stone-600 dark:text-stone-400">
-            Envoi de l'enregistrement…
-          </span>
+          <>
+            <Button size="sm" variant="ghost" onClick={cancelSending}>
+              Annuler l'envoi
+            </Button>
+            <span role="status" className="text-sm text-stone-600 dark:text-stone-400">
+              Envoi de l'enregistrement…
+            </span>
+          </>
         )}
         {phase === "transcribing" && (
-          <span role="status" className="text-sm text-stone-600 dark:text-stone-400">
-            {dictation.data ? dictationStatusText(dictation.data) : "Transcription en cours sur le serveur…"}
-          </span>
+          <>
+            <Button size="sm" variant="ghost" onClick={cancelTranscription}>
+              Annuler la transcription
+            </Button>
+            <span role="status" className="text-sm text-stone-600 dark:text-stone-400">
+              {current ? dictationStatusText(current) : "Transcription en cours sur le serveur…"}
+              {waiting ? ` ${waiting}` : ""}
+            </span>
+          </>
         )}
       </div>
+      {phase === "transcribing" && percent !== null && done !== null && (
+        <div className="flex max-w-sm items-center gap-2">
+          <div
+            role="progressbar"
+            aria-label="Avancement de la transcription"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={done}
+            aria-valuetext={percent}
+            className="h-2 flex-1 overflow-hidden rounded bg-stone-200 dark:bg-stone-800"
+          >
+            <div className="h-2 rounded bg-teal-700 dark:bg-teal-400" style={{ width: `${done}%` }} />
+          </div>
+          <span className="text-xs tabular-nums text-muted">{percent}</span>
+        </div>
+      )}
       {phase === "idle" && !error && !notice && (
         <p className="text-xs text-muted">
           Transcrit sur votre serveur LifeOS, jamais dans le cloud ; l'enregistrement est supprimé

@@ -168,10 +168,10 @@ jobs:
           enable-cache: true
       - name: Install (with the ml and stt extras)
         run: uv sync --locked --extra ml --extra stt
-      - name: OCR engine (Tesseract with the French model) and a font with accents
+      - name: OCR engine (Tesseract with the French model and orientation data) and a font with accents
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra fonts-dejavu-core
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-osd fonts-dejavu-core
       - uses: actions/cache@v4
         with:
           path: models

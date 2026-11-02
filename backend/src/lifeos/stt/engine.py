@@ -19,6 +19,7 @@ import signal
 import threading
 import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,6 +59,17 @@ class Transcript:
     duration: float  # seconds of audio
     speech: float  # seconds of detected speech
     decode_peak_mb: int | None = None  # memory of the isolated decoding (MiB)
+    # Where the time went (seconds), and on what: measured, never estimated (ADR 0009). A
+    # silent CUDA -> CPU fallback (`_candidates`) shows here, not only in a log line.
+    decode_s: float = 0.0
+    load_s: float | None = None  # loading the model, when this call loaded it
+    transcribe_s: float = 0.0
+    device: str | None = None
+    compute_type: str | None = None
+
+
+# Progress callback: the share of the audio transcribed so far, in [0, 1].
+OnProgress = Callable[[float], None]
 
 
 def _normalise(text: str) -> str:
@@ -192,14 +204,17 @@ class Decoded:
     peak_mb: int  # memory of the isolated decoding (MiB)
 
 
-def decode_isolated(data: bytes, *, mime: str, max_seconds: float) -> Decoded:
+def decode_isolated(
+    data: bytes, *, mime: str, max_seconds: float, cancel: threading.Event | None = None
+) -> Decoded:
     """The audio as 16 kHz mono float32 samples (PyAV, i.e. FFmpeg, in this sandbox).
 
     Decoded progressively and refused as soon as it exceeds `max_seconds` (plus the
     tolerance): a small file can hold hours of (silent) audio, which must never be
     expanded in memory first. The decoding runs in a confined child process: a decoder
     that crashes, hangs or allocates without end fails this recording only, while the
-    service and its loaded model stay up.
+    service and its loaded model stay up. `cancel` set: the child is killed at once
+    (`cancelled`).
     """
     import numpy as np
 
@@ -213,7 +228,10 @@ def decode_isolated(data: bytes, *, mime: str, max_seconds: float) -> Decoded:
             (data, mime, max_seconds),
             memory_mb=memory_mb,
             timeout_s=DECODE_BASE_S + allowed / 20,
+            cancel=cancel,
         )
+    except isolation.ChildCancelledError as exc:  # the dictation was deleted meanwhile
+        raise SttFailure("cancelled") from exc
     except isolation.ChildTimeoutError as exc:  # stuck in a decoder: killed
         raise SttFailure("too_slow") from exc
     except isolation.ChildDiedError as exc:
@@ -235,6 +253,11 @@ def decode(data: bytes, *, mime: str, max_seconds: float) -> Any:
     return decode_isolated(data, mime=mime, max_seconds=max_seconds).samples
 
 
+def _check(cancel: threading.Event | None) -> None:
+    if cancel is not None and cancel.is_set():
+        raise SttFailure("cancelled")
+
+
 class Engine:
     """Holds the Whisper model; thread-safe, one transcription at a time."""
 
@@ -242,6 +265,7 @@ class Engine:
         self._settings = settings
         self._model: Any = None
         self.device: str | None = None
+        self.compute_type: str | None = None
         self._lock = threading.Lock()
         self._last_used = 0.0
 
@@ -287,24 +311,58 @@ class Engine:
                 errors.append(f"{device}: {type(exc).__name__}: {str(exc)[:200]}")
                 log.warning("stt_model_load_failed", device=device, error=str(exc)[:300])
                 continue
-            self.device = device
-            log.info("stt_model_loaded", model=self._settings.stt_model, device=device)
+            self.device, self.compute_type = device, compute_type
+            log.info(
+                "stt_model_loaded",
+                model=self._settings.stt_model,
+                device=device,
+                compute_type=compute_type,
+            )
             return model
         raise SttFailure("model_unavailable", status=503) from RuntimeError("; ".join(errors))
 
-    def transcribe(self, data: bytes, *, mime: str, max_seconds: float) -> Transcript:
-        """`mime`: the type detected by signature, which imposes the demuxer."""
-        decoded = decode_isolated(data, mime=mime, max_seconds=max_seconds)
+    def transcribe(
+        self,
+        data: bytes,
+        *,
+        mime: str,
+        max_seconds: float,
+        on_progress: OnProgress | None = None,
+        cancel: threading.Event | None = None,
+        on_decoded: Callable[[float], None] | None = None,
+    ) -> Transcript:
+        """`mime`: the type detected by signature, which imposes the demuxer.
+
+        `on_progress` gets the share of the audio transcribed after each segment (Whisper
+        decodes 30 s windows after voice detection: coarse steps). `cancel` set: stops at
+        the next check (decoding child killed at once, otherwise between two segments) with
+        `SttFailure("cancelled")`; the model stays loaded and the next call works.
+        `on_decoded` gets the audio's length (seconds) once it is decoded."""
+        started = time.monotonic()
+        decoded = decode_isolated(data, mime=mime, max_seconds=max_seconds, cancel=cancel)
+        decode_s = time.monotonic() - started
         audio = decoded.samples
         duration = len(audio) / SAMPLE_RATE
+        if on_decoded is not None:
+            on_decoded(duration)
         if duration < MIN_SECONDS:
             return Transcript(
-                text="", duration=duration, speech=0.0, decode_peak_mb=decoded.peak_mb
+                text="",
+                duration=duration,
+                speech=0.0,
+                decode_peak_mb=decoded.peak_mb,
+                decode_s=decode_s,
             )
+        _check(cancel)
         with self._lock:
-            if self._model is None:
-                self._model = self._load()
+            load_s: float | None = None
             try:
+                _check(cancel)
+                if self._model is None:
+                    loading = time.monotonic()
+                    self._model = self._load()
+                    load_s = time.monotonic() - loading
+                transcribing = time.monotonic()
                 segments, info = self._model.transcribe(
                     audio,
                     language=LANGUAGE,
@@ -314,15 +372,30 @@ class Engine:
                     # Each segment decoded on its own: one hallucination cannot spread.
                     condition_on_previous_text=False,
                 )
-                texts = [segment.text for segment in segments]  # decoding happens here
+                total = float(getattr(info, "duration", duration) or duration)
+                texts: list[str] = []
+                # Decoding happens while iterating: one window at a time.
+                for segment in segments:
+                    texts.append(segment.text)
+                    if on_progress is not None and total > 0:
+                        on_progress(min(1.0, max(0.0, float(segment.end) / total)))
+                    _check(cancel)
+                transcribe_s = time.monotonic() - transcribing
             finally:
                 self._last_used = time.monotonic()
+        if on_progress is not None:
+            on_progress(1.0)
         speech = float(getattr(info, "duration_after_vad", duration) or 0.0)
         return Transcript(
             text=clean_segments(texts),
             duration=duration,
             speech=speech,
             decode_peak_mb=decoded.peak_mb,
+            decode_s=decode_s,
+            load_s=load_s,
+            transcribe_s=transcribe_s,
+            device=self.device,
+            compute_type=self.compute_type,
         )
 
     def unload_if_idle(self) -> bool:
@@ -334,6 +407,7 @@ class Engine:
         try:
             self._model = None
             self.device = None
+            self.compute_type = None
         finally:
             self._lock.release()
         log.info("stt_model_unloaded")

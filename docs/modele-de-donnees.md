@@ -352,7 +352,11 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     nonce | AES-256-GCM`, avec l'identifiant du document en données associées.
   - Les dictées (`purpose = 'dictation'`) sont transitoires (ADR 0009) : audio supprimé après
     transcription, ligne effacée après 24 h. Elles sont exclues de la liste, de la recherche
-    et des embeddings.
+    et des embeddings. Leur `analysis` : `{progress, audio_seconds}` pendant la
+    transcription, puis `{duration, elapsed, device}` (secondes d'audio, secondes de service,
+    `cpu` ou `cuda`).
+  - Pour une image ou un PDF scanné, `analysis.reading` (tâche 29) : `{rotation, skew,
+    enhanced, pass}`, comment l'image a été lue (quart de tour, redressement, lecture gardée).
 - **`messages.attachments uuid[]`** : documents joints par le propriétaire (seul leur texte
   extrait a accompagné le message ; références conservées même si le document est supprimé).
 - **`messages.context_type text null`** (`task` \| `goal`) et **`messages.context_id uuid

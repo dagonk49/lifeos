@@ -145,6 +145,10 @@ class Settings(BaseSettings):
     stt_beam_size: int = 5
     # The model (about 1.6 GB of RAM) is unloaded after this long without a dictation.
     stt_idle_unload_s: int = 600
+    # Seconds of waiting per second of audio, for the estimated time shown while a dictation
+    # is transcribed, until 10 dictations measured on this machine replace it (ADR 0009:
+    # an estimate of 0.5 to 0.8 on the CPU, to be measured with `lifeos-stt bench`).
+    voice_rtf_estimate: float = Field(default=0.7, gt=0, le=10)
 
     # Memory quality (F07): cosine distances between two facts' vectors. Below the first,
     # same meaning (duplicate); below the second, related (update or contradiction?).

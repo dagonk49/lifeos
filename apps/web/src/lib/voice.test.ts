@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   appendTranscript,
   dictationStatusText,
+  formatEta,
   formatSeconds,
   isDictationDone,
   localFrenchVoices,
   pickRecordingType,
+  progressLabel,
   recordingFileName,
   speakableText,
+  waitingText,
 } from "./voice";
 
 describe("pickRecordingType", () => {
@@ -107,5 +110,43 @@ describe("speakableText", () => {
   it("drops markdown markers and code, and bounds the length", () => {
     expect(speakableText("**Important** : `code`\n\n```\nx = 1\n```\n# Fin")).toBe("Important : code Fin");
     expect(speakableText("a".repeat(10), 4)).toBe("aaaa…");
+  });
+});
+
+describe("progress and waiting time", () => {
+  it("shows the share transcribed, bounded", () => {
+    expect(progressLabel(0.4)).toBe("40 %");
+    expect(progressLabel(0)).toBe("0 %");
+    expect(progressLabel(1.7)).toBe("100 %");
+    expect(progressLabel(null)).toBeNull();
+    expect(progressLabel(undefined)).toBeNull();
+    expect(progressLabel(Number.NaN)).toBeNull();
+  });
+
+  it("gives an estimate in words, never false precision", () => {
+    expect(formatEta(12)).toBe("moins d'une minute");
+    expect(formatEta(61)).toBe("environ 2 min");
+    expect(formatEta(600)).toBe("environ 10 min");
+    expect(formatEta(3900)).toBe("environ 1 h 05");
+    expect(formatEta(null)).toBeNull();
+    expect(formatEta(-3)).toBeNull();
+  });
+
+  it("says the time left while transcribed, or the dictations ahead", () => {
+    expect(waitingText({ status: "processing", estimated_seconds: 150, queue_position: 0 })).toBe(
+      "Temps restant estimé : environ 3 min.",
+    );
+    expect(waitingText({ status: "processing", estimated_seconds: null, queue_position: 0 })).toBeNull();
+    expect(waitingText({ status: "pending", estimated_seconds: null, queue_position: 1 })).toBe(
+      "Une dictée à transcrire avant celle-ci.",
+    );
+    expect(waitingText({ status: "pending", queue_position: 3 })).toBe("3 dictées à transcrire avant celle-ci.");
+    expect(waitingText({ status: "pending", queue_position: 0 })).toBeNull();
+    expect(waitingText(undefined)).toBeNull();
+  });
+
+  it("explains a crashed or cancelled transcription", () => {
+    expect(dictationStatusText({ status: "failed", error: "transcription_crashed" })).toMatch(/plusieurs fois/);
+    expect(dictationStatusText({ status: "failed", error: "cancelled" })).toBe("La transcription a été annulée.");
   });
 });
