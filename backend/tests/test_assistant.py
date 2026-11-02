@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.chat.service import purge_expired_messages
 from lifeos.modules.llm.base import LLMUnavailableError
-from lifeos.modules.llm.fake import FakeProvider
+from lifeos.modules.llm.fake import OUTAGE_MARKER, FakeProvider
 from lifeos.modules.notifications.models import Notification
 from lifeos.modules.notifications.policy import quiet_hours_delivery as next_delivery
 from lifeos.modules.notifications.service import dispatch_reminders
@@ -59,6 +59,24 @@ async def test_cloud_outage_does_not_block_local_features(
     dashboard = await client.get("/v1/dashboard")
     assert dashboard.status_code == 200
     assert dashboard.json()["tasks_without_due"] == 1
+
+
+async def test_scripted_outage_keeps_the_message(
+    client: AsyncClient, spaces: dict[str, str], fake_llm: FakeProvider
+) -> None:
+    # What the end-to-end outage journey sends (e2e/ai-outage.spec.ts).
+    await enable_cloud(client, spaces["personal"])
+    conversation = await _conversation(client, spaces["personal"])
+    sent = await client.post(
+        f"/v1/chat/conversations/{conversation}/messages",
+        json={"content": f"{OUTAGE_MARKER} Aide-moi"},
+    )
+    assert sent.status_code == 201
+    body = sent.json()
+    assert body["assistant_message"] is None
+    assert body["error"]["code"] == "llm_unavailable"
+    detail = (await client.get(f"/v1/chat/conversations/{conversation}")).json()
+    assert [m["content"] for m in detail["messages"]] == [f"{OUTAGE_MARKER} Aide-moi"]
 
 
 async def test_chat_context_is_minimal_and_scoped_to_the_space(

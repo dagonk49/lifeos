@@ -192,6 +192,9 @@ L’utilisateur recherche un souvenir, corrige ou supprime ses données ; la sup
 
 # 9. Critères d’acceptation prioritaires
 
+Chaque critère est vérifié par un parcours de bout en bout : voir le tableau critère → test
+de [apps/web/README.md](../../apps/web/README.md#critères-dacceptation-et-parcours).
+
 - Un utilisateur peut consulter, corriger, exporter et supprimer ses souvenirs.
 
 - Les conversations brutes sont automatiquement purgées au terme des 90 jours, sauf conservation explicitement autorisée ; les index correspondants sont traités.

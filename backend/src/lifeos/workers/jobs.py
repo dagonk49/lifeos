@@ -99,6 +99,14 @@ def _database() -> Database:
     return _db
 
 
+async def dispose() -> None:
+    """Closes this process's database pool (a CLI run ends its event loop afterwards)."""
+    global _db
+    if _db is not None:
+        await _db.dispose()
+        _db = None
+
+
 async def run_job(name: str, fn: Callable[[AsyncSession], Awaitable[Any]]) -> Any:
     """Runs `fn` in its own transaction. Jobs must be idempotent: they may be replayed."""
     start = time.perf_counter()

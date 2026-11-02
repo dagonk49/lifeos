@@ -32,9 +32,11 @@ import {
   parseAbout,
 } from "@/lib/chatContext";
 import { COMPOSER_HINTS, enterSends, useCoarsePointer } from "@/lib/composer";
+import { useSessionDraft } from "@/lib/drafts";
 import { formatDate, formatTime } from "@/lib/format";
 import { goalKeys } from "@/lib/goals";
 import { buildReview, withoutAttachment, type SendReview } from "@/lib/privacy";
+import { DRAFT_KEYS } from "@/lib/session";
 import { spaceParam, useSpace } from "@/lib/space";
 import type {
   AgentInfo,
@@ -170,7 +172,8 @@ function ChatView() {
   const object = useContextObject(ref);
   const [current, setCurrent] = useState<string | null>(null);
   const [currentSpace, setCurrentSpace] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
+  // Kept in this tab until sent: a lost session or a reload does not lose the message.
+  const [draft, setDraft] = useSessionDraft(DRAFT_KEYS.chat);
   // Specialised agents are only used when explicitly chosen here (F08).
   const [agent, setAgent] = useState<AgentChoice>(CORE_AGENT);
   const [degraded, setDegraded] = useState<SendResult["error"]>(null);

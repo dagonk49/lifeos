@@ -1,39 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
-
-import type { Page } from "@playwright/test";
-
-import { backendEnv } from "../playwright.config";
 import { expect, test } from "./fixtures";
-
-const backend = join(import.meta.dirname, "..", "..", "..", "backend");
-
-/** A fresh enrollment link for the owner (earlier journeys used the previous ones). */
-function enrollmentToken(): string {
-  const output = execFileSync(
-    "uv",
-    ["run", "--directory", backend, "lifeos-admin", "enrollment-token", "--email", "e2e@example.org"],
-    { env: { ...process.env, ...backendEnv }, encoding: "utf8" },
-  );
-  const token = /enroll#token=(\S+)/.exec(output)?.[1];
-  if (!token) throw new Error(`no enrollment token in CLI output:\n${output}`);
-  return token;
-}
-
-async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
+import { addVirtualAuthenticator, enrollmentToken } from "./helpers";
 
 test("the service worker and the manifest are served within the policy, never cached", async ({ request }) => {
   const worker = await request.get("/sw.js");

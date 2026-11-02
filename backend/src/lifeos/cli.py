@@ -3,6 +3,7 @@ server."""
 
 import argparse
 import asyncio
+import inspect
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -246,6 +247,40 @@ async def _sensitivity_check(paths: list[Path], expect: Path | None) -> int:
     return 1 if missed or extra or absent else 0
 
 
+# Background jobs an operator (or the end-to-end tests) may run now rather than wait for the
+# scheduler: idempotent ones only, by the name of their Dramatiq actor.
+RUNNABLE_JOBS = {
+    "purge_messages": "conversations past their 90 days (except kept messages)",
+    "send_reminders": "due task reminders, as notifications",
+    "build_suggestion_digests": "due suggestions, grouped into one digest",
+    "send_push": "due notifications pushed to the owner's devices",
+    "expire_approvals": "approvals left undecided past their expiry",
+    "index_embeddings": "new or changed objects embedded for search",
+    "process_pending_documents": "documents still waiting to be read",
+    "purge_document_originals": "originals past their retention, then orphan files",
+}
+
+
+async def _run_job(name: str) -> int:
+    """Runs one job in this process, as the worker would (same function, same audit)."""
+    from lifeos.workers import actors, jobs
+
+    # The actor's own coroutine (Dramatiq wraps it to run on the worker's event loop).
+    fn = inspect.unwrap(getattr(actors, name).fn)
+    if not inspect.iscoroutinefunction(fn):  # pragma: no cover - guards a Dramatiq change
+        print(f"Error: job {name} cannot run here.", file=sys.stderr)
+        return 1
+    try:
+        await fn()
+    except (OSError, DBAPIError) as exc:
+        print(f"Error: job {name} failed ({type(exc).__name__})", file=sys.stderr)
+        return 1
+    finally:
+        await jobs.dispose()
+    print(f"Job {name} done.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lifeos-admin", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -327,6 +362,14 @@ def main(argv: list[str] | None = None) -> int:
         help="JSON manifest (file name -> expected categories): lists the differences",
     )
 
+    p = sub.add_parser(
+        "run-job",
+        help="run a background job now instead of waiting for the scheduler",
+        description="Jobs: "
+        + "; ".join(f"{name} ({what})" for name, what in RUNNABLE_JOBS.items()),
+    )
+    p.add_argument("job", choices=sorted(RUNNABLE_JOBS), metavar="JOB")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "create-owner":
@@ -368,6 +411,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Error: cannot read {args.list} ({type(exc).__name__})", file=sys.stderr)
                 return 1
             return asyncio.run(_replay_erasures(listing.splitlines(), args.yes))
+        if args.command == "run-job":
+            return asyncio.run(_run_job(args.job))
         if args.command == "sensitivity-check":
             return asyncio.run(_sensitivity_check(args.paths, args.expect))
         return asyncio.run(_revoke_sessions(args.email))

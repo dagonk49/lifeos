@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { NotificationsMenu } from "@/components/NotificationsMenu";
 import { Button, Select, Spinner, cx } from "@/components/ui";
 import { api, isApiError } from "@/lib/api";
+import { clearDrafts, redirectToLogin, setSigningOut } from "@/lib/session";
 import { SpaceProvider, useSpace } from "@/lib/space";
 import type { Me } from "@/lib/types";
 
@@ -61,8 +62,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const me = useMe();
   const [loggingOut, setLoggingOut] = useState(false);
 
+  // Same redirect as any other request (providers.tsx): back to this page after signing in.
   useEffect(() => {
-    if (me.error && isApiError(me.error, "unauthenticated")) router.replace("/login");
+    if (me.error && isApiError(me.error, "unauthenticated")) redirectToLogin((path) => router.replace(path));
   }, [me.error, router]);
 
   if (me.isPending || (me.error && isApiError(me.error, "unauthenticated"))) {
@@ -82,6 +84,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   async function logout() {
     setLoggingOut(true);
+    setSigningOut(true);
+    clearDrafts();
     try {
       await api("/v1/auth/logout", { method: "POST" });
     } finally {

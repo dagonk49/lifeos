@@ -1,42 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
-
-import type { Page } from "@playwright/test";
-
-import { backendEnv } from "../playwright.config";
 import { expect, test } from "./fixtures";
-
-const backend = join(import.meta.dirname, "..", "..", "..", "backend");
-
-/**
- * Every page of the client: public ones, those of a signed-in owner (the HTML is the same
- * without a session, the API checks it) and the 404 page.
- */
-const LOGIN = { path: "/login", status: 200 };
-const PAGES: { path: string; status: number }[] = [
-  LOGIN,
-  { path: "/enroll", status: 200 },
-  ...["/", "/chat", "/tasks", "/agenda", "/mail", "/journal", "/goals", "/documents", "/finances", "/reviews"]
-    .concat(["/memory", "/search", "/approvals", "/settings", "/connexions/retour"])
-    .map((path) => ({ path, status: 200 })),
-  { path: "/page-inexistante", status: 404 },
-];
-
-/** The main navigation (AppShell), with the page each link opens. */
-const NAV: [label: string, path: string][] = [
-  ["Accueil", "/"],
-  ["Assistant", "/chat"],
-  ["Tâches", "/tasks"],
-  ["Journal", "/journal"],
-  ["Objectifs", "/goals"],
-  ["Documents", "/documents"],
-  ["Finances", "/finances"],
-  ["Bilans", "/reviews"],
-  ["Mémoire", "/memory"],
-  ["Recherche", "/search"],
-  ["Approbations", "/approvals"],
-  ["Réglages", "/settings"],
-];
+import { addVirtualAuthenticator, enrollmentToken, LOGIN, NAV, navigation, ROUTES as PAGES } from "./helpers";
 
 /** Injected into the login page: none of it may run. */
 const INJECTED = [
@@ -53,37 +16,6 @@ function directive(policy: string, name: string): string[] {
     .map((part) => part.trim().split(/\s+/))
     .find(([key]) => key === name);
   return found?.slice(1) ?? [];
-}
-
-/** A fresh enrollment link for the owner (other journeys used the previous ones). */
-function enrollmentToken(): string {
-  const output = execFileSync(
-    "uv",
-    ["run", "--directory", backend, "lifeos-admin", "enrollment-token", "--email", "e2e@example.org"],
-    { env: { ...process.env, ...backendEnv }, encoding: "utf8" },
-  );
-  const token = /enroll#token=(\S+)/.exec(output)?.[1];
-  if (!token) throw new Error(`no enrollment token in CLI output:\n${output}`);
-  return token;
-}
-
-async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-function navigation(page: Page) {
-  return page.getByRole("navigation", { name: "Navigation principale" });
 }
 
 test("every page gets its own nonce policy, carried by all of its scripts", async ({ request }) => {

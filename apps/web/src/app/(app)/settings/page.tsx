@@ -260,6 +260,7 @@ function DevicesSection() {
             <Button
               size="sm"
               variant="ghost"
+              aria-label={`Révoquer la passkey « ${p.label} »`}
               onClick={() => revokePasskey.mutate(p.id)}
             >
               Révoquer

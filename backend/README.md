@@ -7,7 +7,7 @@ src/lifeos/
   main.py            application FastAPI (factory), routeur /v1
   config.py          paramètres LIFEOS_* (+ secrets Docker)
   cli.py             lifeos-admin : create-owner, enrollment-token, revoke-sessions, verify-data,
-                     reconcile-originals, replay-erasures, sensitivity-check
+                     reconcile-originals, replay-erasures, sensitivity-check, run-job
   integrity.py       contrôles de la base et des originaux (verify-data, reconcile-originals)
   isolation.py       lecture des fichiers non fiables dans un processus enfant confiné (ADR 0011)
   logging.py         journaux JSON structurés, sans contenu

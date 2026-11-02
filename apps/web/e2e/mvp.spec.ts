@@ -3,30 +3,8 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
+import { addVirtualAuthenticator, nav } from "./helpers";
 import { TOKEN_FILE } from "./global-setup";
-
-/** Chromium virtual authenticator: a platform passkey with user verification. */
-async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-async function nav(page: Page, name: string): Promise<void> {
-  await page
-    .getByRole("navigation", { name: "Navigation principale" })
-    .getByRole("link", { name })
-    .click();
-}
 
 function messages(page: Page) {
   return page.getByRole("list", { name: "Messages" });

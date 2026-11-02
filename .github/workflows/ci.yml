@@ -139,15 +139,23 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-      - name: End-to-end tests, desktop and phone projects (passkeys, journeys, accessibility, keyboard, mobile)
+      - name: End-to-end tests, desktop and phone projects (passkeys, journeys, session loss, AI outage, purge, reminders, accessibility, keyboard, mobile)
         working-directory: apps/web
         run: pnpm e2e --project=chromium --project=mobile-chromium
+      - name: Journey table in the job summary
+        if: always()
+        working-directory: apps/web
+        run: node e2e/summary.mjs "Parcours de bout en bout (chromium, mobile-chromium)" test-results/junit.xml >> "$GITHUB_STEP_SUMMARY"
+      # The proof of every run (HTML report, JUnit, last screen of each journey; traces on
+      # failure), synthetic data only.
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: playwright-traces
-          path: apps/web/test-results
-          retention-days: 7
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 30
 
   ml-model:
     # The real embedding model: downloaded once (cached), then used offline on a read-only

@@ -99,16 +99,31 @@ pnpm test           # Vitest : fonctions de src/lib et composants (fichiers *.te
 pnpm build && pnpm e2e
 ```
 
-`pnpm e2e` (Playwright) démarre l'API (fournisseurs factices pour le LLM, la dictée, les
-embeddings et les comptes connectés ; base `lifeos_e2e`) et le serveur Next, recrée le schéma
-par les migrations, puis déroule les parcours en série, chacun avec sa propre passkey
-(`lifeos-admin enrollment-token`, authentificateur WebAuthn virtuel de Chromium) :
-`mvp.spec.ts` (MVP), `step3.spec.ts` (intelligence), `step4.spec.ts` (multimodal),
-`step5.spec.ts` (compte connecté, usages par espace, agenda suivi, déconnexion) et
-`security.spec.ts` (CSP, session d'un appareil perdu).
-`e2e/security.spec.ts` vérifie la CSP sur le build de production : un nonce neuf sur chaque
-script de chaque page, un script injecté bloqué, les passkeys, la navigation et l'assistant
-fonctionnels. Tous les parcours échouent à la moindre violation de CSP (`e2e/fixtures.ts`).
+`pnpm e2e` (Playwright) démarre l'API, un worker et le planificateur (fournisseurs factices
+pour le LLM, la dictée, les embeddings, la lecture des documents, les comptes connectés et le
+push ; base `lifeos_e2e`) et le serveur Next, recrée le schéma par les migrations, puis déroule
+les parcours en série (ordre alphabétique des fichiers, une seule base), chacun avec sa propre
+passkey (`lifeos-admin enrollment-token`, authentificateur WebAuthn virtuel de Chromium). Les
+aides communes sont dans `e2e/helpers.ts` : enrôlement, navigation, `adminCli` (commandes
+`lifeos-admin`), `runJob` (`lifeos-admin run-job` : une tâche de fond tout de suite plutôt
+qu'à son heure), `sql` et `backendPython` (ce qu'aucun écran ne fait, comme vieillir une
+échéance de purge). Tous les parcours échouent à la moindre violation de CSP
+(`e2e/fixtures.ts`).
+
+| Fichier | Parcours |
+| --- | --- |
+| `mvp.spec.ts` | enrôlement, tâches, chat sans puis avec consentement, journal, mémoire corrigée et exportée, recherche, reconnexion |
+| `notifications.spec.ts` | rappel de tâche → notification dans l'application, marquée lue ; plages de tranquillité : le rappel suivant est retenu, pas perdu |
+| `outage.spec.ts` | pause de l'assistant (`llm_paused`) et fournisseur injoignable (`llm_unavailable`, message préfixé `[fake:indisponible]`) : message gardé, tâches, budget et accueil utilisables |
+| `purge.spec.ts` | purge des 90 jours (message « Conservé » gardé, les autres sortis du chat et de la recherche, `message.purge` au journal d'audit, export) ; UC05 : fait et souvenir protégé effacés, absents de la recherche et de l'export |
+| `security.spec.ts` | CSP (nonce par réponse, scripts injectés bloqués), toutes les pages, session d'un appareil perdu |
+| `session.spec.ts` | session révoquée sur le serveur puis passkey révoquée depuis un autre appareil : retour à la connexion (`/login?next=…`), puis à la page, brouillon gardé ; cookie `HttpOnly`, `SameSite=Strict` (et `Secure` sur la pile) |
+| `spaces-agents.spec.ts` | une pièce jointe de l'espace Professionnel reste hors de portée de l'agent Finances sans permission |
+| `step3.spec.ts` à `step6.spec.ts` | objectifs, bilans, agents ; ticket, document sensible, dictée ; compte connecté, UC04 (e-mail envoyé seulement après approbation du contenu exact) ; accueil |
+| `push.spec.ts` | notifications sur le téléphone (abonnement simulé, envoi factice) |
+| `a11y.spec.ts`, `keyboard.spec.ts`, `mobile.spec.ts` | WCAG 2.2 AA, clavier seul, téléphone |
+| `stack/restore.spec.ts` | pile proche de la production seulement : données et passkey avant la sauvegarde, même passkey après la restauration |
+
 Prérequis : PostgreSQL avec la base `lifeos_e2e` (extensions `vector` et `unaccent`) et Redis
 locaux.
 Pour utiliser un Chromium déjà installé : `PLAYWRIGHT_CHROMIUM_PATH=/chemin/vers/chrome`.
@@ -119,3 +134,46 @@ tactile, pointeur grossier). `e2e/a11y.spec.ts` passe toutes les pages au contr�
 `e2e/keyboard.spec.ts` déroule un parcours au clavier seul ; `e2e/mobile.spec.ts` (téléphone
 seulement) vérifie l'absence de défilement horizontal à 360 et 375 px et les parcours au
 toucher. Pour ne lancer qu'eux : `pnpm e2e a11y.spec.ts keyboard.spec.ts mobile.spec.ts`.
+
+En CI (`CI` défini), chaque exécution laisse sa preuve : rapport HTML (`playwright-report/`),
+JUnit (`test-results/junit.xml`), capture du dernier écran de chaque parcours et traces des
+échecs, publiés 30 jours en artefacts, et un tableau des parcours dans le résumé du job
+(`e2e/summary.mjs`). Données synthétiques seulement : ne jamais pointer ces tests vers une
+vraie instance (ils recréent le schéma).
+
+### Sur une installation proche de la production
+
+`scripts/test-e2e-stack.sh` (workflow `e2e-stack` : sur `main`, chaque nuit et à la demande ;
+localement `scripts/check.sh --e2e-stack`) démarre une copie jetable de `infra/` avec les
+images construites (`LIFEOS_TEST_BACKEND_IMAGE`, `LIFEOS_TEST_WEB_IMAGE`, par défaut
+`lifeos-*:local`) : Traefik, TLS d'une autorité locale ajoutée le temps du test à la base NSS
+de Chromium (`certutil`, paquet `libnss3-tools` : WebAuthn refuse les erreurs de certificat),
+`LIFEOS_ENVIRONMENT=production`, cookies `Secure`, worker et planificateur, fournisseurs
+factices. Le projet Playwright `stack` (actif quand `LIFEOS_E2E_BASE_URL` est défini, sans
+serveur local, commandes du backend par `docker compose exec api`) y déroule les parcours
+prioritaires, puis le script sauvegarde (`backup.sh`), efface les volumes, restaure
+(`restore.sh`) et reconnecte la même passkey (`stack/restore.spec.ts`). Rapports dans
+`playwright-report/stack-*` et `test-results/stack-*`.
+
+### Critères d'acceptation et parcours
+
+Critères prioritaires du [cahier des charges §9](../../docs/cadrage/cahier-des-charges.md#9-critères-dacceptation-prioritaires)
+et parcours de référence, avec le test qui les vérifie (✅ couvert, ◐ en partie).
+
+| Critère ou parcours | Spec | État |
+| --- | --- | --- |
+| Consulter, corriger, exporter et supprimer ses souvenirs | `mvp.spec.ts` (corriger, exporter), `purge.spec.ts` (supprimer) | ✅ |
+| Purge des conversations brutes à 90 jours, sauf conservation ; index traités | `purge.spec.ts` | ✅ |
+| Envoi d'e-mail sans confirmation bloqué et journalisé (UC04) | `step5.spec.ts` | ✅ |
+| Pièce jointe professionnelle inaccessible à l'agent Finance sans permission | `spaces-agents.spec.ts` | ✅ |
+| Notification non critique respectant les plages de tranquillité | `notifications.spec.ts` | ✅ |
+| Indisponibilité cloud : tâches et budget local utilisables | `outage.spec.ts` | ✅ |
+| Recommandation financière : hypothèses et données montrées | tests unitaires (`FinanceProjection.test.tsx`) | ◐ |
+| Bilans : faits distincts des interprétations | `step3.spec.ts` | ✅ |
+| UC01 journal oral | `step4.spec.ts`, `mobile.spec.ts` | ✅ |
+| UC02 ticket de caisse | `step4.spec.ts` | ✅ |
+| UC03 achat important | tests unitaires et backend seulement | ◐ |
+| UC05 droit à l'oubli | `purge.spec.ts` | ✅ |
+| Session perdue, passkey révoquée | `session.spec.ts`, `security.spec.ts` | ✅ |
+| Restauration puis connexion avec la même passkey | `stack/restore.spec.ts` (workflow `e2e-stack`) | ✅ |
+

@@ -1,12 +1,10 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
-
 import type { Page } from "@playwright/test";
 
-import { backendEnv } from "../playwright.config";
 import { expect } from "./fixtures";
+import { nav } from "./helpers";
 
-const backend = join(import.meta.dirname, "..", "..", "..", "backend");
+// Shared with the other journeys (e2e/helpers.ts).
+export { addVirtualAuthenticator, enrol, enrollmentToken, nav } from "./helpers";
 
 /** Every page of the main navigation (AppShell NAV), with its document title. */
 export const PAGES: { path: string; link: string; title: string }[] = [
@@ -32,44 +30,6 @@ export function pageAt(path: string): (typeof PAGES)[number] {
   return found;
 }
 
-/** A fresh enrollment link for the owner (other journeys used the previous ones). */
-export function enrollmentToken(): string {
-  const output = execFileSync(
-    "uv",
-    ["run", "--directory", backend, "lifeos-admin", "enrollment-token", "--email", "e2e@example.org"],
-    { env: { ...process.env, ...backendEnv }, encoding: "utf8" },
-  );
-  const token = /enroll#token=(\S+)/.exec(output)?.[1];
-  if (!token) throw new Error(`no enrollment token in CLI output:\n${output}`);
-  return token;
-}
-
-/** Chromium virtual authenticator: a platform passkey with user verification. */
-export async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-/** Enrols a new passkey for this page and lands on the home page. */
-export async function enrol(page: Page, device: string): Promise<void> {
-  await addVirtualAuthenticator(page);
-  await page.goto(`/enroll#token=${enrollmentToken()}`);
-  await expect(page).toHaveTitle("Enregistrer cet appareil · LifeOS");
-  await page.getByLabel("Nom de l'appareil").fill(device);
-  await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
-}
-
 /**
  * Deletes the owner's tasks with this title, from the page (same-origin, signed in). The
  * specs share one database: a task left open would change what the other journeys see.
@@ -83,10 +43,6 @@ export async function deleteTasksTitled(page: Page, title: string): Promise<void
       await fetch(`/v1/tasks/${task.id}`, { method: "DELETE", headers: { Accept: "application/json" } });
     }
   }, title);
-}
-
-export async function nav(page: Page, name: string): Promise<void> {
-  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name, exact: true }).click();
 }
 
 /** Opens a page from the navigation and waits for its heading and title. */

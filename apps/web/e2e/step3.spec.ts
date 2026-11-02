@@ -1,43 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
-
-import type { Page } from "@playwright/test";
-
-import { backendEnv } from "../playwright.config";
 import { expect, test } from "./fixtures";
-
-const backend = join(import.meta.dirname, "..", "..", "..", "backend");
-
-/** A fresh enrollment link for the owner (the MVP journey used the first one). */
-function enrollmentToken(): string {
-  const output = execFileSync(
-    "uv",
-    ["run", "--directory", backend, "lifeos-admin", "enrollment-token", "--email", "e2e@example.org"],
-    { env: { ...process.env, ...backendEnv }, encoding: "utf8" },
-  );
-  const token = /enroll#token=(\S+)/.exec(output)?.[1];
-  if (!token) throw new Error(`no enrollment token in CLI output:\n${output}`);
-  return token;
-}
-
-async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-async function nav(page: Page, name: string): Promise<void> {
-  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name }).click();
-}
+import { addVirtualAuthenticator, enrollmentToken, nav } from "./helpers";
 
 test("Step 3 journey: goals, reviews, memory review, agents, consolidation, semantic search", async ({ page }) => {
   test.setTimeout(120_000);

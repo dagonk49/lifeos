@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Runs the same checks as the CI, locally. Usage: scripts/check.sh [--e2e]
+# Runs the same checks as the CI, locally. Usage: scripts/check.sh [--e2e | --e2e-stack]
 # Requires PostgreSQL (database lifeos_test, and lifeos_e2e for --e2e) and Redis.
+# --e2e-stack: the journeys on a production-like stack (scripts/test-e2e-stack.sh, workflow
+# e2e-stack), with the images lifeos-backend:local and lifeos-web:local (`docker compose build`).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 # Same database settings as the CI (overridable).
@@ -52,6 +54,10 @@ docker run --rm --network none -v "$root/infra/prometheus:/etc/prometheus:ro" -w
 if [[ "${1:-}" == "--e2e" ]]; then
   echo "== e2e"
   cd "$root/apps/web"
-  pnpm -s e2e
+  pnpm -s e2e --project=chromium --project=mobile-chromium
+fi
+if [[ "${1:-}" == "--e2e-stack" ]]; then
+  echo "== e2e on a production-like stack"
+  "$root/scripts/test-e2e-stack.sh"
 fi
 echo "All checks passed."

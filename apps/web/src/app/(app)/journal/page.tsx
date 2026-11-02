@@ -8,6 +8,8 @@ import { EraseConfirm } from "@/components/EraseConfirm";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { useSessionDraft } from "@/lib/drafts";
+import { DRAFT_KEYS } from "@/lib/session";
 import { formatDate, todayLocal } from "@/lib/format";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { Approval, JournalEntry, Page } from "@/lib/types";
@@ -118,7 +120,8 @@ export default function JournalPage() {
   const queryClient = useQueryClient();
   const { selected, writeSpaceId, spaceName } = useSpace();
   const [date, setDate] = useState(todayLocal());
-  const [content, setContent] = useState("");
+  // Kept in this tab until saved: a lost session or a reload does not lose the day.
+  const [content, setContent] = useSessionDraft(DRAFT_KEYS.journal);
   const [mood, setMood] = useState("");
   const [dictated, setDictated] = useState(false);
 
