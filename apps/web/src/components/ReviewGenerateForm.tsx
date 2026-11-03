@@ -104,7 +104,7 @@ export function ReviewGenerateForm({
           <p className="text-sm" aria-live="polite">
             <span className="text-stone-600 dark:text-stone-400">Période couverte : </span>
             <strong>{periodLabel(period, bounds.start, bounds.end)}</strong>
-            {bounds.end >= today && !inFuture && <span className="text-stone-500"> (en cours)</span>}
+            {bounds.end >= today && !inFuture && <span className="text-muted"> (en cours)</span>}
           </p>
         )}
         {inFuture && <Alert tone="warning">Cette période n&apos;a pas encore commencé.</Alert>}
@@ -119,7 +119,7 @@ export function ReviewGenerateForm({
           />
           <span>
             <span className="font-medium">Avec la lecture de l&apos;assistant</span>
-            <span id={helpId} className="mt-0.5 block text-xs text-stone-500">
+            <span id={helpId} className="mt-0.5 block text-xs text-muted">
               Utilise une requête Gemini de niveau « {tier} », décomptée de votre quota du jour. Seuls les faits
               calculés et quelques extraits du journal de la période sont envoyés, après masquage local des données
               sensibles. Les faits, eux, sont toujours calculés localement, sans IA.

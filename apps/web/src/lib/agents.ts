@@ -1,7 +1,7 @@
 // Pure helpers for the assistant page: on-demand specialised agents (F08) and
 // conversation consolidation (F07). No React here so that everything is unit-testable.
 
-import type { AgentInfo, AgentName, ConsolidationResult, Message, SendResult } from "./types";
+import { AGENT_NAMES, type AgentInfo, type AgentName, type ConsolidationResult, type Message, type SendResult } from "./types";
 
 /** "core" is the general assistant; specialised agents are only used when chosen. */
 export type AgentChoice = AgentName | "core";
@@ -25,6 +25,8 @@ const AGENT_LABELS: Record<string, string> = {
   coaching: "Coaching",
   memory: "Mémoire",
   finance: "Finances",
+  projects: "Projets",
+  documents: "Documents",
 };
 
 function humanize(value: string): string {
@@ -39,13 +41,7 @@ export function agentLabel(name: string | null | undefined, agents?: readonly Ag
 }
 
 export function isAgentChoice(value: string): value is AgentChoice {
-  return (
-    value === "core" ||
-    value === "planning" ||
-    value === "coaching" ||
-    value === "memory" ||
-    value === "finance"
-  );
+  return value === CORE_AGENT || (AGENT_NAMES as readonly string[]).includes(value);
 }
 
 export interface AgentOption {
@@ -87,6 +83,8 @@ const RESOURCE_LABELS: Record<string, string> = {
   reviews: "bilans",
   documents: "documents",
   finances: "finances",
+  calendar: "agenda",
+  email: "e-mails",
 };
 
 /** Lower-case French name of a data resource, for use inside a sentence. */

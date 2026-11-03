@@ -68,6 +68,7 @@ async def _document(
     analysis: dict[str, Any] | None = None,
     sensitivity: list[str] | None = None,
     text: str | None = None,
+    local_only: bool = False,
 ) -> str:
     document = Document(
         user_id=owner.user.id,
@@ -81,6 +82,7 @@ async def _document(
         status=status,
         analysis=analysis,
         sensitivity=sensitivity or [],
+        local_only=local_only,
         extracted_text=text,
     )
     db.add(document)
@@ -671,6 +673,16 @@ async def test_finance_agent_needs_permissions_and_documents_need_their_own(
         sensitivity=["bank"],
         text="IBAN FR76 3000 6000 0112 3456 7890 189",
     )
+    # Kept local by the owner (« Toujours garder en local »): never in the context either.
+    await _document(
+        db,
+        logged_in,
+        pro,
+        title="ticket-garde-local.jpg",
+        analysis=_receipt_analysis(),
+        local_only=True,
+        text="LAIT DEMI ECREME 1L",
+    )
     conversation = (await client.post("/v1/chat/conversations", json={"space_id": pro})).json()[
         "id"
     ]
@@ -721,6 +733,7 @@ async def test_finance_agent_needs_permissions_and_documents_need_their_own(
     # The merchant read on the receipt, never the uploaded file name.
     assert "ticket-fournitures.jpg" not in system
     assert "CARREFOUR MARKET (total lu 6,43 €, daté du 10/10/2026" in system
+    assert system.count("CARREFOUR MARKET (total lu") == 1  # not the one kept local
     # Never the extracted text, and never a sensitive document.
     assert "LAIT DEMI ECREME" not in system
     assert "releve-confidentiel" not in system and "FR76" not in system

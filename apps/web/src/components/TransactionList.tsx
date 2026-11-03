@@ -127,7 +127,7 @@ function TransactionRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-medium break-words">{title}</p>
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-muted">
             {formatDate(tx.tx_date)}
             {subtitle && ` · ${subtitle}`}
           </p>
@@ -314,7 +314,7 @@ export function TransactionList({
         </div>
       </form>
 
-      <p className="mb-3 text-xs text-stone-500">
+      <p className="mb-3 text-xs text-muted">
         Changer la catégorie d&apos;une opération : LifeOS retiendra ce choix pour ce commerçant.
       </p>
       {notice && (
@@ -349,7 +349,7 @@ export function TransactionList({
               />
             ))}
           </ul>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
             <span>
               {countLabel(items.length, "opération affichée", "opérations affichées")}
               {transactions.hasNextPage ? " (il y en a d'autres)" : ""}

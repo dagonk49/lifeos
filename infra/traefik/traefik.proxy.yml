@@ -1,0 +1,26 @@
+# Static configuration behind an existing reverse proxy (compose.proxy.yaml): the proxy
+# terminates TLS and forwards plain HTTP here. Routing lives in dynamic/, as in traefik.yml.
+entryPoints:
+  # Same name as in traefik.yml so that the routers are unchanged; no TLS on this hop.
+  websecure:
+    address: ":80"
+    forwardedHeaders:
+      # Only Docker networks reach this port (Traefik publishes none in this mode): the
+      # proxy's X-Forwarded-For / X-Forwarded-Proto are kept.
+      trustedIPs: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+api:
+  dashboard: false
+
+log:
+  level: INFO
+
+# Access logs are off: the API logs requests itself, without query strings.
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false

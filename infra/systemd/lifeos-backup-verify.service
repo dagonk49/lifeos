@@ -1,0 +1,17 @@
+# Monthly read-back of part of the backed-up data, in both repositories
+# (infra/scripts/backup-verify.sh). A failure sends an alert.
+[Unit]
+Description=LifeOS backup data check (restic check --read-data-subset)
+Documentation=file:///opt/lifeos/docs/exploitation.md
+Wants=network-online.target
+After=network-online.target
+OnFailure=lifeos-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/lifeos/backup.env
+WorkingDirectory=/opt/lifeos/infra
+ExecStart=/opt/lifeos/infra/scripts/backup-verify.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=12h

@@ -30,10 +30,14 @@ const FAILURES: Record<string, string> = {
   too_long: "L'enregistrement dépasse la durée maximale.",
   unreadable: "L'enregistrement est illisible. Réessayez.",
   unsupported_type: "Ce format audio n'est pas pris en charge.",
+  unsupported_codec: "Ce format audio n'est pas pris en charge.",
   too_large: "L'enregistrement est trop volumineux.",
+  too_slow: "La lecture de l'enregistrement a pris trop de temps. Réessayez.",
+  transcription_crashed: "La transcription a échoué plusieurs fois de suite sur cet enregistrement.",
   original_purged: "L'enregistrement a expiré avant d'être transcrit.",
   original_unreadable: "L'enregistrement n'a pas pu être relu sur le serveur.",
   processing_error: "La transcription a échoué. Réessayez.",
+  cancelled: "La transcription a été annulée.",
 };
 
 const WAITING: Record<string, string> = {
@@ -48,6 +52,34 @@ export function dictationStatusText(dictation: Pick<Dictation, "status" | "error
   const waiting = dictation.error ? WAITING[dictation.error] : undefined;
   if (waiting) return waiting;
   return dictation.status === "processing" ? "Transcription en cours sur le serveur…" : "En attente de transcription…";
+}
+
+/** "40 %" for a transcription in progress, null when the server gives no progress. */
+export function progressLabel(progress: number | null | undefined): string | null {
+  if (progress === null || progress === undefined || !Number.isFinite(progress)) return null;
+  return `${Math.round(Math.min(1, Math.max(0, progress)) * 100)} %`;
+}
+
+/** "moins d'une minute", "environ 3 min", "environ 1 h 05" (an estimate, never precise). */
+export function formatEta(seconds: number | null | undefined): string | null {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) return "moins d'une minute";
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `environ ${minutes} min`;
+  return `environ ${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** The wait, in words: time left while transcribed, or the dictations ahead. */
+export function waitingText(
+  dictation: Pick<Dictation, "status" | "estimated_seconds" | "queue_position"> | undefined,
+): string | null {
+  if (!dictation) return null;
+  const eta = dictation.status === "processing" ? formatEta(dictation.estimated_seconds) : null;
+  if (eta) return `Temps restant estimé : ${eta}.`;
+  const ahead = dictation.status === "pending" ? (dictation.queue_position ?? 0) : 0;
+  if (ahead === 1) return "Une dictée à transcrire avant celle-ci.";
+  if (ahead > 1) return `${ahead} dictées à transcrire avant celle-ci.`;
+  return null;
 }
 
 export function isDictationDone(dictation: Pick<Dictation, "status"> | undefined): boolean {

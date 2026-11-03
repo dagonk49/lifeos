@@ -21,6 +21,8 @@ import {
   costBudgets,
   formatCount,
   formatRatio,
+  inFlightLabel,
+  marginNote,
   modelLabel,
   quotaResetLabel,
   tierDescription,
@@ -98,8 +100,9 @@ function UsageDetails({ usage }: { usage: LLMUsage }) {
   const tiersId = useId();
   const callsId = useId();
   const paid = usage.billing === "paid";
-  const quotas = tierQuotas(usage.requests_today, usage.daily_request_caps);
+  const quotas = tierQuotas(usage.requests_today, usage.daily_request_caps, usage.in_flight);
   const reset = quotaResetLabel(usage.quota_resets_at);
+  const margin = marginNote(usage);
 
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -153,10 +156,11 @@ function UsageDetails({ usage }: { usage: LLMUsage }) {
                   {modelLabel(usage.models[quota.tier])}
                 </code>
               </p>
-              <p className="text-xs text-stone-500">{tierDescription(quota.tier)}</p>
+              <p className="text-xs text-muted">{tierDescription(quota.tier)}</p>
               {paid ? (
                 <p className="text-xs text-stone-600 dark:text-stone-400">
                   {formatCount(quota.used)} requête{quota.used >= 2 ? "s" : ""} aujourd&apos;hui
+                  {quota.inFlight > 0 && `, ${inFlightLabel(quota.inFlight)}`}
                 </p>
               ) : (
                 <UsageMeter
@@ -165,16 +169,19 @@ function UsageDetails({ usage }: { usage: LLMUsage }) {
                   used={quota.used}
                   limit={quota.limit}
                   ariaLabel={`Requêtes du jour, niveau ${quota.label.toLowerCase()}`}
+                  hint={inFlightLabel(quota.inFlight) || undefined}
                 />
               )}
             </li>
           ))}
         </ul>
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           {reset && `${reset} (heure locale). `}
           {paid
             ? "En mode payant, ce sont les budgets en dollars qui limitent les appels."
-            : "Plafonds fixés par LifeOS sous le quota gratuit de Google ; seuls les appels arrivés chez le fournisseur comptent."}
+            : "Plafonds fixés par LifeOS sous le quota gratuit de Google ; seuls les appels envoyés au fournisseur comptent."}{" "}
+          Un appel réserve sa part avant de partir : les appels en cours comptent déjà.
+          {margin && ` ${margin}`}
         </p>
       </section>
 

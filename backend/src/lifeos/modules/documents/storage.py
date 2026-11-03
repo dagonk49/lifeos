@@ -2,23 +2,19 @@
 
 Each file is encrypted with AES-256-GCM under a key held in a Docker secret, separate
 from the data and from the backups. Layout: `<documents_dir>/<user>/<document>.bin`.
-The file format is: magic `LOS1` | key id (1 byte) | nonce (12 bytes) | ciphertext+tag.
-The document id is bound as associated data: a file copied onto another document's
-path does not decrypt.
+The file format is the one of `lifeos.core.crypto`: magic `LOS1` | key id (1 byte) |
+nonce (12 bytes) | ciphertext+tag, always under key id 1. The document id is bound as
+associated data: a file copied onto another document's path does not decrypt.
 """
 
-import base64
 import os
 import uuid
 from pathlib import Path
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from lifeos.config import Settings
+from lifeos.core import crypto
 
-MAGIC = b"LOS1"
 KEY_ID = 1
-NONCE_BYTES = 12
 
 
 class StorageError(Exception):
@@ -30,16 +26,10 @@ class OriginalMissingError(StorageError):
 
 
 def _key(settings: Settings) -> bytes:
-    secret = settings.documents_key.get_secret_value().strip() if settings.documents_key else ""
-    if not secret:
-        raise StorageError("documents key not configured")
     try:
-        key = base64.b64decode(secret, validate=True)
-    except ValueError as exc:
-        raise StorageError("documents key is not valid base64") from exc
-    if len(key) != 32:
-        raise StorageError("documents key must be 32 bytes (AES-256)")
-    return key
+        return crypto.load_key(settings.documents_key, "documents key")
+    except crypto.CryptoError as exc:
+        raise StorageError(str(exc)) from exc
 
 
 class DocumentStore:
@@ -66,15 +56,13 @@ class DocumentStore:
         return f"{user_id}/{document_id}.bin"
 
     def write(self, storage_key: str, document_id: uuid.UUID, data: bytes) -> None:
-        aead = AESGCM(_key(self._settings))
-        nonce = os.urandom(NONCE_BYTES)
-        sealed = aead.encrypt(nonce, data, document_id.bytes)
+        sealed = crypto.seal(_key(self._settings), KEY_ID, data, document_id.bytes)
         path = self._path(storage_key)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Atomic replace: a crash never leaves a truncated original behind.
         tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
         with tmp.open("wb") as handle:
-            handle.write(MAGIC + bytes([KEY_ID]) + nonce + sealed)
+            handle.write(sealed)
             handle.flush()
             os.fsync(handle.fileno())
         tmp.replace(path)
@@ -84,13 +72,15 @@ class DocumentStore:
             blob = self._path(storage_key).read_bytes()
         except FileNotFoundError as exc:
             raise OriginalMissingError("original not found") from exc
-        header = len(MAGIC) + 1 + NONCE_BYTES
-        if len(blob) < header or not blob.startswith(MAGIC) or blob[len(MAGIC)] != KEY_ID:
-            raise StorageError("unknown file format")
-        nonce = blob[len(MAGIC) + 1 : header]
         try:
-            return AESGCM(_key(self._settings)).decrypt(nonce, blob[header:], document_id.bytes)
-        except Exception as exc:  # InvalidTag: wrong key, tampering, or wrong document
+            key_id = crypto.key_id_of(blob)
+        except crypto.CryptoError as exc:
+            raise StorageError("unknown file format") from exc
+        if key_id != KEY_ID:
+            raise StorageError("unknown file format")
+        try:
+            return crypto.open_sealed({KEY_ID: _key(self._settings)}, blob, document_id.bytes)
+        except crypto.CryptoError as exc:  # wrong key, tampering, or wrong document
             raise StorageError("original cannot be decrypted") from exc
 
     def delete(self, storage_key: str) -> None:

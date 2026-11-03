@@ -49,7 +49,7 @@ export function ReviewNarrativeBlock({ review }: { review: Review }) {
           Lecture de l&apos;assistant
         </h3>
         {narrative && (
-          <span className="flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+          <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
             <Badge tone="violet">Rédigée par l&apos;IA</Badge>
             {review.model && <span>Modèle : {review.model}</span>}
           </span>

@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from lifeos.config import Settings
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
 from lifeos.modules.audit.models import AuditEvent
+from lifeos.modules.chat.models import Message
 from lifeos.modules.identity import service as identity
 from lifeos.modules.identity.models import AuthChallenge, User, UserSession
 
@@ -118,3 +119,37 @@ async def test_cli_bootstrap_and_recovery(
 
     user = await db.scalar(select(User))
     assert user is not None and user.email == "me@example.org"
+
+
+async def test_cli_run_job_runs_an_allowed_job_now(
+    capsys: pytest.CaptureFixture[str],
+    client: AsyncClient,
+    spaces: dict[str, str],
+    db: AsyncSession,
+) -> None:
+    async def cli(*args: str) -> int:
+        return await asyncio.to_thread(cli_main, list(args))
+
+    # Only the listed jobs: anything else is refused by the parser (usage error).
+    with pytest.raises(SystemExit) as refused:
+        await cli("run-job", "purge_audit_events")
+    assert refused.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+    conversation = (
+        await client.post("/v1/chat/conversations", json={"space_id": spaces["personal"]})
+    ).json()["id"]
+    await client.post(
+        f"/v1/chat/conversations/{conversation}/messages", json={"content": "message ancien"}
+    )
+    await db.execute(update(Message).values(purge_after=utcnow() - timedelta(days=1)))
+    await db.commit()
+
+    assert await cli("run-job", "purge_messages") == 0
+    assert "Job purge_messages done." in capsys.readouterr().out
+    assert await db.scalar(select(func.count()).select_from(Message)) == 0
+    event = await db.scalar(select(AuditEvent).where(AuditEvent.action == "message.purge"))
+    assert event is not None and event.details["messages"] == 1
+    # Run again: nothing left to do, still a success (jobs are idempotent).
+    assert await cli("run-job", "purge_messages") == 0
+    assert await cli("run-job", "send_reminders") == 0

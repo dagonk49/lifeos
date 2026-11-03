@@ -1,13 +1,16 @@
 """Local text extraction of the `ml` service (CI job `ml-model`: needs the `ml` extra and
 Tesseract with the French model).
 
-Documents are generated here (text rendered by Pillow, minimal PDFs written by hand):
-no binary fixture to trust, and the expected text is known.
+Documents are generated in code (`ml_samples`: text rendered by Pillow, minimal PDFs
+written by hand): no binary fixture to trust, and the expected text is known. Hostile
+files: `test_hostile_files`.
 """
 
 import base64
 import io
 import shutil
+import subprocess
+import time
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -18,17 +21,38 @@ import pytest
 pytest.importorskip("pypdfium2")
 pytest.importorskip("pillow_heif")
 
-from PIL import Image, ImageDraw, ImageFont
+from ml_samples import encode, image_pdf, render, text_pdf
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from lifeos.config import Settings
 from lifeos.ml.app import create_ml_app
-from lifeos.ml.extract import MAX_IMAGE_SIDE, ExtractFailure, extract
+from lifeos.ml.extract import (
+    MAX_IMAGE_SIDE,
+    ExtractFailure,
+    Reading,
+    _prepare_gray,
+    detect_rotation,
+    extract,
+)
 from lifeos.modules.documents.extraction import RemoteExtractor, UnreadableDocument
 from lifeos.modules.finance.receipts import parse_receipt
 
 needs_tesseract = pytest.mark.skipif(
     shutil.which("tesseract") is None, reason="needs Tesseract (tesseract-ocr-fra)"
 )
+
+
+def _has_osd() -> bool:
+    binary = shutil.which("tesseract")
+    if binary is None:
+        return False
+    listed = subprocess.run(  # noqa: S603  (the installed binary, fixed arguments)
+        [binary, "--list-langs"], capture_output=True, text=True, timeout=30, check=False
+    )
+    return "osd" in listed.stdout.split()
+
+
+needs_osd = pytest.mark.skipif(not _has_osd(), reason="needs tesseract-ocr-osd")
 # Pillow's built-in font has no accented letters.
 DEJAVU = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 
@@ -42,57 +66,6 @@ RECEIPT = [
     "TOTAL TTC             6,43",
     "CB                    6,43",
 ]
-
-
-def render(
-    lines: list[str], *, size: int = 36, width: int = 900, font_path: Path | None = None
-) -> Image.Image:
-    font = (
-        ImageFont.truetype(str(font_path), size) if font_path else ImageFont.load_default(size=size)
-    )
-    image = Image.new("RGB", (width, (size + 14) * len(lines) + 80), "white")
-    draw = ImageDraw.Draw(image)
-    for index, line in enumerate(lines):
-        draw.text((40, 40 + index * (size + 14)), line, fill="black", font=font)
-    return image
-
-
-def encode(image: Image.Image, fmt: str, **params: object) -> bytes:
-    buffer = io.BytesIO()
-    image.save(buffer, format=fmt, **params)
-    return buffer.getvalue()
-
-
-def text_pdf(pages: list[str]) -> bytes:
-    """A minimal PDF with a real text layer (Helvetica), one line per page."""
-    count = len(pages)
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids ["
-        + b" ".join(f"{4 + 2 * i} 0 R".encode() for i in range(count))
-        + f"] /Count {count} >>".encode(),
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ]
-    for index, text in enumerate(pages):
-        stream = f"BT /F1 14 Tf 72 720 Td ({text}) Tj ET".encode("latin-1")
-        objects.append(
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-            b"/Resources << /Font << /F1 3 0 R >> >> "
-            + f"/Contents {5 + 2 * index} 0 R >>".encode()
-        )
-        objects.append(f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream")
-    out = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
-    xref = len(out)
-    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
-    for offset in offsets:
-        out += f"{offset:010d} 00000 n \n".encode()
-    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n".encode()
-    out += f"startxref\n{xref}\n%%EOF\n".encode()
-    return bytes(out)
 
 
 # --- Images --------------------------------------------------------------------------------
@@ -204,6 +177,122 @@ def test_truncated_or_mislabelled_pictures_are_unreadable() -> None:
         assert error.value.status == 422
 
 
+# --- Orientation, skew and the second pass (ADR 0008) ---------------------------------------
+
+
+def _turned(image: Image.Image, angle: float) -> Image.Image:
+    return image.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True, fillcolor="white")
+
+
+def _parsed(text: str) -> None:
+    proposal = parse_receipt(text, date(2026, 10, 12))
+    assert proposal.total is not None and proposal.total.value == Decimal("6.43"), text
+    assert proposal.tx_date is not None and proposal.tx_date.value == date(2026, 10, 10), text
+    assert proposal.merchant is not None and proposal.merchant.value == "CARREFOUR MARKET", text
+
+
+@needs_tesseract
+@needs_osd
+@pytest.mark.parametrize("quarter", [90, 180, 270])
+def test_orientation_is_detected_without_exif(quarter: int) -> None:
+    # Turned counterclockwise by `quarter`: a clockwise turn of the same angle puts it back.
+    gray = _prepare_gray(render(RECEIPT).rotate(quarter, expand=True))
+    rotation, confidence = detect_rotation(gray, time.monotonic() + 60)
+    assert rotation == quarter
+    assert confidence >= 2.0
+    rotation, _ = detect_rotation(_prepare_gray(render(RECEIPT)), time.monotonic() + 60)
+    assert rotation == 0
+
+
+@needs_tesseract
+@needs_osd
+@pytest.mark.parametrize("quarter", [90, 270])
+def test_a_receipt_turned_without_exif_is_read_and_stored_upright(quarter: int) -> None:
+    upright = render(RECEIPT)
+    data = encode(upright.rotate(quarter, expand=True), "JPEG", quality=92)
+    result = extract(data, "image/jpeg", purpose="receipt", max_pages=1)
+    _parsed(result.text)
+    assert result.reading is not None and result.reading.rotation == quarter
+    assert result.sanitized is not None
+    with Image.open(io.BytesIO(result.sanitized)) as clean:
+        assert clean.size == upright.size  # the stored picture is upright too
+    # Before: nothing readable.
+    plain = extract(data, "image/jpeg", purpose="receipt", max_pages=1, improve=False)
+    assert "CARREFOUR" not in plain.text
+
+
+@needs_tesseract
+@pytest.mark.parametrize("angle", [-10, 5, 10])
+def test_a_skewed_receipt_is_straightened_for_a_second_pass(angle: int) -> None:
+    data = encode(_turned(render(RECEIPT), angle), "PNG")
+    result = extract(data, "image/png", purpose="receipt", max_pages=1)
+    _parsed(result.text)
+    assert result.reading is not None
+    assert result.reading.enhanced and result.reading.passes == 2
+    assert abs(result.reading.skew - angle) <= 0.5
+    assert result.sanitized is not None
+    with Image.open(io.BytesIO(result.sanitized)) as clean:
+        # The stored picture is never warped: only quarter turns are applied to it.
+        assert clean.size == Image.open(io.BytesIO(data)).size
+
+
+def _same_reading(data: bytes, mime: str, purpose: str) -> Reading | None:
+    """Upright, clean documents: read exactly as before preprocessing existed."""
+    before = extract(data, mime, purpose=purpose, max_pages=30, improve=False)
+    after = extract(data, mime, purpose=purpose, max_pages=30)
+    assert after.text == before.text
+    assert (after.confidence or 0.0) >= (before.confidence or 0.0)
+    assert after.sanitized == before.sanitized
+    return after.reading
+
+
+@needs_tesseract
+def test_upright_documents_read_exactly_as_before() -> None:
+    reading = _same_reading(encode(render(RECEIPT), "PNG"), "image/png", "receipt")
+    assert reading == Reading()
+    scanned = _same_reading(
+        encode(render(RECEIPT), "PDF", resolution=150), "application/pdf", "receipt"
+    )
+    assert scanned == Reading()
+    stored = render(RECEIPT).rotate(90, expand=True)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    # The EXIF tag is trusted: no orientation detection on top of it.
+    tagged = _same_reading(encode(stored, "JPEG", exif=exif, quality=95), "image/jpeg", "receipt")
+    assert tagged is not None and tagged.rotation == 0
+
+
+@needs_tesseract
+@pytest.mark.skipif(not DEJAVU.exists(), reason="needs fonts-dejavu-core")
+def test_accented_documents_read_exactly_as_before() -> None:
+    lines = ["Échéance de la facture d'électricité", "Reçu à régler avant le 15 décembre"]
+    image = render(lines, width=1100, font_path=DEJAVU)
+    assert _same_reading(encode(image, "PNG"), "image/png", "document") == Reading()
+
+
+@needs_tesseract
+def test_a_receipt_photographed_at_an_angle_is_read() -> None:
+    # Measured with `lifeos-ml bench` (synthetic corpus): Tesseract reads a receipt whose
+    # top edge is 40 % narrower than the bottom one; no perspective correction yet.
+    from lifeos.ml.bench import _perspective
+
+    result = extract(
+        encode(_perspective(render(RECEIPT), 0.4), "PNG"),
+        "image/png",
+        purpose="receipt",
+        max_pages=1,
+    )
+    _parsed(result.text)
+
+
+@needs_tesseract
+@pytest.mark.xfail(reason="a strong blur is not recovered by the unsharp mask", strict=False)
+def test_a_strongly_blurred_receipt_is_read() -> None:
+    blurred = render(RECEIPT).filter(ImageFilter.GaussianBlur(3.5))
+    result = extract(encode(blurred, "PNG"), "image/png", purpose="receipt", max_pages=1)
+    _parsed(result.text)
+
+
 # --- PDF -----------------------------------------------------------------------------------
 
 
@@ -228,6 +317,15 @@ def test_scanned_pdf_is_ocred() -> None:
     assert result.confidence is not None and result.confidence > 0.6
     proposal = parse_receipt(result.text, date(2026, 10, 12))
     assert proposal.total is not None and proposal.total.value == Decimal("6.43")
+
+
+@needs_tesseract
+@needs_osd
+def test_a_sideways_scanned_page_is_read() -> None:
+    data = encode(render(RECEIPT).rotate(270, expand=True), "PDF", resolution=150)
+    result = extract(data, "application/pdf", purpose="receipt", max_pages=30)
+    _parsed(result.text)
+    assert result.reading is not None and result.reading.rotation == 270
 
 
 def test_pdf_limits() -> None:
@@ -274,6 +372,9 @@ async def test_remote_extractor_round_trip() -> None:
         assert "CARREFOUR MARKET" in extraction.text
         assert extraction.sanitized_mime == "image/jpeg"
         assert extraction.sanitized is not None and extraction.sanitized != data
+        # How it was read travels with the text (validated by the API's parse_response).
+        assert extraction.reading is not None
+        assert (extraction.reading.rotation, extraction.reading.kept) == (0, "a")
 
         pdf = await remote.extract(
             text_pdf(["Avis d imposition 2026"]),
@@ -315,56 +416,6 @@ async def test_service_checks_type_and_size() -> None:
 
 
 # --- Hostile or huge files -----------------------------------------------------------------
-
-
-def image_pdf(width: int, height: int, mask: int = 0) -> bytes:
-    """A small PDF whose single page draws a huge image of zeros (Flate compressed), and
-    optionally a huge soft mask: kilobytes on disk, gigabytes once decoded."""
-    import zlib
-
-    def flate(w: int, h: int, channels: int) -> bytes:
-        compressor = zlib.compressobj(9)
-        row = b"\x00" * (w * channels)
-        return b"".join(compressor.compress(row) for _ in range(h)) + compressor.flush()
-
-    smask = b" /SMask 6 0 R" if mask else b""
-    picture = flate(width, height, 3)
-    content = b"q 612 0 0 792 0 0 cm /Im0 Do Q"
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
-        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
-        b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB "
-        b"/BitsPerComponent 8%s /Filter /FlateDecode /Length %d >>\nstream\n"
-        % (width, height, smask, len(picture))
-        + picture
-        + b"\nendstream",
-    ]
-    if mask:
-        alpha = flate(mask, mask, 1)
-        objects.append(
-            b"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray "
-            b"/BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n"
-            % (mask, mask, len(alpha))
-            + alpha
-            + b"\nendstream"
-        )
-    out = bytearray(b"%PDF-1.7\n")
-    offsets = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(out))
-        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
-    xref = len(out)
-    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
-    for offset in offsets:
-        out += b"%010d 00000 n \n" % offset
-    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
-        len(objects) + 1,
-        xref,
-    )
-    return bytes(out)
 
 
 def test_huge_image_inside_a_pdf_is_refused_before_rendering() -> None:

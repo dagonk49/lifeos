@@ -1,9 +1,16 @@
 """File type detection by signature (allowlist), never by name or declared type.
 
 Only formats LifeOS can process safely are accepted; everything else (executables,
-archives, HTML/SVG, Office macros...) is refused before being stored.
+archives, HTML/SVG, Office macros...) is refused before being stored. The type found here
+also imposes the decoder (`ml`, `stt`): a file is never parsed as another format.
+
+A polyglot (a valid PDF or JPEG that is also something else further on) keeps the type of
+its signature: images are re-encoded from their pixels, and originals are only ever served
+as downloads (`nosniff`, `CSP sandbox`), so the other reading is never used (ADR 0011).
 """
 
+import re
+import unicodedata
 from dataclasses import dataclass
 
 
@@ -21,7 +28,26 @@ def _ftyp_brand(data: bytes) -> bytes | None:
 
 
 _HEIF_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"}
+# Generic brands too (browsers record into them): a video is accepted as such, but only
+# its audio track is ever decoded, with an allowed audio codec (`lifeos.stt.engine`).
 _MP4_AUDIO_BRANDS = {b"M4A ", b"M4B ", b"mp42", b"isom", b"iso5", b"iso6", b"dash", b"mp41"}
+# A "text" that opens as a web page, a script, an SVG picture or XML (after a byte order
+# mark, spaces and HTML comments) is refused. Common fragments stay text: a Markdown note
+# often opens with `<!-- markdownlint-disable -->`, `<p align="center">`, `<h1>` or `<b>`,
+# and an original is only ever served as a `text/plain` download (`nosniff`, `CSP sandbox`):
+# no browser renders it either way.
+_MARKUP = re.compile(
+    r"<(?:!doctype|\?xml|(?:html|head|body|script|style|iframe|object|embed|svg|math)"
+    r"(?=[\s/>]|$))",
+    re.IGNORECASE,
+)
+_LEADING = re.compile(r"(?:[\ufeff \t\n\r\f\v]+|<!--.*?(?:-->|\Z))*", re.DOTALL)
+
+
+def opens_as_markup(text: str) -> bool:
+    """True when the text opens (after a BOM, spaces and comments) as HTML, SVG or XML."""
+    leading = _LEADING.match(text)
+    return bool(_MARKUP.match(text, leading.end() if leading else 0))
 
 
 def _looks_like_text(data: bytes) -> bool:
@@ -35,11 +61,16 @@ def _looks_like_text(data: bytes) -> bool:
         if exc.start < len(sample) - 4:
             return False
         text = sample[: exc.start].decode("utf-8")
-    lowered = text.lstrip().lower()
-    # Markup could be rendered by a browser: refused as "text".
-    if lowered.startswith(("<!doctype", "<html", "<svg", "<?xml", "<script")):
+    # A byte order mark (Windows editors) is not content.
+    text = text.removeprefix("\ufeff")
+    # A web page, a script or XML is refused as "text". (Further in, markup stays text:
+    # browsers only sniff the start, and originals are served as `text/plain` downloads.)
+    if opens_as_markup(text):
         return False
-    printable = sum(1 for c in text if c.isprintable() or c in "\n\r\t")
+    # Spaces of French typography (non-breaking U+00A0, narrow U+202F...) are text too.
+    printable = sum(
+        1 for c in text if c.isprintable() or c in "\n\r\t" or unicodedata.category(c) == "Zs"
+    )
     return not text or printable / len(text) > 0.97
 
 

@@ -232,7 +232,11 @@ async def test_free_billing_enforces_local_daily_caps_per_tier(
     settings: Settings,
 ) -> None:
     capped = settings.model_copy(
-        update={"llm_daily_requests_fast": 2, "llm_daily_requests_deep": 1}
+        update={
+            "llm_daily_requests_fast": 2,
+            "llm_daily_requests_deep": 1,
+            "llm_quota_margin_requests": 0,
+        }
     )
     ctx, space = await _ctx(database, db, owner, fake_llm, capped)
     await gateway.complete(ctx, space_id=space, request=_chat())
@@ -264,21 +268,31 @@ async def test_paid_billing_estimates_cost_and_stops_at_the_budget(
     paid = settings.model_copy(
         update={
             "llm_billing": "paid",
-            "llm_price_input_fast": 1_000.0,  # absurd prices to reach the cap quickly
-            "llm_price_output_fast": 1_000.0,
-            "llm_daily_budget_usd": 0.001,
+            "llm_price_input_fast": 100.0,  # absurd prices to reach the cap quickly
+            "llm_price_output_fast": 100.0,
+            "llm_reserve_output_tokens_fast": 1000,
+            "llm_daily_budget_usd": 0.25,  # 0.2375 once the 5 % margin is kept aside
         }
     )
     ctx, space = await _ctx(database, db, owner, fake_llm, paid)
+    fake_llm.responder = lambda _: "x" * 4000  # 1000 output tokens per answer
     await gateway.complete(ctx, space_id=space, request=_chat())
-    call = await db.scalar(select(LLMCall))
-    assert call is not None and call.cost_usd > Decimal("0.001")
+    await gateway.complete(ctx, space_id=space, request=_chat())
+    calls = list(await db.scalars(select(LLMCall).order_by(LLMCall.created_at)))
+    # Reserved: 19 estimated input tokens + 1000 output tokens; real: 1 + 1000.
+    assert [(c.reserved_cost_usd, c.cost_usd) for c in calls] == 2 * [
+        (Decimal("0.101900"), Decimal("0.100100"))
+    ]
+    # 0.2002 spent: the next call's reservation (0.1019) would cross 0.2375, although the
+    # budget itself (0.25) is not reached yet.
     with pytest.raises(ProblemError) as exc:
         await gateway.complete(ctx, space_id=space, request=_chat())
     assert exc.value.code == "llm_budget_exceeded"
+    assert len(fake_llm.requests) == 2
     summary = await gateway.usage_summary(ctx)
     assert summary["billing"] == "paid"
-    assert Decimal(summary["cost_today_usd"]) == call.cost_usd
+    assert Decimal(summary["cost_today_usd"]) == Decimal("0.200200")
+    assert summary["daily_budget_usd"] == 0.2375 and summary["budget_margin_ratio"] == 0.05
 
 
 def test_cost_estimate() -> None:
@@ -306,7 +320,10 @@ async def test_emergency_stop(
     assert fake_llm.requests == []
     usage = (await client.get("/v1/guardian/llm-usage")).json()
     assert usage["paused"] is True and usage["billing"] == "free"
-    assert usage["daily_request_caps"] == {"fast": 400, "deep": 15}
+    # Enforced caps: the configured 400 / 15 minus the default margin of 2 requests.
+    assert usage["daily_request_caps"] == {"fast": 398, "deep": 13}
+    assert usage["daily_request_margin"] == 2
+    assert usage["in_flight"] == {"fast": 0, "deep": 0}
 
     await client.patch("/v1/settings", json={"llm_paused": False})
     resumed = (

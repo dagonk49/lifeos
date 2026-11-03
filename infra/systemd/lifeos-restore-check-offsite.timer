@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly LifeOS restore test from the off-site copy
+
+[Timer]
+OnCalendar=*-*-01 05:30:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

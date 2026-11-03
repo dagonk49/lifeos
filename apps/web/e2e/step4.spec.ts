@@ -1,11 +1,7 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import type { Page } from "@playwright/test";
 
-import { expect, test, type Page } from "@playwright/test";
-
-import { backendEnv } from "../playwright.config";
-
-const backend = join(import.meta.dirname, "..", "..", "..", "backend");
+import { expect, test } from "./fixtures";
+import { addVirtualAuthenticator, enrollmentToken, nav } from "./helpers";
 
 const RECEIPT = `CARREFOUR MARKET
 12 rue de la Paix
@@ -19,37 +15,6 @@ const RIB = `RELEVÉ D'IDENTITÉ BANCAIRE
 Titulaire : Camille Martin
 IBAN : FR76 3000 6000 0112 3456 7890 189
 BIC : AGRIFRPP`;
-
-/** A fresh enrollment link for the owner (earlier journeys used the previous ones). */
-function enrollmentToken(): string {
-  const output = execFileSync(
-    "uv",
-    ["run", "--directory", backend, "lifeos-admin", "enrollment-token", "--email", "e2e@example.org"],
-    { env: { ...process.env, ...backendEnv }, encoding: "utf8" },
-  );
-  const token = /enroll#token=(\S+)/.exec(output)?.[1];
-  if (!token) throw new Error(`no enrollment token in CLI output:\n${output}`);
-  return token;
-}
-
-async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-async function nav(page: Page, name: string): Promise<void> {
-  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name }).click();
-}
 
 async function uploadText(page: Page, name: string, text: string, purpose: "Document" | "Ticket de caisse") {
   await page.getByLabel("Fichier", { exact: true }).setInputFiles({
@@ -67,7 +32,7 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E étape 4");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // UC02: a receipt is read locally (worker), checked, then added to the budget.
   await nav(page, "Documents");
@@ -90,6 +55,9 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   const rib = page.getByRole("region", { name: "rib" });
   await expect(rib.getByText("Banque", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   await expect(rib.getByText(/jamais envoyé à l'assistant IA/).first()).toBeVisible();
+  // « Toujours garder en local »: the owner's own refusal, on top of the detection.
+  await rib.getByRole("checkbox", { name: "Toujours garder en local" }).check();
+  await expect(rib.getByText("Gardé en local", { exact: true })).toBeVisible();
 
   await nav(page, "Assistant");
   const chooser = page.waitForEvent("filechooser");
@@ -99,6 +67,15 @@ test("Step 4 journey: receipt to budget, sensitive document kept local, dictated
   await expect(attachments.getByText(/Document sensible \(banque\) : jamais envoyé à l'IA/)).toBeVisible({
     timeout: 30_000,
   });
+  // The control before sending: the sensitive attachment stays on the server, and the
+  // message goes without it once confirmed.
+  await page.getByLabel("Votre message").fill("Peux-tu vérifier ce RIB ?");
+  await page.getByRole("button", { name: "Envoyer", exact: true }).click();
+  const review = page.getByRole("region", { name: "Avant l'envoi à l'assistant IA" });
+  await expect(review).toContainText("« rib-chat » : reste sur votre serveur (document sensible (banque))");
+  await review.getByRole("button", { name: "Confirmer l'envoi" }).click();
+  await expect(page.getByRole("list", { name: "Messages" }).getByText("[fake] Peux-tu vérifier ce RIB ?")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Pièces jointes envoyées" })).toHaveCount(0);
 
   // UC01: the day is dictated, transcribed on the server, reviewed, then saved.
   await nav(page, "Journal");

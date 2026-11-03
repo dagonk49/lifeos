@@ -1,0 +1,47 @@
+{{/*
+  Notification texts of LifeOS (Alertmanager, docs/exploitation.md §5). Made of the title,
+  summary and action annotations of infra/prometheus/alerts.yml only, which hold fixed French
+  sentences and label values: never personal data. Neither the labels nor the links to
+  Prometheus are sent.
+*/}}
+
+{{ define "lifeos.title" -}}
+LifeOS : {{ if eq .Status "resolved" }}résolu, {{ end }}{{ or .CommonAnnotations.title .CommonLabels.alertname }}
+{{- end }}
+
+{{ define "lifeos.message" -}}
+{{ range .Alerts.Firing }}{{ .Annotations.summary }}
+{{ end }}{{ range .Alerts.Resolved }}Résolu : {{ .Annotations.summary }}
+{{ end }}{{ if .Alerts.Firing }}{{ with .CommonAnnotations.action }}Que faire : {{ . }}{{ end }}{{ end }}
+{{- end }}
+
+{{/*
+  The *.ntfy variants fill the JSON payload of the ntfy webhook
+  (infra/scripts/install-monitoring.sh). Alertmanager parses each rendered value as YAML: it
+  keeps the text as it is when that gives a string, and sends the parsed value otherwise, so a
+  French « : » would turn the text into a mapping. lifeos.plain puts a no-break space after
+  every colon (the reader sees no difference): the text is never a YAML mapping, and our
+  texts never start with a YAML indicator (« - », « [ », « { ») nor are a number.
+*/}}
+{{ define "lifeos.plain" -}}
+{{ reReplaceAll ":(\n|$)" ": $1" (reReplaceAll ": " ": " .) }}
+{{- end }}
+
+{{ define "lifeos.title.ntfy" -}}
+{{- $title := or .CommonAnnotations.title .CommonLabels.alertname -}}
+{{- if eq .Status "resolved" }}{{ $title = printf "résolu, %s" $title }}{{ end -}}
+{{- template "lifeos.plain" (printf "LifeOS : %s" $title) -}}
+{{- end }}
+
+{{ define "lifeos.message.ntfy" -}}
+{{- $text := "" -}}
+{{- range .Alerts.Firing }}{{ $text = printf "%s%s\n" $text .Annotations.summary }}{{ end -}}
+{{- range .Alerts.Resolved }}{{ $text = printf "%sRésolu : %s\n" $text .Annotations.summary }}{{ end -}}
+{{- if .Alerts.Firing }}{{ with .CommonAnnotations.action }}{{ $text = printf "%sQue faire : %s" $text . }}{{ end }}{{ end -}}
+{{- template "lifeos.plain" $text -}}
+{{- end }}
+
+{{/* ntfy priorities: 5 urgent (critical), 4 high (warning), 2 low (resolved). */}}
+{{ define "lifeos.priority" -}}
+{{ if eq .Status "resolved" }}2{{ else if eq .CommonLabels.severity "critical" }}5{{ else }}4{{ end }}
+{{- end }}

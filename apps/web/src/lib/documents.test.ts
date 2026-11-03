@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
 import {
   buildUploadForm,
+  canDownloadOriginal,
   canEditText,
   detailPollInterval,
   documentPath,
@@ -72,6 +73,11 @@ describe("polling", () => {
     expect(canEditText("pending")).toBe(false);
     expect(canEditText("processing")).toBe(false);
   });
+
+  it("offers a picture's original only once it was re-encoded", () => {
+    expect(canDownloadOriginal({ original_downloadable: true })).toBe(true);
+    expect(canDownloadOriginal({ original_downloadable: false })).toBe(false);
+  });
 });
 
 describe("status and error explanations", () => {
@@ -86,6 +92,7 @@ describe("status and error explanations", () => {
     expect(errorExplanation("original_purged")).toMatch(/plus conservé/);
     expect(errorExplanation("original_unreadable")).toMatch(/déchiffré/);
     expect(errorExplanation("processing_error")).toMatch(/inattendue/);
+    expect(errorExplanation("extraction_crashed")).toMatch(/plusieurs fois de suite/);
     expect(errorExplanation("extraction_unavailable")).toMatch(/^Lecture locale indisponible.*nouvel essai automatique/);
     expect(errorExplanation("documents_unavailable")).toMatch(/stockage/);
     expect(errorExplanation("ocr_unavailable")).toMatch(/OCR/);

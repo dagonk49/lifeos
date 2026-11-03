@@ -14,6 +14,7 @@ const TONES = {
   postponed: "amber",
   ready: "teal",
   sensitive: "red",
+  local: "red",
   unreadable: "amber",
   unavailable: "amber",
 } as const;
@@ -102,6 +103,9 @@ export function ChatAttachments({
           id={inputId}
           type="file"
           className="sr-only"
+          // Opened by the « Joindre un document » button: kept out of the tab order, but named.
+          tabIndex={-1}
+          aria-label="Document à joindre"
           accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,.heic,text/plain"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -118,7 +122,7 @@ export function ChatAttachments({
         >
           {add.isPending ? "Envoi du document…" : "Joindre un document"}
         </Button>
-        <span className="text-xs text-stone-500">
+        <span className="text-xs text-muted">
           Lu sur votre serveur ; seul le texte non sensible accompagne le message.
         </span>
       </div>

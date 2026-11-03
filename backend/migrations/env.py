@@ -2,7 +2,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import URL, Connection, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from lifeos.config import get_settings
@@ -16,9 +16,15 @@ if config.config_file_name is not None and config.attributes.get("configure_logg
 target_metadata = Base.metadata
 
 
+def database_url() -> URL:
+    """The database given by the caller (tests: another database), else the settings' one."""
+    given = config.attributes.get("database_url")
+    return make_url(given) if given is not None else get_settings().database_url
+
+
 def run_migrations_offline() -> None:
     context.configure(
-        url=get_settings().database_url.render_as_string(hide_password=False),
+        url=database_url().render_as_string(hide_password=False),
         target_metadata=target_metadata,
         literal_binds=True,
         compare_type=True,
@@ -34,7 +40,7 @@ def _run(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_async_engine(database_url())
     async with engine.connect() as connection:
         await connection.run_sync(_run)
     await engine.dispose()

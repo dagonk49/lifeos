@@ -88,6 +88,13 @@ describe("GoalDetailPanel", () => {
     expect(patch?.body).toEqual({ status: "paused" });
   });
 
+  it("opens the assistant about this goal", async () => {
+    mockApi();
+    renderPanel();
+    const link = await screen.findByRole("link", { name: "Discuter de cet objectif" });
+    expect(link.getAttribute("href")).toBe("/chat?about=goal:g1");
+  });
+
   it("records a check-in typed with a French decimal comma", async () => {
     const calls = mockApi();
     renderPanel();

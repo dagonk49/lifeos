@@ -44,7 +44,7 @@ function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: 
     <div className="rounded-md bg-stone-50 px-3 py-2 dark:bg-stone-800/60">
       <dt className="text-xs text-stone-600 dark:text-stone-400">{label}</dt>
       <dd className="text-lg font-semibold tabular-nums">{value}</dd>
-      {hint && <dd className="text-xs text-stone-500">{hint}</dd>}
+      {hint && <dd className="text-xs text-muted">{hint}</dd>}
     </div>
   );
 }
@@ -66,7 +66,7 @@ function TitleList({ title, items, total }: { title: string; items: string[]; to
           </li>
         ))}
       </ul>
-      {more && <p className="mt-0.5 text-xs text-stone-500">… {more}</p>}
+      {more && <p className="mt-0.5 text-xs text-muted">… {more}</p>}
     </div>
   );
 }
@@ -85,13 +85,13 @@ function FactSection({ title, children }: { title: string; children: ReactNode }
 
 /** Renders any JSON value readably (sections or fields this page does not know yet). */
 function GenericValue({ value, depth = 0 }: { value: unknown; depth?: number }): ReactNode {
-  if (value === null || value === undefined || value === "") return <span className="text-stone-500">—</span>;
+  if (value === null || value === undefined || value === "") return <span className="text-muted">—</span>;
   if (typeof value === "boolean") return value ? "Oui" : "Non";
   if (typeof value === "number") return formatDecimal(value) || String(value);
   if (typeof value === "string") return <span className="break-words">{value}</span>;
   if (depth > 3) return <code className="break-all text-xs">{JSON.stringify(value)}</code>;
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-stone-500">Aucun élément</span>;
+    if (value.length === 0) return <span className="text-muted">Aucun élément</span>;
     return (
       <ul className="list-disc space-y-0.5 pl-5">
         {value.map((item, i) => (
@@ -221,7 +221,7 @@ function GoalFacts({ goal }: { goal: Record<string, unknown> }) {
 
 function GoalsFacts({ value }: { value: unknown }) {
   if (!Array.isArray(value)) return <GenericValue value={value} />;
-  if (value.length === 0) return <p className="text-sm text-stone-500">Aucun objectif actif dans cet espace.</p>;
+  if (value.length === 0) return <p className="text-sm text-muted">Aucun objectif actif dans cet espace.</p>;
   return (
     <ul className="flex flex-col gap-2">
       {value.map((goal, i) => {
@@ -309,7 +309,7 @@ export function ReviewFactsBlock({ facts, generatedBy }: { facts: ReviewFacts; g
           Faits (calculés localement, sans IA)
         </h3>
         {period?.computed_at && (
-          <span className="text-xs text-stone-500">Calculés le {formatDateTime(period.computed_at)}</span>
+          <span className="text-xs text-muted">Calculés le {formatDateTime(period.computed_at)}</span>
         )}
       </header>
 
@@ -333,7 +333,7 @@ export function ReviewFactsBlock({ facts, generatedBy }: { facts: ReviewFacts; g
             <GenericValue value={facts[key]} />
           </FactSection>
         ))}
-        {empty && <p className="text-sm text-stone-500">Aucune donnée n&apos;a pu être calculée pour cette période.</p>}
+        {empty && <p className="text-sm text-muted">Aucune donnée n&apos;a pu être calculée pour cette période.</p>}
       </div>
 
       {omitted.length > 0 && (

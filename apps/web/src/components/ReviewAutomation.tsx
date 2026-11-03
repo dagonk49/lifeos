@@ -96,7 +96,7 @@ export function ReviewAutomationCard({ spaceId, spaceName }: { spaceId: string; 
                   </li>
                 ))}
               </ul>
-              <p className="mt-1 text-xs text-stone-500">
+              <p className="mt-1 text-xs text-muted">
                 Une notification vous prévient quand un bilan automatique est prêt.
               </p>
             </div>

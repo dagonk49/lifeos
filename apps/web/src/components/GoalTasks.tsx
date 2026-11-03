@@ -3,10 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Alert, Badge, Button, Empty, Input, Spinner } from "@/components/ui";
+import { Alert, Badge, Button, CheckboxTarget, Empty, Field, Input, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDateTime, STATUS_LABELS } from "@/lib/format";
 import { goalKeys, isOpenGoal, sortGoalTasks } from "@/lib/goals";
+import { blockedHint } from "@/lib/tasks";
 import type { GoalDetail, Page, Task } from "@/lib/types";
 
 /** Tasks linked to a goal (`GET /v1/tasks?goal_id=`), with a quick way to add one. */
@@ -63,26 +64,39 @@ export function GoalTasks({ goal }: { goal: GoalDetail }) {
             const done = t.status === "done";
             const cancelled = t.status === "cancelled";
             const overdue = !done && !cancelled && t.due_at !== null && new Date(t.due_at) < new Date();
+            // Waiting for an open task: the API refuses to finish it (409 task_blocked).
+            const blocked = t.blocked && !done;
+            const hintId = `goal-task-${t.id}-blocked`;
             return (
               <li key={t.id} className="flex items-start gap-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 shrink-0 accent-teal-700"
-                  checked={done}
-                  disabled={cancelled || (toggle.isPending && toggle.variables?.id === t.id)}
-                  onChange={() => toggle.mutate(t)}
-                  aria-label={done ? `Rouvrir « ${t.title} »` : `Terminer « ${t.title} »`}
-                />
+                <CheckboxTarget>
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-teal-700 disabled:cursor-not-allowed"
+                    checked={done}
+                    disabled={cancelled || blocked || (toggle.isPending && toggle.variables?.id === t.id)}
+                    onChange={() => toggle.mutate(t)}
+                    aria-label={done ? `Rouvrir « ${t.title} »` : `Terminer « ${t.title} »`}
+                    aria-describedby={blocked ? hintId : undefined}
+                  />
+                </CheckboxTarget>
                 <div className="min-w-0 flex-1">
-                  <p className={done || cancelled ? "text-stone-500 line-through" : undefined}>{t.title}</p>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+                  <p className={done || cancelled ? "text-muted line-through" : undefined}>{t.title}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                     {t.status !== "todo" && <Badge tone={done ? "teal" : "neutral"}>{STATUS_LABELS[t.status]}</Badge>}
+                    {/* Overdue in words, not only in red (WCAG 1.4.1). */}
+                    {overdue && <Badge tone="red">En retard</Badge>}
                     {t.due_at && !done && !cancelled && (
                       <span className={overdue ? "font-medium text-red-700 dark:text-red-400" : undefined}>
                         Échéance {formatDateTime(t.due_at)}
                       </span>
                     )}
                   </div>
+                  {blocked && (
+                    <p id={hintId} className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+                      {blockedHint(t.blocked_by)}
+                    </p>
+                  )}
                 </div>
               </li>
             );
@@ -97,14 +111,15 @@ export function GoalTasks({ goal }: { goal: GoalDetail }) {
             if (title.trim()) add.mutate();
           }}
         >
-          <Input
-            aria-label="Nouvelle tâche liée à l'objectif"
-            placeholder="Nouvelle tâche liée"
-            value={title}
-            maxLength={300}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <Button type="submit" variant="secondary" disabled={add.isPending || !title.trim()}>
+          <Field label="Nouvelle tâche liée à l'objectif" className="flex-1">
+            <Input value={title} maxLength={300} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Button
+            type="submit"
+            variant="secondary"
+            className="sm:self-end"
+            disabled={add.isPending || !title.trim()}
+          >
             Ajouter
           </Button>
         </form>

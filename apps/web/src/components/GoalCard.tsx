@@ -96,7 +96,7 @@ export function GoalCard({
           <h3 className="min-w-0 font-semibold break-words">{goal.title}</h3>
           <GoalStatusBadge status={goal.status} />
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
           <Badge>{GOAL_KIND_LABELS[goal.kind]}</Badge>
           {spaceLabel && <Badge>{spaceLabel}</Badge>}
           <GoalDue goal={goal} today={today} />
@@ -104,7 +104,7 @@ export function GoalCard({
         <div className="mt-3">
           <GoalProgressBar goal={goal} decorative />
         </div>
-        <p className="mt-2 text-xs text-stone-500">{tasksLabel(goal.progress.tasks_open, goal.progress.tasks_done)}</p>
+        <p className="mt-2 text-xs text-muted">{tasksLabel(goal.progress.tasks_open, goal.progress.tasks_done)}</p>
       </Link>
     </li>
   );

@@ -45,6 +45,25 @@ chat (F01). Les contraintes sont les suivantes :
    - **Images** : le décodeur est imposé par la signature. La taille est contrôlée sur
      l'en-tête avant tout décodage (50 Mpx au plus, garde contre les bombes de
      décompression). L'orientation EXIF est appliquée.
+   - **Photos difficiles (tâche 29).** Une première lecture se fait telle quelle, exactement
+     comme avant. Ensuite seulement :
+     - si elle est mauvaise (confiance moyenne sous 0,75) et que l'image n'a pas d'orientation
+       EXIF (capture d'écran, scan, téléphone qui ne l'écrit pas), la détection
+       d'orientation de Tesseract (OSD) propose un quart de tour. L'image tournée est relue,
+       et gardée seulement si elle se lit nettement mieux. L'image conservée est alors
+       tournée elle aussi, par quarts de tour exacts uniquement ;
+     - si les lignes penchent de 4° ou plus, ou si la lecture reste mauvaise, une seconde
+       lecture se fait sur une copie nettoyée (Pillow et numpy) : éclairage égalisé
+       (division par le fond estimé), contraste étiré, netteté renforcée si l'image est
+       floue (variance du laplacien), puis redressement de l'inclinaison mesurée par
+       profils de projection (±15°). Elle est gardée si sa confiance est nettement
+       meilleure ; pour une page inclinée, si elle n'est pas nettement moins bonne.
+       L'image conservée n'est jamais déformée ;
+     - chaque passe supplémentaire demande deux fois le temps de la première encore
+       disponible : elle ne fait jamais échouer en `too_slow` un document lisible à temps.
+     - Ce qui a été fait (quart de tour, redressement, passe gardée) est renvoyé à l'API
+       (`preprocessing`) et conservé dans `Document.analysis["reading"]`, sans contenu.
+     - Les pages scannées des PDF suivent la même règle.
    - **Ré-encodage des images.** L'image est ré-encodée à partir des seuls pixels :
      EXIF, GPS, XMP, ICC et commentaires disparaissent. Le résultat (4 096 px au plus,
      HEIC converti en JPEG) **remplace** le fichier envoyé. Une image illisible ne peut pas
@@ -60,7 +79,9 @@ chat (F01). Les contraintes sont les suivantes :
    - **Chaque extraction tourne dans un processus enfant à mémoire bornée** (1,25 Gio par
      défaut, `LIFEOS_EXTRACTION_MEMORY_MB`). Un fichier hostile, par exemple une image
      énorme décrite en quelques kilo-octets dans un PDF, échoue au lieu d'épuiser le
-     service, qui porte aussi le modèle d'embeddings.
+     service, qui porte aussi le modèle d'embeddings. Le confinement (groupe de
+     processus, choix du noyau en cas de manque de mémoire, pas de fichier `core`) est
+     décrit dans l'[ADR 0011](0011-antivirus-et-fichiers-hostiles.md).
      - Les images trop grandes d'un PDF sont refusées avant le rendu.
      - Les grandes photos JPEG sont décodées à échelle réduite.
    - Un document sur lequel le service plante trois fois de suite échoue définitivement
@@ -115,13 +136,20 @@ chat (F01). Les contraintes sont les suivantes :
     - originaux servis en téléchargement avec `nosniff` et `CSP sandbox`, jamais affichés
       en ligne ni exécutés.
   - À reconsidérer avec les connecteurs e-mail (étape 5), dont les fichiers viennent de
-    tiers.
+    tiers : critères, décision et conception en cas d'import de fichiers de tiers dans
+    l'[ADR 0011](0011-antivirus-et-fichiers-hostiles.md).
 - **OCR par Gemini (vision).** Plus robuste sur les photos difficiles, mais il enverrait
   l'image entière au cloud, y compris les documents sensibles avant toute détection. Il
   consommerait aussi le quota gratuit. Il pourra devenir une option explicite par document
   non sensible.
 - **PaddleOCR ou docTR.** Meilleurs sur certaines mises en page, mais ils demandent PyTorch
   ou Paddle (plusieurs Go) : disproportionné ici.
+- **OpenCV pour le redressement de perspective (tâche 29).** Un détecteur de contour du
+  ticket puis une transformation à 4 points corrigeraient les photos prises de biais, au
+  prix d'une dépendance native de plus (`opencv-python-headless`, ≈ 60 Mo, un décodeur
+  d'images de plus à tenir à l'écart des fichiers non fiables). Sur le corpus synthétique,
+  Tesseract lit déjà un ticket dont le haut est 40 % plus étroit que le bas : écarté tant
+  que `lifeos-ml bench` sur de vraies photos ne montre pas d'échecs dus à la perspective.
 - **MinIO.** Un volume chiffré au niveau applicatif suffit pour un seul utilisateur (le
   cadrage dit « commencer simple »).
 
@@ -136,3 +164,31 @@ chat (F01). Les contraintes sont les suivantes :
   conservée à part, ils sont illisibles.
 - La qualité de l'OCR sur les photos de travers ou mal éclairées reste limitée (pas de
   redressement de perspective) : l'interface montre la confiance et permet la correction.
+- **Tâche 29 : mesures.** `lifeos-ml bench` (voir [exploitation](../exploitation.md) §8)
+  compare la lecture simple et la lecture améliorée sur un corpus annoté. Sur le corpus
+  synthétique (`--synthetic`, 18 tickets : droit, inclinés de ±2, ±5 et ±10°, tournés de
+  90, 180 et 270° sans EXIF, perspective, flou, éclairage inégal, JPEG très compressé),
+  machine de développement à 4 cœurs :
+
+  | | Lecture simple | Lecture améliorée |
+  |---|---|---|
+  | Champs justes (total, date, marchand) | 57,4 % | 92,6 % |
+  | Total juste | 55,6 % | 94,4 % |
+  | CER | 39,5 % | 4,9 % |
+  | Confiance moyenne | 0,58 | 0,89 |
+  | Temps total (18 fichiers) | 6,5 s | 14,0 s (1,3 s au plus par fichier) |
+  | Pic mémoire de l'enfant | 143 Mo | 167 Mo |
+
+  Les tickets droits et nets se lisent à l'identique (même texte, aucune passe de plus). Un
+  ticket tourné ou incliné de 7 à 10° passait de illisible à entièrement lu ; à 5° avec un
+  éclairage inégal, le total était manqué et est retrouvé. Restent manqués : un flou fort
+  (rayon 3,5 px, le masque de netteté ne suffit pas) et un marchand sous éclairage très
+  inégal. Pour une photo de 12 Mpx, la lecture améliorée coûte ≈ +0,25 s sur une image
+  droite et ≈ +1,9 s sur une image inclinée (deux passes) ; pic de 324 à 405 Mo (323 à
+  378 Mo en lecture simple).
+  **Ces chiffres sont synthétiques** : les seuils (`RETRY_CONFIDENCE`, `SKEW_PREFER_DEG`,
+  `OSD_MIN_CONFIDENCE`, `MIN_GAIN`) sont à confirmer sur un corpus de vraies photos du
+  propriétaire, sur la VM i7-6700, et à reporter ici.
+- L'image `ml` embarque aussi les données d'orientation de Tesseract
+  (`tesseract-ocr-osd`, ≈ 10 Mo) ; numpy, déjà présent par fastembed, est une dépendance
+  explicite de l'extra `ml`.

@@ -68,12 +68,12 @@ async def create_dictation(
     # After the response, hence after the commit. A lost message is harmless: the
     # periodic job transcribes waiting dictations.
     background.add_task(enqueue, "transcribe_dictations", queue="stt")
-    return service.out(document)
+    return await service.describe(ctx, document)
 
 
 @router.get("/dictations/{dictation_id}")
 async def get_dictation(dictation_id: uuid.UUID, ctx: CtxDep) -> DictationOut:
-    return service.out(await service.get_dictation(ctx, dictation_id))
+    return await service.describe(ctx, await service.get_dictation(ctx, dictation_id))
 
 
 @router.delete("/dictations/{dictation_id}", status_code=status.HTTP_204_NO_CONTENT)

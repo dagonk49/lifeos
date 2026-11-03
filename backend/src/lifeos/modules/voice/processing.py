@@ -7,10 +7,16 @@ decrypted and transcribed; the result is written only if the dictation still exi
 
 The recording is deleted as soon as the transcript is saved, or when it turns out to be
 untranscribable: audio is never kept longer than needed.
+
+While the service works, the worker checks every few seconds that the dictation still
+exists: deleted by the owner, its transcription is cancelled (the service frees its single
+slot) instead of running to its end for nothing. Otherwise, the service's progress is
+written to `analysis` for the web page (a core update: `version` is not bumped).
 """
 
 import asyncio
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
@@ -27,7 +33,9 @@ from lifeos.modules.documents.processing import MAX_FAILURES, clean_text
 from lifeos.modules.documents.storage import DocumentStore, OriginalMissingError, StorageError
 from lifeos.modules.voice.service import PURPOSE
 from lifeos.modules.voice.transcriber import (
+    Progress,
     Transcriber,
+    Transcription,
     TranscriptionCrashError,
     TranscriptionError,
     UntranscribableAudio,
@@ -43,6 +51,8 @@ STALE_PROCESSING = timedelta(minutes=45)
 RETRY_AFTER = timedelta(minutes=2)
 # Arbitrary constant: one transcription at a time.
 TRANSCRIBE_LOCK = 0x4C49_4644_4943
+# How often the worker checks the dictation (deleted?) and asks the service how far it is.
+PROGRESS_POLL_S = 3.0
 
 
 @dataclass(frozen=True)
@@ -118,6 +128,7 @@ async def _finish(
     text: str | None = None,
     duration: float | None = None,
     error: str | None = None,
+    result: Transcription | None = None,
 ) -> Outcome:
     now = utcnow()
     async with database.sessionmaker() as session, session.begin():
@@ -133,7 +144,16 @@ async def _finish(
         document.error = error
         document.extracted_text = text
         document.text_source = "speech" if text is not None else None
-        document.analysis = {"duration": round(duration, 2)} if duration is not None else None
+        analysis: dict[str, object] | None = None
+        if duration is not None:
+            # How long it took and on what (ADR 0009): the estimates of the next dictations
+            # come from here, and a CUDA -> CPU fallback is visible. No content.
+            analysis = {"duration": round(duration, 2)}
+            if result is not None and result.elapsed is not None:
+                analysis["elapsed"] = round(result.elapsed, 2)
+            if result is not None and result.device is not None:
+                analysis["device"] = result.device
+        document.analysis = analysis
         document.processed_at = now
         # The recording is not needed any more, whatever the outcome.
         document.storage_key = None
@@ -153,6 +173,13 @@ async def _finish(
                 "status": status,
                 **({"reason": error} if error else {}),
                 **({"seconds": round(duration)} if duration is not None else {}),
+                **({"device": result.device} if result is not None and result.device else {}),
+                # Seconds of service work: the estimates of the next dictations use it.
+                **(
+                    {"elapsed": round(result.elapsed, 1)}
+                    if result is not None and result.elapsed is not None
+                    else {}
+                ),
             },
         )
     # After the commit: if the deletion fails, the orphan sweep removes the file.
@@ -213,10 +240,16 @@ async def _transcribe(
     except StorageError as exc:
         log.error("dictation_unreadable", dictation=str(job.id), error=str(exc))
         return await _finish(database, store, job, status="failed", error="original_unreadable")
-    try:
-        result = await transcriber.transcribe(
-            data, job.mime, max_seconds=settings.voice_max_seconds
+    task = asyncio.create_task(
+        transcriber.transcribe(
+            data, job.mime, max_seconds=settings.voice_max_seconds, job=job.id.hex
         )
+    )
+    try:
+        result = await _watch(database, transcriber, job, task)
+    except _Deleted:
+        log.info("dictation_cancelled", dictation=str(job.id))
+        return "skipped"
     except TranscriptionCrashError as exc:
         log.warning("transcription_crashed", dictation=str(job.id), error=str(exc)[:200])
         return await _crashed(database, store, job)
@@ -232,7 +265,62 @@ async def _transcribe(
         status="ready",
         text=clean_text(result.text),
         duration=result.duration,
+        result=result,
     )
+
+
+class _Deleted(Exception):  # noqa: N818  (control flow, never raised out of this module)
+    """The dictation was deleted (or is no longer ours) while it was transcribed."""
+
+
+async def _still_processing(database: Database, job: _Job) -> bool:
+    async with database.sessionmaker() as session:
+        found = await session.scalar(
+            select(Document.id).where(Document.id == job.id, Document.status == "processing")
+        )
+    return found is not None
+
+
+async def _record_progress(database: Database, job: _Job, progress: Progress) -> None:
+    analysis: dict[str, float] = {"progress": round(min(1.0, max(0.0, progress.progress)), 3)}
+    if progress.audio_seconds is not None:
+        analysis["audio_seconds"] = round(progress.audio_seconds, 1)
+    async with database.sessionmaker() as session, session.begin():
+        await session.execute(
+            update(Document)
+            .where(Document.id == job.id, Document.status == "processing")
+            .values(analysis=analysis)
+            .execution_options(synchronize_session=False)
+        )
+
+
+async def _watch(
+    database: Database,
+    transcriber: Transcriber,
+    job: _Job,
+    task: "asyncio.Task[Transcription]",
+) -> Transcription:
+    """Awaits the transcription, checking the dictation every PROGRESS_POLL_S: deleted, the
+    task is cancelled (its connection closed) and the service told to stop."""
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=PROGRESS_POLL_S)
+            if done:
+                return task.result()
+            if not await _still_processing(database, job):
+                raise _Deleted
+            progress = await transcriber.progress(job.id.hex)
+            if progress is not None:
+                await _record_progress(database, job, progress)
+    except BaseException:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+            # The service also stops when the connection closes; this frees its slot
+            # at once. Shielded: the worker may itself be cancelled here.
+            await asyncio.shield(transcriber.cancel(job.id.hex))
+        raise
 
 
 async def transcribe_dictation(

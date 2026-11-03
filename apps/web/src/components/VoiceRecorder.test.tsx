@@ -177,3 +177,77 @@ describe("VoiceRecorder", () => {
     expect(FakeRecorder.created).toBe(0);
   });
 });
+
+describe("VoiceRecorder, waiting and cancelling", () => {
+  it("aborts the upload when cancelled while sending, and deletes nothing", async () => {
+    const calls: Call[] = [];
+    let aborted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit = {}) => {
+        const method = init.method ?? "GET";
+        calls.push({ url, method, body: init.body });
+        if (url === "/v1/voice/status") return Promise.resolve(Response.json({ transcription: true, max_seconds: 900 }));
+        if (method === "POST") {
+          // A slow connection: the upload never finishes on its own.
+          return new Promise<Response>((_, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              aborted = true;
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }),
+    );
+    renderRecorder(vi.fn());
+    fireEvent.click(await screen.findByRole("button", { name: "Dicter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Terminer la dictée" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Annuler l'envoi" }));
+    expect(await screen.findByText(/rien n'a été envoyé/)).toBeTruthy();
+    expect(aborted).toBe(true);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect(await screen.findByRole("button", { name: "Dicter" })).toBeTruthy();
+  });
+
+  it("shows the progress and the time left, and cancels the transcription", async () => {
+    const calls = mockApi({
+      ...base,
+      status: "processing",
+      text: null,
+      progress: 0.4,
+      queue_position: 0,
+      estimated_seconds: 150,
+    });
+    renderRecorder(vi.fn());
+    fireEvent.click(await screen.findByRole("button", { name: "Dicter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Terminer la dictée" }));
+
+    const bar = await screen.findByRole("progressbar", { name: "Avancement de la transcription" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("40");
+    expect(bar.getAttribute("aria-valuemin")).toBe("0");
+    expect(bar.getAttribute("aria-valuemax")).toBe("100");
+    expect(await screen.findByText(/Temps restant estimé : environ 3 min/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Annuler la transcription" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "DELETE" && c.url === "/v1/voice/dictations/d1")).toBe(true),
+    );
+    expect(await screen.findByText(/Transcription annulée/)).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    // Polling stopped: no more reads of the dictation.
+    const reads = calls.filter((c) => c.method === "GET" && c.url === "/v1/voice/dictations/d1").length;
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    expect(calls.filter((c) => c.method === "GET" && c.url === "/v1/voice/dictations/d1").length).toBe(reads);
+  });
+
+  it("says how many dictations are ahead while it waits", async () => {
+    mockApi({ ...base, status: "pending", text: null, progress: null, queue_position: 2, estimated_seconds: null });
+    renderRecorder(vi.fn());
+    fireEvent.click(await screen.findByRole("button", { name: "Dicter" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Terminer la dictée" }));
+    expect(await screen.findByText(/2 dictées à transcrire avant celle-ci/)).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});

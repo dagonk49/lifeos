@@ -25,6 +25,8 @@ class Message(UUIDPrimaryKey, Owned, Base):
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant')", name="role"),
         CheckConstraint("status IN ('ok', 'error')", name="status"),
+        CheckConstraint("context_type IN ('task', 'goal')", name="context_type"),
+        CheckConstraint("(context_type IS NULL) = (context_id IS NULL)", name="context_ref"),
         Index("ix_messages_search_vector", "search_vector", postgresql_using="gin"),
     )
 
@@ -44,6 +46,17 @@ class Message(UUIDPrimaryKey, Owned, Base):
     attachments: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(Uuid), default=list, server_default="{}"
     )
+    # Task or goal explicitly chosen by the owner as the subject of this message (task 24).
+    # References only, like `attachments`: a deleted object stays referenced here.
+    context_type: Mapped[str | None] = mapped_column(Text)
+    context_id: Mapped[uuid.UUID | None]
     purge_after: Mapped[datetime | None] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(index=True)
     search_vector: Mapped[Any] = search_vector_column("content")
+
+    @property
+    def context(self) -> dict[str, Any] | None:
+        """The chosen object as exposed by the API (MessageOut.context)."""
+        if self.context_type is None or self.context_id is None:
+            return None
+        return {"type": self.context_type, "id": self.context_id}

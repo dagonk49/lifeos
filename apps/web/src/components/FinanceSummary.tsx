@@ -37,9 +37,9 @@ const BAR: Record<BudgetState, string> = {
 function Total({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
   return (
     <div className="rounded-md bg-stone-50 px-3 py-2 dark:bg-stone-800/60">
-      <dt className="text-xs text-stone-500">{label}</dt>
+      <dt className="text-xs text-muted">{label}</dt>
       <dd className="font-semibold tabular-nums">{value}</dd>
-      {note && <dd className="text-xs text-stone-500">{note}</dd>}
+      {note && <dd className="text-xs text-muted">{note}</dd>}
     </div>
   );
 }
@@ -52,7 +52,7 @@ function ExpenseRow({ row, currency }: { row: CategorySummary; currency: string 
       <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <span className="font-medium">
           {row.name}
-          {row.archived && <span className="ml-1 text-xs font-normal text-stone-500">(archivée)</span>}
+          {row.archived && <span className="ml-1 text-xs font-normal text-muted">(archivée)</span>}
         </span>
         <span className="text-sm tabular-nums">{spentText(row, currency)}</span>
       </div>
@@ -66,7 +66,7 @@ function ExpenseRow({ row, currency }: { row: CategorySummary; currency: string 
             {state === "over" && <Badge tone="red">Budget dépassé</Badge>}
             {state === "near" && <Badge tone="amber">Bientôt atteint</Badge>}
             {remaining && (
-              <span className={state === "over" ? "font-medium text-red-700 dark:text-red-400" : "text-stone-500"}>
+              <span className={state === "over" ? "font-medium text-red-700 dark:text-red-400" : "text-muted"}>
                 {remaining}
               </span>
             )}

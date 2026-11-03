@@ -30,6 +30,7 @@ export function GoalCreateForm({
     onSuccess: (goal) => {
       queryClient.setQueryData(goalKeys.detail(goal.id), goal);
       void queryClient.invalidateQueries({ queryKey: goalKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["finance", "projection"] });
       setForm(EMPTY_GOAL_FORM);
       onCreated(goal);
     },

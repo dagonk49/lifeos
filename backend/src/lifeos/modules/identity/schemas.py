@@ -66,6 +66,11 @@ class SessionOut(ORMModel):
     current: bool = False
 
 
+class RevokedSessions(BaseModel):
+    # Sessions signed out (the current one is kept).
+    revoked: int
+
+
 class PasskeyOut(ORMModel):
     id: uuid.UUID
     label: str

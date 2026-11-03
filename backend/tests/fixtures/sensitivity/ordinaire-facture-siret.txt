@@ -1,0 +1,4 @@
+FACTURE N° 2026-0042 — Plomberie Exemple
+SIRET 123 456 782 00002 — TVA FR 12 123456782
+Contact : 01 99 00 12 34 — contact@example.org
+Remplacement d'un mitigeur : 145,00 € TTC

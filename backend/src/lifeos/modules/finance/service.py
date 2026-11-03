@@ -25,7 +25,12 @@ from lifeos.core.pagination import MAX_LIMIT, Page
 from lifeos.core.security import utcnow
 from lifeos.modules.audit import service as audit
 from lifeos.modules.documents.models import Document
-from lifeos.modules.finance.models import CategoryRule, FinanceCategory, Transaction
+from lifeos.modules.finance.models import (
+    CategoryRule,
+    FinanceCategory,
+    FinanceRecurring,
+    Transaction,
+)
 from lifeos.modules.finance.schemas import (
     BudgetAlert,
     BudgetSnapshot,
@@ -45,6 +50,7 @@ from lifeos.modules.finance.schemas import (
 )
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.guardian.context import Ctx
+from lifeos.modules.privacy import erasure
 
 _CENTS = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -290,9 +296,15 @@ async def delete_category(ctx: Ctx, category_id: uuid.UUID) -> None:
     """Its transactions become uncategorised; its learned rules go with it."""
     category = await get_category(ctx, category_id)
     await authorize(ctx, "finance.write", category.space_id)
-    await ctx.db.delete(category)
-    await ctx.db.flush()
-    await _audit(ctx, "finance.category.delete", category.space_id, "finance_category", category.id)
+    erased = await erasure.erase(ctx.db, category)
+    await _audit(
+        ctx,
+        "finance.category.delete",
+        category.space_id,
+        "finance_category",
+        category.id,
+        **erased,
+    )
 
 
 async def create_defaults(ctx: Ctx, space_id: uuid.UUID) -> list[FinanceCategory]:
@@ -448,6 +460,31 @@ async def _receipt_document(ctx: Ctx, document_id: uuid.UUID, space_id: uuid.UUI
     return document
 
 
+async def _recurring_for(
+    ctx: Ctx, recurring_id: uuid.UUID, space_id: uuid.UUID, direction: str
+) -> None:
+    """An operation pays a recurring item of its own space and direction (task 26)."""
+    item = await ctx.db.scalar(
+        select(FinanceRecurring).where(
+            FinanceRecurring.id == recurring_id,
+            FinanceRecurring.user_id == ctx.principal.user_id,
+            FinanceRecurring.space_id.in_(_readable(ctx, None)),
+        )
+    )
+    if item is None:
+        raise not_found("recurring_not_found", "Recurring item not found")
+    if item.space_id != space_id:
+        raise ProblemError(
+            422, "recurring_space_mismatch", "The recurring item belongs to another space"
+        )
+    if item.direction != direction:
+        raise ProblemError(
+            422,
+            "recurring_direction_mismatch",
+            "The recurring item does not match the transaction direction",
+        )
+
+
 def _check_date(ctx: Ctx, tx_date: date) -> None:
     if tx_date > local_today(ctx):
         raise ProblemError(422, "tx_date_in_future", "The transaction date is in the future")
@@ -547,6 +584,8 @@ async def create_transaction(ctx: Ctx, data: TransactionCreate) -> Transaction:
         )
     if data.document_id is not None:
         await _receipt_document(ctx, data.document_id, data.space_id)
+    if data.recurring_id is not None:
+        await _recurring_for(ctx, data.recurring_id, data.space_id, data.direction)
     if data.category_id is not None:
         await _category_for(ctx, data.category_id, data.space_id, data.direction)
         category_id: uuid.UUID | None = data.category_id
@@ -567,6 +606,7 @@ async def create_transaction(ctx: Ctx, data: TransactionCreate) -> Transaction:
         category_confirmed=data.category_id is not None,
         source_type=data.source_type,
         document_id=data.document_id,
+        recurring_id=data.recurring_id,
     )
     ctx.db.add(transaction)
     await ctx.db.flush()
@@ -606,6 +646,9 @@ async def update_transaction(
     merchant = changes.get("merchant", transaction.merchant)
     category_id, confirmed = transaction.category_id, transaction.category_confirmed
     # Everything is checked before the first change: one flush, one version increment.
+    recurring_id = changes.get("recurring_id", transaction.recurring_id)
+    if recurring_id is not None and ("recurring_id" in changes or "direction" in changes):
+        await _recurring_for(ctx, recurring_id, transaction.space_id, direction)
     if "category_id" in changes:
         category_id = changes["category_id"]
         if category_id is not None:
@@ -627,7 +670,8 @@ async def update_transaction(
         if not confirmed and "merchant" in changes:
             learned = await _apply_rule(ctx, transaction.space_id, merchant, direction)
             category_id = learned or category_id
-    for key in ("amount", "direction", "currency", "tx_date", "merchant", "label", "notes"):
+    keys = ("amount", "direction", "currency", "tx_date", "merchant", "label", "notes")
+    for key in (*keys, "recurring_id"):
         if key in changes:
             value = changes[key]
             setattr(transaction, key, _q(value) if key == "amount" else value)
@@ -650,10 +694,14 @@ async def update_transaction(
 async def delete_transaction(ctx: Ctx, transaction_id: uuid.UUID) -> None:
     transaction = await get_transaction(ctx, transaction_id)
     await authorize(ctx, "finance.write", transaction.space_id)
-    await ctx.db.delete(transaction)
-    await ctx.db.flush()
+    erased = await erasure.erase(ctx.db, transaction)
     await _audit(
-        ctx, "finance.transaction.delete", transaction.space_id, "transaction", transaction.id
+        ctx,
+        "finance.transaction.delete",
+        transaction.space_id,
+        "transaction",
+        transaction.id,
+        **erased,
     )
 
 

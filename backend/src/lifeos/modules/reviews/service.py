@@ -33,6 +33,7 @@ from lifeos.modules.journal.models import JournalEntry
 from lifeos.modules.llm.base import LLMMessage, LLMProvider, LLMRequest
 from lifeos.modules.memory.models import Fact
 from lifeos.modules.notifications.service import notify
+from lifeos.modules.privacy import erasure
 from lifeos.modules.reviews.models import Review
 from lifeos.modules.reviews.schemas import ReviewNarrative, ReviewRequest
 from lifeos.modules.tasks.models import Task
@@ -404,7 +405,7 @@ async def get_review(ctx: Ctx, review_id: uuid.UUID) -> Review:
 
 async def delete_review(ctx: Ctx, review_id: uuid.UUID) -> None:
     review = await get_review(ctx, review_id)
-    await ctx.db.delete(review)
+    erased = await erasure.erase(ctx.db, review)
     await audit.record(
         ctx.db,
         action="review.delete",
@@ -414,6 +415,7 @@ async def delete_review(ctx: Ctx, review_id: uuid.UUID) -> None:
         space_id=review.space_id,
         target_type="review",
         target_id=review.id,
+        details=dict(erased),
     )
 
 

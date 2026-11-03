@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from lifeos.core.errors import ProblemError
+from lifeos.core.errors import PROBLEM_MEDIA_TYPE, ProblemError
 from lifeos.core.security import utcnow
 from lifeos.db.base import Base
 
@@ -87,7 +87,11 @@ async def idempotent(
             )
         if existing.response_status is None:
             raise ProblemError(409, "idempotency_key_in_use", "Request still in progress")
-        return JSONResponse(existing.response_body, status_code=existing.response_status)
+        # A stored problem: the object was erased since (privacy.erasure), never re-created.
+        media_type = PROBLEM_MEDIA_TYPE if existing.response_status >= 400 else None
+        return JSONResponse(
+            existing.response_body, status_code=existing.response_status, media_type=media_type
+        )
     result = await run()
     body_json = jsonable_encoder(result)
     record = await session.get(IdempotencyKey, (user_id, key))

@@ -6,8 +6,11 @@ import time
 import uuid
 
 import structlog
+from starlette.requests import cookie_parser
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from lifeos.api import denials
+from lifeos.api.deps import SESSION_COOKIE
 from lifeos.core.errors import PROBLEM_MEDIA_TYPE, problem_body
 from lifeos.logging import get_logger
 from lifeos.observability.metrics import HTTP_REQUESTS
@@ -83,7 +86,7 @@ class OriginCheckMiddleware:
     """CSRF defence in depth (cookies are already SameSite=Strict).
 
     Every state-changing request under /v1 must carry an Origin header matching the public
-    origin of the web client.
+    origin of the web client. Refusals are logged, counted and audited (rate-limited).
     """
 
     def __init__(self, app: ASGIApp, allowed_origins: list[str]) -> None:
@@ -98,6 +101,14 @@ class OriginCheckMiddleware:
         ):
             origin = _header(scope, b"origin")
             if origin is None or origin.rstrip("/") not in self.allowed:
+                cookies = cookie_parser(_header(scope, b"cookie") or "")
+                await denials.origin_mismatch(
+                    scope.get("app"),
+                    method=scope["method"],
+                    path=scope["path"],
+                    origin=origin,
+                    session_token=cookies.get(SESSION_COOKIE),
+                )
                 body = json.dumps(
                     problem_body(403, "origin_mismatch", "Origin not allowed")
                 ).encode()

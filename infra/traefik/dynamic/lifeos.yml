@@ -26,10 +26,20 @@ http:
         average: 30
         period: 1m
         burst: 15
+{{- if eq (env "LIFEOS_BEHIND_PROXY") "true" }}
+        # Behind a reverse proxy (compose.proxy.yaml), every request comes from the proxy: the
+        # client is the last address of X-Forwarded-For, the one the proxy appended itself.
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+{{- end }}
     lifeos-headers:
       headers:
         stsSeconds: 31536000
         stsIncludeSubdomains: true
+        # Routers only listen on HTTPS (or behind a TLS-terminating proxy, compose.proxy.yaml,
+        # where this hop is plain HTTP): browsers only honour the header over HTTPS anyway.
+        forceSTSHeader: true
         contentTypeNosniff: true
         frameDeny: true
         referrerPolicy: no-referrer

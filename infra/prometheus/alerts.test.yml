@@ -1,0 +1,473 @@
+# Unit tests of alerts.yml (scripts/test-monitoring.sh):
+#   promtool test rules alerts.test.yml
+# Each simulated failure must raise its alert, with exactly these labels and texts: the
+# texts are made of fixed French sentences and label values, never personal data.
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+
+tests:
+  - name: public address down, certificate refused, then expiring
+    interval: 1m
+    input_series:
+      - series: probe_success{job="public", module="https_reachable", target="web", instance="blackbox-exporter:9115"}
+        values: 1 1 0x10
+      - series: probe_success{job="public", module="https_reachable", target="api", instance="blackbox-exporter:9115"}
+        values: 1x30
+      - series: probe_success{job="public", module="https_verified", target="api", instance="blackbox-exporter:9115"}
+        values: 1 0x30
+      # Expires 10 days after the start, then (renewed too late) 2 days after.
+      - series: probe_ssl_earliest_cert_expiry{job="public", module="https_reachable", target="api", instance="blackbox-exporter:9115"}
+        values: 864000x200
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: LifeOSInjoignable
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: LifeOSInjoignable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: public
+              module: https_reachable
+              target: web
+              instance: blackbox-exporter:9115
+            exp_annotations:
+              title: LifeOS injoignable
+              summary: LifeOS ne répond plus sur le port 443 de la machine (pages web).
+              action: >-
+                Sur la VM, docker compose ps puis docker compose logs --tail 100 traefik api
+                web ; derrière un reverse proxy, vérifier aussi celui-ci.
+      - eval_time: 20m
+        alertname: CertificatRefuse
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: public
+              module: https_verified
+              target: api
+              instance: blackbox-exporter:9115
+            exp_annotations:
+              title: Certificat refusé
+              summary: >-
+                Le certificat présenté sur le port 443 ne serait pas accepté par un navigateur
+                (expiré, autosigné ou pour un autre nom) : les passkeys ne fonctionnent plus.
+              action: >-
+                Installer un certificat valide (docs/exploitation.md §2) ; autorité locale
+                (mkcert) : copier sa racine dans infra/blackbox/ca/.
+      - eval_time: 2h
+        alertname: CertificatBientotExpire
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: public
+              module: https_reachable
+              target: api
+              instance: blackbox-exporter:9115
+            exp_annotations:
+              title: Certificat bientôt expiré
+              summary: Le certificat TLS expire dans 10 jour(s).
+              action: >-
+                Renouveler le certificat (docs/exploitation.md §2) ; derrière Nginx Proxy
+                Manager, vérifier son renouvellement automatique.
+
+  - name: certificate about to expire (critical)
+    interval: 1m
+    input_series:
+      - series: probe_ssl_earliest_cert_expiry{job="public", module="https_reachable", target="api", instance="blackbox-exporter:9115"}
+        values: 172800x200
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: CertificatBientotExpire
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: public
+              module: https_reachable
+              target: api
+              instance: blackbox-exporter:9115
+            exp_annotations:
+              title: Certificat bientôt expiré
+              summary: Le certificat TLS expire dans 2 jour(s).
+              action: >-
+                Renouveler le certificat (docs/exploitation.md §2) ; derrière Nginx Proxy
+                Manager, vérifier son renouvellement automatique.
+          - exp_labels:
+              severity: critical
+              job: public
+              module: https_reachable
+              target: api
+              instance: blackbox-exporter:9115
+            exp_annotations:
+              title: Certificat bientôt expiré
+              summary: Le certificat TLS expire dans 1.9 jour(s).
+              action: >-
+                Renouveler le certificat maintenant (docs/exploitation.md §2) : une fois
+                expiré, les navigateurs refusent LifeOS.
+
+  - name: api, dependencies and worker down
+    interval: 1m
+    input_series:
+      - series: up{job="lifeos-api", instance="api:8000"}
+        values: 1 1 0x10
+      - series: lifeos_dependency_up{job="lifeos-api", instance="api:8000", dependency="database"}
+        values: 1 0x10
+      - series: lifeos_dependency_up{job="lifeos-api", instance="api:8000", dependency="redis"}
+        values: 1x10
+      - series: lifeos_dependency_up{job="lifeos-api", instance="api:8000", dependency="stt"}
+        values: 0x15
+      - series: up{job="lifeos-worker", instance="worker:9101"}
+        values: 1 0x10
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: ApiInjoignable
+        exp_alerts:
+          - exp_labels: { severity: critical, job: lifeos-api, instance: "api:8000" }
+            exp_annotations:
+              title: API arrêtée
+              summary: L'API de LifeOS ne répond plus sur le réseau interne.
+              action: docker compose ps api ; docker compose logs --tail 100 api.
+      - eval_time: 8m
+        alertname: DependanceIndisponible
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: lifeos-api
+              instance: api:8000
+              dependency: database
+            exp_annotations:
+              title: Base ou files de tâches indisponibles
+              summary: La base de données PostgreSQL ne répond plus à l'API.
+              action: docker compose ps ; docker compose logs --tail 100 postgres.
+      - eval_time: 12m
+        alertname: ServiceLocalIndisponible
+        exp_alerts:
+          - exp_labels: { severity: warning, job: lifeos-api, instance: "api:8000", dependency: stt }
+            exp_annotations:
+              title: Service local indisponible
+              summary: >-
+                Le service stt (dictée) ne répond plus : ces fonctions sont dégradées.
+              action: docker compose ps stt ; docker compose logs --tail 100 stt.
+      - eval_time: 8m
+        alertname: WorkerArrete
+        exp_alerts:
+          - exp_labels: { severity: critical, job: lifeos-worker, instance: "worker:9101" }
+            exp_annotations:
+              title: Worker arrêté
+              summary: >-
+                Le worker ne répond plus : documents, dictées, rappels et tâches de ménage ne
+                sont plus traités.
+              action: docker compose ps worker ; docker compose logs --tail 100 worker.
+
+  - name: scheduled tasks stuck, failing or abandoned; queues and backlog
+    interval: 1m
+    input_series:
+      # Heartbeats every minute, then none after 3 minutes (scheduler stopped).
+      - series: lifeos_worker_heartbeat_timestamp_seconds{job="lifeos-worker", instance="worker:9101", queue="realtime"}
+        values: 0 60 120 180x20
+      - series: lifeos_job_runs_total{job="lifeos-worker", instance="worker:9101", task="process_document", outcome="failure"}
+        values: 0 0 1 2 3 4 4x20
+      - series: lifeos_job_runs_total{job="lifeos-worker", instance="worker:9101", task="send_reminders", outcome="success"}
+        values: 0+5x25
+      - series: lifeos_queue_dead_letters{job="lifeos-api", instance="api:8000", queue="documents"}
+        values: 0 0 0 2x20
+      - series: lifeos_queue_messages{job="lifeos-api", instance="api:8000", queue="documents"}
+        values: 60x40
+      - series: lifeos_documents_backlog_oldest_seconds{job="lifeos-api", instance="api:8000", purpose="receipt"}
+        values: 3500+60x20
+      - series: lifeos_documents_backlog_oldest_seconds{job="lifeos-api", instance="api:8000", purpose="dictation"}
+        values: 600+60x20
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TachesPlanifieesBloquees
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: TachesPlanifieesBloquees
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              title: Tâches planifiées bloquées
+              summary: >-
+                Aucune tâche planifiée n'a été exécutée depuis 9m 0s : planificateur arrêté
+                ou file de tâches bloquée.
+              action: >-
+                docker compose ps scheduler worker ; docker compose logs --tail 100 scheduler
+                worker.
+      - eval_time: 8m
+        alertname: EchecsDeTaches
+        exp_alerts:
+          - exp_labels: { severity: warning, task: process_document }
+            exp_annotations:
+              title: Tâches en échec
+              summary: La tâche process_document a échoué 4 fois en une heure.
+              action: docker compose logs --since 2h worker | grep job_failed.
+      - eval_time: 10m
+        alertname: TachesAbandonnees
+        exp_alerts:
+          - exp_labels: { severity: warning, job: lifeos-api, instance: "api:8000", queue: documents }
+            exp_annotations:
+              title: Tâches abandonnées
+              summary: >-
+                2 tâche(s) de la file documents abandonnée(s) après leurs nouvelles tentatives.
+              action: >-
+                docker compose logs --since 2h worker | grep job_failed (gardées 7 jours dans
+                Redis, clé lifeos:documents.XQ).
+      - eval_time: 35m
+        alertname: FileDeTachesEngorgee
+        exp_alerts:
+          - exp_labels: { severity: warning, job: lifeos-api, instance: "api:8000", queue: documents }
+            exp_annotations:
+              title: File de tâches engorgée
+              summary: >-
+                60 tâches attendent dans la file documents depuis plus de 30 minutes.
+              action: docker compose ps worker ; docker compose logs --tail 100 worker.
+      - eval_time: 15m
+        alertname: DocumentsEnAttente
+        exp_alerts:
+          - exp_labels: { severity: warning, job: lifeos-api, instance: "api:8000", purpose: receipt }
+            exp_annotations:
+              title: Documents en attente de lecture
+              summary: Un ticket de caisse attend sa lecture depuis 1h 13m 20s.
+              action: docker compose ps ml worker ; docker compose logs --tail 100 ml worker.
+      - eval_time: 15m
+        alertname: DicteesEnAttente
+        exp_alerts:
+          - exp_labels: { severity: warning, job: lifeos-api, instance: "api:8000", purpose: dictation }
+            exp_annotations:
+              title: Dictées en attente
+              summary: Une dictée attend sa transcription depuis 25m 0s.
+              action: docker compose ps stt worker ; docker compose logs --tail 100 stt worker.
+
+  - name: disk filling up, memory exhausted, OOM kill, collection interrupted
+    interval: 1m
+    input_series:
+      - series: node_filesystem_size_bytes{job="node", instance="node-exporter:9100", device="/dev/sda1", fstype="ext4", mountpoint="/"}
+        values: 100x40
+      - series: node_filesystem_avail_bytes{job="node", instance="node-exporter:9100", device="/dev/sda1", fstype="ext4", mountpoint="/"}
+        values: 10x20 4x25
+      - series: node_filesystem_size_bytes{job="node", instance="node-exporter:9100", device="tmpfs", fstype="tmpfs", mountpoint="/dev/shm"}
+        values: 100x40
+      - series: node_filesystem_avail_bytes{job="node", instance="node-exporter:9100", device="tmpfs", fstype="tmpfs", mountpoint="/dev/shm"}
+        values: 1x40
+      - series: node_memory_MemTotal_bytes{job="node", instance="node-exporter:9100"}
+        values: 1000x40
+      - series: node_memory_MemAvailable_bytes{job="node", instance="node-exporter:9100"}
+        values: 40x40
+      - series: node_vmstat_oom_kill{job="node", instance="node-exporter:9100"}
+        values: 0 0 0 1x40
+      - series: up{job="public", instance="blackbox-exporter:9115"}
+        values: 0x20
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: DisquePresquePlein
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: node-exporter:9100
+              device: /dev/sda1
+              fstype: ext4
+              mountpoint: /
+            exp_annotations:
+              title: Disque presque plein
+              summary: Il ne reste que 10% d'espace libre sur /.
+              action: >-
+                df -h ; docker system df ; anciennes images : docker image prune
+                (docs/exploitation.md §6).
+      - eval_time: 30m
+        alertname: DisquePresquePlein
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: node-exporter:9100
+              device: /dev/sda1
+              fstype: ext4
+              mountpoint: /
+            exp_annotations:
+              title: Disque presque plein
+              summary: Il ne reste que 4% d'espace libre sur /.
+              action: >-
+                df -h ; docker system df ; anciennes images : docker image prune
+                (docs/exploitation.md §6).
+          - exp_labels:
+              severity: critical
+              job: node
+              instance: node-exporter:9100
+              device: /dev/sda1
+              fstype: ext4
+              mountpoint: /
+            exp_annotations:
+              title: Disque presque plein
+              summary: >-
+                Il ne reste que 4% d'espace libre sur / : la base et les sauvegardes risquent
+                d'échouer.
+              action: df -h ; docker system df ; libérer de la place maintenant.
+      - eval_time: 12m
+        alertname: MemoireSaturee
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Mémoire saturée
+              summary: Il ne reste que 4% de mémoire disponible.
+              action: docker stats --no-stream ; dimensionnement dans docs/exploitation.md §7.
+      - eval_time: 5m
+        alertname: ProcessusTueFauteDeMemoire
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Processus tué faute de mémoire
+              summary: >-
+                Le noyau a tué 1 processus faute de mémoire dans la dernière demi-heure.
+              action: >-
+                docker compose ps (redémarrages) ; journalctl -k | grep -i oom ;
+                docs/exploitation.md §7.
+      - eval_time: 12m
+        alertname: CollecteInterrompue
+        exp_alerts:
+          - exp_labels: { severity: warning, job: public, instance: "blackbox-exporter:9115" }
+            exp_annotations:
+              title: Supervision incomplète
+              summary: >-
+                La collecte des sondes de l'adresse publique est interrompue : ses alertes ne
+                peuvent plus partir.
+              action: >-
+                docker compose --profile monitoring ps ; docker compose logs --tail 50
+                node-exporter blackbox-exporter.
+
+  - name: disk filling up fast
+    interval: 1m
+    input_series:
+      - series: node_filesystem_size_bytes{job="node", instance="node-exporter:9100", device="/dev/sdb1", fstype="ext4", mountpoint="/srv/backups"}
+        values: 1000x600
+      # 300 free, losing 0.5 a minute: full in 10 hours.
+      - series: node_filesystem_avail_bytes{job="node", instance="node-exporter:9100", device="/dev/sdb1", fstype="ext4", mountpoint="/srv/backups"}
+        values: 300-0.5x590
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: DisqueSeRemplit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: node
+              instance: node-exporter:9100
+              device: /dev/sdb1
+              fstype: ext4
+              mountpoint: /srv/backups
+            exp_annotations:
+              title: Disque bientôt plein
+              summary: >-
+                Au rythme des 6 dernières heures, /srv/backups sera plein dans moins de 24
+                heures.
+              action: df -h ; docker system df ; du -xsh /var/lib/docker/volumes/* | sort -h.
+
+  - name: backups too old, never made, originals missing
+    interval: 1m
+    input_series:
+      - series: up{job="node", instance="node-exporter:9100"}
+        values: 1x2000
+      # Last successful backup and off-site copy at the start, none since.
+      - series: lifeos_backup_last_success_timestamp_seconds{job="node", instance="node-exporter:9100"}
+        values: 0x2000
+      - series: lifeos_backup_offsite_last_success_timestamp_seconds{job="node", instance="node-exporter:9100"}
+        values: 0x2000
+      - series: lifeos_backup_missing_originals{job="node", instance="node-exporter:9100"}
+        values: 0 2x2000
+    alert_rule_test:
+      - eval_time: 24h
+        alertname: SauvegardeAncienne
+        exp_alerts: []
+      - eval_time: 32h
+        alertname: SauvegardeAncienne
+        exp_alerts:
+          - exp_labels: { severity: critical, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Sauvegarde trop ancienne
+              summary: La dernière sauvegarde réussie date de 1d 8h 0m 0s.
+              action: >-
+                journalctl -u lifeos-backup.service ; puis sudo systemctl start
+                lifeos-backup.service (docs/exploitation.md §4).
+      - eval_time: 32h
+        alertname: CopieHorsSiteAncienne
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Copie hors site trop ancienne
+              summary: La dernière copie hors de la machine date de 1d 8h 0m 0s.
+              action: journalctl -u lifeos-backup.service (accès au dépôt hors site).
+      - eval_time: 2h
+        alertname: OriginauxManquants
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Originaux absents de la sauvegarde
+              summary: >-
+                2 original(aux) de document référencé(s) par la base manque(nt) dans la
+                dernière sauvegarde.
+              action: journalctl -u lifeos-backup.service ; restauration.md §4.
+      - eval_time: 32h
+        alertname: SauvegardeAbsente
+        exp_alerts: []
+
+  - name: no backup ever, restore tests too old
+    interval: 1m
+    input_series:
+      - series: up{job="node", instance="node-exporter:9100"}
+        values: 1x13000
+      - series: lifeos_restore_check_last_success_timestamp_seconds{job="node", instance="node-exporter:9100"}
+        values: 0x13000
+      - series: lifeos_restore_check_offsite_last_success_timestamp_seconds{job="node", instance="node-exporter:9100"}
+        values: 0x13000
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: SauvegardeAbsente
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node }
+            exp_annotations:
+              title: Aucune sauvegarde
+              summary: Aucune sauvegarde réussie n'est connue sur cette machine.
+              action: >-
+                sudo infra/scripts/install-backups.sh (docs/exploitation.md §4) ; métriques
+                dans /var/lib/lifeos/metrics.
+      - eval_time: 9d
+        alertname: TestDeRestaurationAncien
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Test de restauration trop ancien
+              summary: Le dernier test de restauration réussi date de 9d 0h 0m 0s.
+              action: >-
+                journalctl -u lifeos-restore-check.service ; sudo systemctl start
+                lifeos-restore-check.service.
+
+  - name: off-site restore test too old
+    # Every 4 minutes: closer than the 5-minute lookback, the series never goes stale.
+    interval: 4m
+    input_series:
+      - series: lifeos_restore_check_offsite_last_success_timestamp_seconds{job="node", instance="node-exporter:9100"}
+        values: 0x13000
+    alert_rule_test:
+      - eval_time: 32d
+        alertname: TestHorsSiteAncien
+        exp_alerts: []
+      - eval_time: 35d
+        alertname: TestHorsSiteAncien
+        exp_alerts:
+          - exp_labels: { severity: warning, job: node, instance: "node-exporter:9100" }
+            exp_annotations:
+              title: Test de restauration hors site trop ancien
+              summary: >-
+                Le dernier test de restauration depuis la copie hors site date de 35d 0h 0m
+                0s.
+              action: journalctl -u lifeos-restore-check-offsite.service.
+
+  - name: dead man's switch
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: { severity: none }
+            exp_annotations:
+              title: Signal de vie
+              summary: La supervision de LifeOS fonctionne.

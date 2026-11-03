@@ -1,6 +1,7 @@
 # ADR 0007 — Coûts Gemini : niveau gratuit sans facturation possible, quotas côté LifeOS
 
-- Statut : acceptée (amende le point 4 de l'[ADR 0003](0003-gemini-derriere-une-abstraction.md))
+- Statut : acceptée (amende le point 4 de l'[ADR 0003](0003-gemini-derriere-une-abstraction.md)) ;
+  conséquences amendées par l'[ADR 0010](0010-reservation-des-quotas-llm.md)
 - Date : 2026-10-11
 
 ## Contexte
@@ -96,10 +97,13 @@ concordants ; ils sont à revérifier si les conditions de Google changent.
   Tout le reste de LifeOS continue de fonctionner.
 - Si Google modifie ses quotas gratuits, seul le réglage des plafonds change ; la garantie
   « zéro frais » reste vraie tant qu'aucun compte de facturation n'est rattaché au projet.
-- Les plafonds sont vérifiés avant l'appel, sans réservation : deux appels simultanés peuvent
-  dépasser un plafond d'une ou deux requêtes. Risque accepté (un seul utilisateur) : au-delà du
-  quota de Google, l'API refuse sans facturer. Les appels en erreur comptent dans les plafonds
-  et, s'ils ont consommé des jetons (réponse bloquée ou tronquée), dans le budget de jetons.
+- ~~Les plafonds sont vérifiés avant l'appel, sans réservation : deux appels simultanés
+  peuvent dépasser un plafond d'une ou deux requêtes.~~ Amendé par l'[ADR
+  0010](0010-reservation-des-quotas-llm.md) : chaque appel réserve atomiquement sa part des
+  plafonds avant de partir, avec une marge, puis la remplace par sa consommation réelle ;
+  deux appels simultanés ne peuvent plus dépasser un plafond. Les appels en erreur comptent
+  dans les plafonds et, s'ils ont consommé des jetons (réponse bloquée ou tronquée), dans le
+  budget de jetons.
 
 ## Sources (consultées le 2026-10-11)
 

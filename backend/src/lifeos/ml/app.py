@@ -115,7 +115,13 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
                 memory_mb=settings.extraction_memory_mb,
             )
         except extraction.ExtractFailure as exc:
-            log.info("extraction_refused", mime=mime, code=exc.code)
+            log.info(
+                "extraction_refused",
+                mime=mime,
+                code=exc.code,
+                peak_mb=exc.peak_mb,
+                signal=exc.signal,
+            )
             return JSONResponse({"code": exc.code}, status_code=exc.status)
         finally:
             extraction_slot.release()
@@ -128,6 +134,13 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
             chars=len(result.text),
             sanitized=result.sanitized is not None,
             seconds=round(time.monotonic() - started, 2),
+            # Memory of the isolated extraction: sizes LIFEOS_EXTRACTION_MEMORY_MB.
+            peak_mb=result.peak_mb,
+            # How the picture was read (quarter turn, straightening, kept pass): no content.
+            rotation=result.reading.rotation if result.reading else None,
+            skew=result.reading.skew if result.reading else None,
+            reading_pass=result.reading.kept if result.reading else None,
+            passes=result.reading.passes if result.reading else None,
         )
         return {
             "text": result.text,
@@ -138,6 +151,7 @@ def create_ml_app(settings: Settings | None = None, embedder: Embedder | None = 
                 base64.b64encode(result.sanitized).decode() if result.sanitized else None
             ),
             "sanitized_mime": result.sanitized_mime,
+            "preprocessing": result.reading.as_dict() if result.reading else None,
         }
 
     return app
@@ -188,10 +202,18 @@ def main(argv: list[str] | None = None) -> None:
         "command",
         nargs="?",
         default="serve",
-        choices=["serve", "download", "selftest"],
-        help="serve (default); download the embedding model into the cache; selftest the OCR",
+        choices=["serve", "download", "selftest", "bench"],
+        help=(
+            "serve (default); download the embedding model into the cache; selftest the OCR; "
+            "bench <dir>: measure the reading of a corpus (lifeos-ml bench --help)"
+        ),
     )
+    parser.add_argument("options", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.command == "bench":
+        from lifeos.ml import bench
+
+        raise SystemExit(bench.main(args.options))
     if args.command == "download":
         settings = get_settings()
         configure_logging(settings)

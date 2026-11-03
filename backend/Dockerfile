@@ -30,10 +30,11 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
 FROM runtime AS ml
-# OCR (ADR 0008): Tesseract 5 with the French model only (no recommends: no English nor
-# orientation data, no X11 libraries).
+# OCR (ADR 0008): Tesseract 5 with the French model and the orientation detection data
+# (OSD: pictures turned a quarter without an EXIF tag); no recommends: no English data, no
+# X11 libraries.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-osd \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build-ml /app/.venv /app/.venv
 # Owned by the service user: Docker copies this ownership into a new, empty named

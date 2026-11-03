@@ -2,6 +2,9 @@ LifeOS • Version de conception 1.0 • 11 octobre 2026
 
 Statut : document de cadrage — les technologies proposées restent à confirmer par prototypage.
 
+> Document source, conservé tel quel. Ce qui a été retenu à la place de certaines
+> propositions, et l'état de réalisation de chaque exigence : [realisation.md](../realisation.md).
+
 # 1. Objet et vision
 
 LifeOS est une application personnelle d’assistance et de coaching : un interlocuteur unique, accessible par texte, voix, images et documents, avec tableau de bord contextuel. Elle organise le quotidien, suit les objectifs, mémorise les informations pertinentes et prépare des actions, sans déposséder l’utilisateur de ses décisions importantes.
@@ -155,9 +158,21 @@ Une photo est analysée ; les montants, la date et le marchand sont vérifiables
 
 L’agent Finance calcule la marge budgétaire ; Coaching compare aux objectifs ; Core formule une recommandation avec incertitudes.
 
+> Suivi (tâche 28, [ADR 0021](../adr/0021-coordination-des-agents.md)) : réalisé — page Finances,
+> « Évaluer un achat important ». Chiffres et objectifs calculés localement, chacun sous les
+> droits de son agent ; une seule synthèse qui cite leurs clés ; hypothèses, incertitudes et
+> « Ce qui a été consulté » affichés (§9) ; `backend/tests/test_workflows.py`.
+
 ## UC04 — Action externe
 
 LifeOS prépare un e-mail, affiche destinataire, contenu et pièces jointes, puis attend une confirmation explicite.
+
+> Suivi (tâche 18, [ADR 0018](../adr/0018-envoi-des-e-mails-sous-approbation.md)) : réalisé — brouillon, aperçu exact
+> (expéditeur, À, Cc, Cci, objet, texte, pièces jointes), approbation obligatoire, renforcée
+> pour un nouveau destinataire ou une pièce sensible, envoi unique même après un rejeu ou un
+> plantage (`backend/tests/test_mail_send.py`, parcours E2E « UC04 » de `apps/web/e2e/step5.spec.ts`).
+> Critère §9 « une tentative d'envoi de mail sans confirmation est bloquée et journalisée » :
+> prouvé sur l'action réelle (`test_no_email_leaves_without_an_approval`).
 
 ## UC05 — Droit à l’oubli
 
@@ -171,11 +186,14 @@ L’utilisateur recherche un souvenir, corrige ou supprime ses données ; la sup
 | Performance      | Navigation courante fluide ; tâches simples sans appel cloud ; temps IA indiqué à l’utilisateur.   |
 | Fiabilité        | Actions idempotentes lorsque possible ; reprise sur erreur et absence de doubles écritures.        |
 | Observabilité    | Logs structurés sans données personnelles brutes ; métriques, alertes et traçabilité.              |
-| Accessibilité    | Navigation clavier, lecteurs d’écran, contrastes et sous-titres/transcriptions.                    |
+| Accessibilité    | Navigation clavier, lecteurs d’écran, contrastes et sous-titres/transcriptions. Mesures et protocole : [accessibilite.md](../accessibilite.md). |
 | Interopérabilité | API versionnée, exports standards JSON/CSV/ICS selon les données.                                  |
 | Réversibilité    | Migration de fournisseur IA et de connecteurs sans perdre la mémoire structurée.                   |
 
 # 9. Critères d’acceptation prioritaires
+
+Chaque critère est vérifié par un parcours de bout en bout : voir le tableau critère → test
+de [apps/web/README.md](../../apps/web/README.md#critères-dacceptation-et-parcours).
 
 - Un utilisateur peut consulter, corriger, exporter et supprimer ses souvenirs.
 

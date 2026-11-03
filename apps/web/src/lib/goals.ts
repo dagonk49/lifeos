@@ -1,5 +1,6 @@
 // Pure helpers for the goals page (F06): labels, French number formatting, form parsing.
 
+import { formatMoney, decimalToInput as moneyInput, parseBudget, toCents } from "./finance";
 import type { Goal, GoalProgress, GoalStatus, GoalSummary, Task } from "./types";
 
 export type GoalKind = Goal["kind"];
@@ -96,6 +97,14 @@ export function formatDecimal(value: string | null | undefined, unit?: string | 
   return suffix ? `${text}${NBSP}${suffix}` : text;
 }
 
+export const SAVINGS_CURRENCY = "EUR";
+
+/** A goal value: exact euros for a savings goal (BigInt cents), else the number and unit. */
+export function formatGoalValue(goal: Pick<Goal, "metric_unit" | "currency">, value: string | null | undefined): string {
+  if (goal.currency) return value === null || value === undefined || value === "" ? "" : formatMoney(value, goal.currency);
+  return formatDecimal(value, goal.metric_unit);
+}
+
 /** API decimal string -> editable French input value ("12.50" -> "12,5"). */
 export function decimalToInput(value: string | null | undefined): string {
   if (!value) return "";
@@ -135,13 +144,16 @@ export function formatPercent(ratio: number | null): string {
   return percent === null ? "" : `${percent}${NBSP}%`;
 }
 
-type ProgressSource = Pick<GoalSummary, "current_value" | "target_value" | "metric_unit"> & {
+type ProgressSource = Pick<GoalSummary, "current_value" | "target_value" | "metric_unit" | "currency"> & {
   progress: Pick<GoalProgress, "basis" | "milestones_done" | "milestones_total">;
 };
 
 export function progressLabel(goal: ProgressSource): string {
   const { progress } = goal;
   if (progress.basis === "metric") {
+    if (goal.currency) {
+      return `${formatGoalValue(goal, goal.current_value)} / ${formatGoalValue(goal, goal.target_value)}`;
+    }
     return `${formatDecimal(goal.current_value)} / ${formatDecimal(goal.target_value, goal.metric_unit)}`;
   }
   if (progress.basis === "milestones") {
@@ -220,6 +232,9 @@ export interface GoalFormValues {
   motivation: string;
   description: string;
   review_cadence: ReviewCadence;
+  /** Savings goal (task 26): measurable, counted in euros, exact amounts. */
+  savings: boolean;
+  monthly_contribution: string;
 }
 
 export const EMPTY_GOAL_FORM: GoalFormValues = {
@@ -233,6 +248,8 @@ export const EMPTY_GOAL_FORM: GoalFormValues = {
   motivation: "",
   description: "",
   review_cadence: "weekly",
+  savings: false,
+  monthly_contribution: "",
 };
 
 export function goalToForm(goal: Goal): GoalFormValues {
@@ -247,6 +264,8 @@ export function goalToForm(goal: Goal): GoalFormValues {
     motivation: goal.motivation ?? "",
     description: goal.description ?? "",
     review_cadence: goal.review_cadence,
+    savings: Boolean(goal.currency),
+    monthly_contribution: moneyInput(goal.monthly_contribution),
   };
 }
 
@@ -260,6 +279,9 @@ export interface GoalFields {
   start_date: string | null;
   due_date: string | null;
   review_cadence: ReviewCadence;
+  /** Only sent for a savings goal (or when it stops being one). */
+  currency?: string | null;
+  monthly_contribution?: string | null;
 }
 
 export interface GoalCreateBody extends GoalFields {
@@ -292,6 +314,19 @@ function parseGoalFields(form: GoalFormValues): Parsed<GoalFields> {
     }
     metric = { metric_unit: blankToNull(form.metric_unit), start_value: start.value, target_value: target.value };
   }
+  let savings: Pick<GoalFields, "currency" | "monthly_contribution"> = {};
+  if (form.kind === "measurable" && form.savings) {
+    // Exact amounts (BigInt cents), never through a float.
+    const start = toCents(metric.start_value) ?? 0n;
+    const target = toCents(metric.target_value) ?? 0n;
+    if (start < 0n || target <= start) {
+      return { ok: false, error: "Un objectif d'épargne va d'un montant déjà épargné vers une cible plus élevée." };
+    }
+    const contribution = parseBudget(form.monthly_contribution);
+    if (!contribution.ok) return { ok: false, error: `Versement mensuel : ${contribution.error}` };
+    metric.metric_unit = "€";
+    savings = { currency: SAVINGS_CURRENCY, monthly_contribution: contribution.value };
+  }
   const start_date = form.start_date || null;
   const due_date = form.due_date || null;
   if (start_date && due_date && due_date < start_date) {
@@ -307,6 +342,7 @@ function parseGoalFields(form: GoalFormValues): Parsed<GoalFields> {
       start_date,
       due_date,
       review_cadence: form.review_cadence,
+      ...savings,
     },
   };
 }
@@ -338,6 +374,10 @@ export function buildGoalUpdate(goal: Goal, form: GoalFormValues): Parsed<Partia
     if (next.metric_unit !== goal.metric_unit) body.metric_unit = next.metric_unit;
     if (!sameDecimal(next.start_value, goal.start_value)) body.start_value = next.start_value;
     if (!sameDecimal(next.target_value, goal.target_value)) body.target_value = next.target_value;
+    const currency = next.currency ?? null;
+    const contribution = next.monthly_contribution ?? null;
+    if (currency !== (goal.currency ?? null)) body.currency = currency;
+    if (toCents(contribution) !== toCents(goal.monthly_contribution ?? null)) body.monthly_contribution = contribution;
   }
   return { ok: true, value: body };
 }

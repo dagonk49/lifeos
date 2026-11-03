@@ -1,0 +1,89 @@
+name: E2E stack
+
+# Browser journeys on a production-like installation (scripts/test-e2e-stack.sh): built
+# images, Traefik and TLS, LIFEOS_ENVIRONMENT=production, secure cookies, scheduler, then a
+# backup and a restore signed in with the same passkey. Slower than the CI's `e2e` job (image
+# builds), so it runs on main, every night and on demand, not on every pull request.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      # Layers cached between runs (GitHub Actions cache): only what changed is rebuilt.
+      - name: Build the backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          target: app
+          tags: lifeos-backend:ci
+          load: true
+          cache-from: type=gha,scope=backend-app
+          cache-to: type=gha,scope=backend-app,mode=max
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          tags: lifeos-web:ci
+          load: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+      - name: restic (official binary; Ubuntu ships an older one)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/restic.bz2" \
+            https://github.com/restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2
+          echo "680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d  $RUNNER_TEMP/restic.bz2" \
+            | sha256sum -c -
+          bunzip2 -c "$RUNNER_TEMP/restic.bz2" > "$RUNNER_TEMP/restic"
+          sudo install -m 755 "$RUNNER_TEMP/restic" /usr/local/bin/restic
+          restic version
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - name: Web dependencies, browser and NSS tools (the local authority is trusted there)
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+      - name: Journeys on the production-like stack, backup, restore, sign-in with the same passkey
+        run: scripts/test-e2e-stack.sh
+        env:
+          LIFEOS_TEST_BACKEND_IMAGE: lifeos-backend:ci
+          LIFEOS_TEST_WEB_IMAGE: lifeos-web:ci
+      - name: Journey table in the job summary
+        if: always()
+        working-directory: apps/web
+        run: |
+          node e2e/summary.mjs "Parcours sur l'installation proche de la production" \
+            test-results/stack-backup/junit.xml >> "$GITHUB_STEP_SUMMARY"
+          node e2e/summary.mjs "Après la restauration" \
+            test-results/stack-restored/junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-stack
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 30

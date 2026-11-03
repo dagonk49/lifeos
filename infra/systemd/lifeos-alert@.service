@@ -1,0 +1,9 @@
+# Alert for a failed LifeOS unit (OnFailure=lifeos-alert@%n.service): infra/scripts/notify.sh
+# posts the unit name, the host and the time to LIFEOS_ALERT_URL (no personal data).
+[Unit]
+Description=LifeOS alert: %i failed
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/lifeos/backup.env
+ExecStart=/opt/lifeos/infra/scripts/notify.sh %i

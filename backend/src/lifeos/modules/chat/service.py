@@ -10,27 +10,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lifeos.core.errors import ProblemError, not_found
 from lifeos.core.pagination import Page, keyset, page
 from lifeos.core.security import utcnow
-from lifeos.modules.agents.context import build_sections
+from lifeos.modules.agents.context import build_sections, one_line
+from lifeos.modules.agents.models import AgentRun
 from lifeos.modules.agents.registry import AGENT_SPECS, suggest_agent
 from lifeos.modules.audit import service as audit
-from lifeos.modules.chat import attachments
+from lifeos.modules.chat import attachments, context_ref
 from lifeos.modules.chat.models import Conversation, Message
 from lifeos.modules.chat.schemas import (
+    AttachmentPreview,
     ConversationCreate,
     ConversationOut,
     MessageOut,
+    PreviewRequest,
     SendMessage,
+    SendPreview,
     SendResult,
 )
 from lifeos.modules.guardian import gateway
 from lifeos.modules.guardian.context import Ctx
-from lifeos.modules.guardian.principal import agent_principal
+from lifeos.modules.guardian.principal import Principal, agent_principal
+from lifeos.modules.guardian.privacy import mask
 from lifeos.modules.identity.models import Space
 from lifeos.modules.llm.base import LLMMessage, LLMRequest
+from lifeos.modules.mail import service as mail
+from lifeos.modules.mail.models import MailMessage
 from lifeos.modules.memory import service as memory
 from lifeos.modules.memory.models import Memory
 from lifeos.modules.memory.schemas import MemoryCreate
+from lifeos.modules.privacy import erasure
 from lifeos.modules.retrieval.context import ContextItem, relevant_context
+from lifeos.modules.tasks import service as tasks
 
 RAW_RETENTION = timedelta(days=90)
 HISTORY_MESSAGES = 20
@@ -140,9 +149,39 @@ async def rename_conversation(ctx: Ctx, conversation_id: uuid.UUID, title: str) 
     return conversation
 
 
-async def delete_conversation(ctx: Ctx, conversation_id: uuid.UUID) -> None:
+async def derived(ctx: Ctx, conversation_id: uuid.UUID) -> erasure.Derived:
+    """Facts and tasks saved from this conversation (validated consolidations) and the
+    memories saved from its messages."""
     conversation = await get_conversation(ctx, conversation_id)
-    await ctx.db.delete(conversation)
+    return await erasure.derived_from(
+        ctx.db, ctx.principal.user_id, "conversation", conversation.id
+    )
+
+
+async def delete_conversation(
+    ctx: Ctx, conversation_id: uuid.UUID, *, with_derived: bool = False
+) -> None:
+    """Erasure of the conversation, its messages (cascade) and the consolidations that
+    quote it. What was saved from it stays, unless `with_derived`."""
+    conversation = await get_conversation(ctx, conversation_id)
+    details: dict[str, Any] = {}
+    if with_derived:
+        found = await erasure.derived_from(
+            ctx.db, ctx.principal.user_id, "conversation", conversation.id
+        )
+        for fact in found.facts:
+            await memory.delete_fact(ctx, fact.id)
+        for task in found.tasks:
+            await tasks.delete_task(ctx, task.id)
+        for saved in found.memories:
+            # Listed to the owner before this explicit choice: protected ones too.
+            await memory.delete_memory(ctx, saved.id, confirm=True)
+        details = {
+            "derived_facts": len(found.facts),
+            "derived_tasks": len(found.tasks),
+            "derived_memories": len(found.memories),
+        }
+    details.update(await erasure.erase(ctx.db, conversation))
     await audit.record(
         ctx.db,
         action="conversation.delete",
@@ -152,6 +191,7 @@ async def delete_conversation(ctx: Ctx, conversation_id: uuid.UUID) -> None:
         space_id=conversation.space_id,
         target_type="conversation",
         target_id=conversation.id,
+        details=details,
     )
 
 
@@ -185,7 +225,8 @@ async def _system_prompt(
     if items:
         lines = [
             f"- [{item.kind}, {_ORIGIN_LABELS.get(item.origin, item.origin)}, "
-            f"{item.date.astimezone(ZoneInfo(ctx.user.timezone)).date().isoformat()}] {item.text}"
+            f"{item.date.astimezone(ZoneInfo(ctx.user.timezone)).date().isoformat()}] "
+            f"{one_line(item.text)}"
             for item in items
         ]
         memory_block = MEMORY_BLOCK.format(items="\n".join(lines))
@@ -199,6 +240,76 @@ async def _system_prompt(
     )
 
 
+async def _load_mails(
+    ctx: Ctx, conversation: Conversation, reader: Principal, ids: list[uuid.UUID]
+) -> list[MailMessage]:
+    """The attached e-mails, checked before anything is saved: readable by the replying
+    principal in this space, not sensitive, and the space consents to cloud AI (an
+    e-mail never goes to the cloud otherwise). Refusals are audited."""
+    if not ids:
+        return []
+    try:
+        messages = await mail.load_for_chat(ctx.db, reader, conversation.space_id, ids)
+        space = await ctx.db.get(Space, conversation.space_id)
+        if space is None or not space.cloud_ai_enabled:
+            raise ProblemError(
+                403,
+                "cloud_consent_required",
+                "Cloud AI is not enabled for this space",
+                "Enable cloud AI for this space in the settings to use the assistant.",
+            )
+    except ProblemError as exc:
+        await audit.record_detached(
+            ctx.database,
+            action="mail.attach",
+            outcome="denied",
+            actor_type=reader.kind,
+            actor_id=reader.actor_id,
+            user_id=ctx.principal.user_id,
+            space_id=conversation.space_id,
+            target_type="conversation",
+            target_id=conversation.id,
+            details={"reason": exc.code, "mails": len(ids)},
+        )
+        raise
+    return messages
+
+
+async def _load_selected(
+    ctx: Ctx, conversation: Conversation, reader: Principal, data: SendMessage
+) -> context_ref.Selected | None:
+    """The object chosen as the subject of the message, checked before anything is saved:
+    readable by the replying principal, in this conversation's space. Refusals are
+    audited."""
+    ref = data.context.ref
+    if ref is None:
+        return None
+    if reader.kind == "agent":
+        spec = AGENT_SPECS[data.agent]
+        resource = context_ref.RESOURCES[ref.type]
+        if (
+            resource in spec.resources
+            and resource not in spec.optional_resources
+            and not reader.can(conversation.space_id, resource, "read")
+        ):
+            # One of the agent's own resources, not granted (yet): the agent cannot work
+            # at all here, so nothing is sent and the owner is asked to grant access
+            # (`agent_permission_required`); the client resends the object afterwards.
+            return None
+    try:
+        return await context_ref.load(ctx, reader, conversation.space_id, ref)
+    except ProblemError as exc:
+        await context_ref.record_refusal(
+            ctx,
+            reader,
+            space_id=conversation.space_id,
+            conversation_id=conversation.id,
+            ref=ref,
+            reason=exc.code,
+        )
+        raise
+
+
 async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) -> SendResult:
     conversation = await get_conversation(ctx, conversation_id)
     agent = (
@@ -207,9 +318,28 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         else None
     )
     # Checked before anything is saved: a refused attachment leaves no trace of the message.
-    attached = await attachments.load(
-        ctx.db, agent or ctx.principal, conversation.space_id, data.attachments
-    )
+    # An agent reads only its own resources, whatever else it was granted (task 27).
+    reader = agent.restricted(AGENT_SPECS[data.agent].resources) if agent else ctx.principal
+    try:
+        attached = await attachments.load(ctx.db, reader, conversation.space_id, data.attachments)
+    except ProblemError as exc:
+        if exc.code == "attachment_not_allowed":
+            # An agent without the documents right (never granted, revoked or expired).
+            await audit.record_detached(
+                ctx.database,
+                action="document.attach",
+                outcome="denied",
+                actor_type=reader.kind,
+                actor_id=reader.actor_id,
+                user_id=ctx.principal.user_id,
+                space_id=conversation.space_id,
+                target_type="conversation",
+                target_id=conversation.id,
+                details={"reason": "no_permission", "attachments": len(data.attachments)},
+            )
+        raise
+    attached_mails = await _load_mails(ctx, conversation, reader, data.mail_ids)
+    selected = await _load_selected(ctx, conversation, reader, data)
     now = utcnow()
     user_message = Message(
         user_id=ctx.principal.user_id,
@@ -218,6 +348,8 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         role="user",
         content=data.content,
         attachments=[document.id for document in attached],
+        context_type=selected.ref.type if selected else None,
+        context_id=selected.ref.id if selected else None,
         purge_after=now + RAW_RETENTION,
         created_at=now,
     )
@@ -236,9 +368,16 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         # data it was not granted (facts, journal, memories...).
         recent = [m for m in recent if m.role == "user" or m.agent == data.agent]
     history = _history(recent)
+    blocks = []
     if attached:
+        blocks.append(attachments.block(attached))
+    if attached_mails:
+        blocks.append(mail.block(attached_mails))
+    if selected:
+        blocks.append(context_ref.block(selected, ZoneInfo(ctx.user.timezone)))
+    if blocks:
         # Only with the message they were attached to: later turns do not resend them.
-        block = attachments.block(attached)
+        block = "\n\n".join(blocks)
         if history and history[-1].role == "user":
             history[-1] = LLMMessage(role="user", text=f"{history[-1].text}\n\n{block}")
         else:
@@ -256,7 +395,9 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
 
     call_ctx = ctx
     if data.agent == "core":
-        items = await relevant_context(ctx, space_id=conversation.space_id, query=data.content)
+        # The chosen object widens the search, still in this conversation's space only.
+        query = f"{data.content} {selected.title}" if selected else data.content
+        items = await relevant_context(ctx, space_id=conversation.space_id, query=query)
         system = await _system_prompt(ctx, space, data.context.screen, items)
         context_items = len(items)
     else:
@@ -267,14 +408,29 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
             # Nothing is sent: the message does not claim attachments it did not carry
             # (the client resends them with the message once access is granted).
             user_message.attachments = []
+            user_message.context_type = user_message.context_id = None
             await ctx.db.flush()
+            # Never granted, revoked or expired: the refusal is kept with the message.
+            await audit.record(
+                ctx.db,
+                action="chat.agent_reply",
+                outcome="denied",
+                actor_type="agent",
+                actor_id=data.agent,
+                user_id=ctx.principal.user_id,
+                space_id=space.id,
+                target_type="conversation",
+                target_id=conversation.id,
+                details={"reason": "no_permission", "missing": ",".join(missing)},
+            )
             return degraded(
                 "agent_permission_required",
                 "This agent has no access to this space",
                 "Grant it read access in the settings to use it.",
                 missing=missing,
             )
-        call_ctx = replace(ctx, principal=agent)
+        # The agent reads its own scope only (spec ∩ grants), whatever else it was granted.
+        call_ctx = replace(ctx, principal=agent.restricted(spec.resources))
         sections = await build_sections(call_ctx, spec, space.id, data.content)
         system = (
             await _system_prompt(ctx, space, data.context.screen, [])
@@ -285,9 +441,11 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         )
         context_items = len(sections)
     if attached:
-        await attachments.record(
-            ctx.db, agent or ctx.principal, attached, message_id=user_message.id
-        )
+        await attachments.record(ctx.db, reader, attached, message_id=user_message.id)
+    if attached_mails:
+        await mail.record_attach(ctx.db, reader, attached_mails, message_id=user_message.id)
+    if selected:
+        await context_ref.record(ctx, reader, selected, message_id=user_message.id)
     request = LLMRequest(
         purpose="chat.reply" if data.agent == "core" else f"agent.{data.agent}",
         system=system,
@@ -326,6 +484,37 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
     )
 
 
+async def preview_message(ctx: Ctx, data: PreviewRequest) -> SendPreview:
+    """The control shown before sending: which attachments stay on the server (and why),
+    and which identifiers the gateway will mask, by kind. Same rules as `send_message`
+    (same reader, same checks, same masking); nothing is saved, nothing is sent.
+
+    The rest of the request (instructions, memory or agent context) is masked the same
+    way when sent; it is not the owner's input, so it is not part of this control.
+    """
+    ctx.principal.require_space(data.space_id)
+    reader = (
+        await agent_principal(ctx.db, ctx.principal.user_id, data.agent)
+        if data.agent != "core"
+        else ctx.principal
+    )
+    items = []
+    for item in await attachments.check(ctx.db, reader, data.space_id, data.attachments):
+        masked: dict[str, int] = {}
+        if item.refusal is None and item.document is not None:
+            masked = mask(attachments.block([item.document])).kinds()
+        items.append(
+            AttachmentPreview(
+                document_id=item.document_id,
+                sent=item.refusal is None,
+                reason=item.refusal,
+                sensitivity=item.sensitivity,
+                masked=masked,
+            )
+        )
+    return SendPreview(masked=mask(data.content).kinds(), attachments=items)
+
+
 async def get_message(ctx: Ctx, message_id: uuid.UUID) -> Message:
     message = await ctx.db.scalar(
         select(Message).where(
@@ -358,7 +547,7 @@ async def set_retained(ctx: Ctx, message_id: uuid.UUID, retained: bool) -> Messa
 
 async def delete_message(ctx: Ctx, message_id: uuid.UUID) -> None:
     message = await get_message(ctx, message_id)
-    await ctx.db.delete(message)
+    erased = await erasure.erase(ctx.db, message)
     await audit.record(
         ctx.db,
         action="message.delete",
@@ -368,6 +557,7 @@ async def delete_message(ctx: Ctx, message_id: uuid.UUID) -> None:
         space_id=message.space_id,
         target_type="message",
         target_id=message.id,
+        details=dict(erased),
     )
 
 
@@ -384,7 +574,8 @@ async def remember_message(ctx: Ctx, message_id: uuid.UUID) -> Memory:
 
 
 async def purge_expired_messages(session: AsyncSession) -> dict[str, Any]:
-    """Daily purge of raw conversations (Mémoire Premium, 90 days), with proof of run."""
+    """Daily purge of raw conversations (Mémoire Premium, 90 days) and of agent runs, with
+    proof of run."""
     now = utcnow()
     messages = await session.execute(
         delete(Message).where(Message.purge_after.is_not(None), Message.purge_after < now)
@@ -399,9 +590,12 @@ async def purge_expired_messages(session: AsyncSession) -> dict[str, Any]:
         )
     )
     conversations = await session.execute(delete(Conversation).where(Conversation.id.in_(empty)))
+    # Coordinated agent runs (task 28) hold figures and goals: same 90 days.
+    runs = await session.execute(delete(AgentRun).where(AgentRun.purge_after < now))
     counts = {
         "messages": int(messages.rowcount or 0),  # type: ignore[attr-defined]
         "conversations": int(conversations.rowcount or 0),  # type: ignore[attr-defined]
+        "agent_runs": int(runs.rowcount or 0),  # type: ignore[attr-defined]
     }
     await audit.record(
         session,

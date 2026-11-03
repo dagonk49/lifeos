@@ -1,42 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { join } from "node:path";
-
-import { expect, test, type Page } from "@playwright/test";
-
-import { backendEnv } from "../playwright.config";
-
-const backend = join(import.meta.dirname, "..", "..", "..", "backend");
-
-/** A fresh enrollment link for the owner (the MVP journey used the first one). */
-function enrollmentToken(): string {
-  const output = execFileSync(
-    "uv",
-    ["run", "--directory", backend, "lifeos-admin", "enrollment-token", "--email", "e2e@example.org"],
-    { env: { ...process.env, ...backendEnv }, encoding: "utf8" },
-  );
-  const token = /enroll#token=(\S+)/.exec(output)?.[1];
-  if (!token) throw new Error(`no enrollment token in CLI output:\n${output}`);
-  return token;
-}
-
-async function addVirtualAuthenticator(page: Page): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-async function nav(page: Page, name: string): Promise<void> {
-  await page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name }).click();
-}
+import { expect, test } from "./fixtures";
+import { addVirtualAuthenticator, enrollmentToken, nav } from "./helpers";
 
 test("Step 3 journey: goals, reviews, memory review, agents, consolidation, semantic search", async ({ page }) => {
   test.setTimeout(120_000);
@@ -44,7 +7,7 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
   await page.goto(`/enroll#token=${enrollmentToken()}`);
   await page.getByLabel("Nom de l'appareil").fill("Navigateur E2E étape 3");
   await page.getByRole("button", { name: "Créer ma passkey" }).click();
-  await expect(page.getByRole("heading", { name: /^Aujourd'hui/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Aujourd'hui/ })).toBeVisible();
 
   // Goals (F06): a measurable goal, a check-in, progress computed locally.
   await nav(page, "Objectifs");
@@ -113,4 +76,20 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
   await goalHit.getByRole("link", { name: "Ouvrir" }).click();
   await expect(page).toHaveURL(/\/goals\?id=/);
   await expect(page.getByRole("progressbar").first()).toHaveAttribute("aria-valuenow", "50");
+
+  // « Discuter de cet objectif » (task 24): this goal only, sent as data with the message,
+  // shown in a chip the owner can remove, and linked from the message.
+  await page.getByRole("link", { name: "Discuter de cet objectif" }).click();
+  await expect(page).toHaveURL(/\/chat\?about=goal:[0-9a-f-]{36}$/);
+  const chip = page.getByRole("group", { name: "Élément joint au message" });
+  await expect(chip.getByText("À propos de « Courir 10 km » (Objectif)")).toBeVisible();
+  await page.getByLabel("Votre message").fill("Où en suis-je ?");
+  await page.getByRole("button", { name: "Envoyer" }).click();
+  const thread = page.getByRole("list", { name: "Messages" });
+  // The fake model echoes what it received: the question, then the goal as delimited data.
+  await expect(thread.getByText(/^\[fake\] Où en suis-je \?[\s\S]*\[Objectif : « Courir 10 km »\]/)).toBeVisible();
+  await expect(thread.getByRole("link", { name: "Objectif lié" })).toHaveAttribute("href", /\/goals\?id=/);
+  await chip.getByRole("button", { name: "Retirer le contexte" }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(chip).toHaveCount(0);
 });

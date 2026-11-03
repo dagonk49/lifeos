@@ -22,7 +22,13 @@ type Call = LLMUsage["recent_calls"][number];
 const COLLAPSED = 10;
 
 function ErrorCode({ code }: { code: string | null }) {
-  if (!code) return <span className="text-stone-400">—</span>;
+  if (!code)
+    return (
+      <span className="text-muted">
+        <span aria-hidden>—</span>
+        <span className="sr-only">aucune erreur</span>
+      </span>
+    );
   const explanation = errorCodeLabel(code);
   return (
     <span title={explanation}>
@@ -41,7 +47,7 @@ export function UsageCalls({ calls, paid }: { calls: LLMUsage["recent_calls"]; p
 
   return (
     <div className="flex flex-col gap-2">
-      <p id={captionId} className="text-xs text-stone-500">
+      <p id={captionId} className="text-xs text-muted">
         Métadonnées seulement : le contenu envoyé n&apos;est jamais conservé. « Masqués » : données sensibles
         remplacées localement avant l&apos;envoi.
       </p>
@@ -56,10 +62,10 @@ export function UsageCalls({ calls, paid }: { calls: LLMUsage["recent_calls"]; p
                 <span className="min-w-0 truncate font-medium">{purposeLabel(call.purpose)}</span>
                 <Badge tone={outcome.tone}>{outcome.label}</Badge>
               </div>
-              <div className="text-xs text-stone-500">
+              <div className="text-xs text-muted">
                 {formatDateTime(call.created_at)} · {tierLabel(call.tier)} · jetons {tokensLabel(call.input_tokens, call.output_tokens)}
               </div>
-              <div className="flex flex-wrap gap-x-2 text-xs text-stone-500">
+              <div className="flex flex-wrap gap-x-2 text-xs text-muted">
                 <span className="break-all">{modelLabel(call.model)}</span>
                 <span>· masqués : {redactionsLabel(call.redactions).toLowerCase()}</span>
                 {paid && <span>· {formatUsd(call.cost_usd)}</span>}
@@ -75,10 +81,10 @@ export function UsageCalls({ calls, paid }: { calls: LLMUsage["recent_calls"]; p
       </ul>
 
       {/* Larger screens: a table. */}
-      <div className="hidden overflow-x-auto sm:block">
+      <div role="region" aria-label="Tableau des appels" tabIndex={0} className="hidden overflow-x-auto sm:block">
         <table className="w-full text-left text-xs" aria-describedby={captionId}>
           <caption className="sr-only">Derniers appels à l&apos;IA</caption>
-          <thead className="border-b border-stone-200 text-stone-500 dark:border-stone-800">
+          <thead className="border-b border-stone-200 text-muted dark:border-stone-800">
             <tr>
               <th scope="col" className="py-1.5 pr-3 font-medium">Date</th>
               <th scope="col" className="py-1.5 pr-3 font-medium">Usage</th>
@@ -100,7 +106,7 @@ export function UsageCalls({ calls, paid }: { calls: LLMUsage["recent_calls"]; p
               const outcome = outcomeInfo(call.outcome);
               return (
                 <tr key={call.id} className="align-top">
-                  <td className="whitespace-nowrap py-1.5 pr-3 text-stone-500">{formatDateTime(call.created_at)}</td>
+                  <td className="whitespace-nowrap py-1.5 pr-3 text-muted">{formatDateTime(call.created_at)}</td>
                   <td className="py-1.5 pr-3">{purposeLabel(call.purpose)}</td>
                   <td className="py-1.5 pr-3">{tierLabel(call.tier)}</td>
                   <td className="max-w-40 break-all py-1.5 pr-3 text-stone-600 dark:text-stone-400">{modelLabel(call.model)}</td>

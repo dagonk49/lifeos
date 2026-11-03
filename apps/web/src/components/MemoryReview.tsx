@@ -68,7 +68,7 @@ export function MemoryReviewPanel({ review }: { review: MemoryReviewState }) {
           appel à l&apos;IA. Vous décidez de ce qui reste en mémoire.
         </p>
         {!semantic && (
-          <p className="mt-1 text-xs text-stone-500">
+          <p className="mt-1 text-xs text-muted">
             Le modèle local d&apos;analyse du sens est indisponible : seuls les doublons exacts et
             les préférences anciennes sont détectés.
           </p>
@@ -106,7 +106,7 @@ export function MemoryReviewPanel({ review }: { review: MemoryReviewState }) {
         </ul>
       )}
       {truncated && (
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           Seuls les {MAX_REVIEW_ITEMS} premiers éléments de chaque espace sont affichés ; les
           suivants apparaîtront une fois ceux-ci traités.
         </p>

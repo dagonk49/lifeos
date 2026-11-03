@@ -21,6 +21,12 @@ class Goal(UUIDPrimaryKey, Owned, Timestamps, Base):
             "status IN ('active', 'paused', 'achieved', 'abandoned', 'archived')", name="status"
         ),
         CheckConstraint("review_cadence IN ('weekly', 'monthly')", name="review_cadence"),
+        # A savings goal (task 26) is a measurable goal counted in a currency.
+        CheckConstraint("currency IS NULL OR currency ~ '^[A-Z]{3}$'", name="currency"),
+        CheckConstraint(
+            "monthly_contribution IS NULL OR monthly_contribution >= 0",
+            name="monthly_contribution",
+        ),
         Index("ix_goals_search_vector", "search_vector", postgresql_using="gin"),
     )
 
@@ -33,6 +39,9 @@ class Goal(UUIDPrimaryKey, Owned, Timestamps, Base):
     start_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     target_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     current_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    # Savings goal: the values are amounts in this currency; the planned monthly saving.
+    currency: Mapped[str | None] = mapped_column(Text)
+    monthly_contribution: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     start_date: Mapped[date | None]
     due_date: Mapped[date | None] = mapped_column(index=True)
     status: Mapped[str] = mapped_column(Text, default="active", server_default="active")

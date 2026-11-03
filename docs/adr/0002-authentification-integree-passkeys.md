@@ -1,6 +1,6 @@
 # ADR 0002 — Authentification intégrée par passkeys
 
-- Statut : acceptée
+- Statut : acceptée ; précisée le 2026-10-30 (pas de client mobile à ce jour) ; amendée par l'ADR 0022 (passkeys du navigateur sur le téléphone, pas de client natif)
 - Date : 2026-10-11
 
 ## Contexte
@@ -47,6 +47,13 @@ d'usage réel l'exige (accès depuis un appareil sans passkey).
 - Le client web doit être servi sur un domaine stable (RP ID WebAuthn) en HTTPS ; `localhost`
   est accepté en développement.
 - Le client mobile (plus tard) utilisera les passkeys Android (Credential Manager).
+  Précision (2026-10-30) : aucun client mobile n'existe ; sur le téléphone, les passkeys
+  s'utilisent dans le navigateur, avec le client web. Un client natif reste à décider
+  (périmètre Android, [docs/README.md](../README.md#points-encore-ouverts)).
+  Décidé par l'[ADR 0022](0022-client-mobile-web-dabord.md) : passkeys du navigateur, y
+  compris dans l'application installée (qui a ses propres cookies : une connexion de plus).
+  Un client natif demanderait `assetlinks.json` public et l'origine `android:apk-key-hash:`
+  côté WebAuthn.
 
 ## Alternatives écartées
 

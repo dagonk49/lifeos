@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Alert, Button, Empty, Input } from "@/components/ui";
+import { Alert, Button, CheckboxTarget, Empty, Field, Input } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { goalKeys } from "@/lib/goals";
@@ -52,18 +52,20 @@ export function GoalMilestones({ goal }: { goal: GoalDetail }) {
             const done = m.done_at !== null;
             return (
               <li key={m.id} className="flex items-start gap-3 py-2">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 shrink-0 accent-teal-700"
-                  checked={done}
-                  disabled={toggle.isPending && toggle.variables?.id === m.id}
-                  onChange={() => toggle.mutate(m)}
-                  aria-label={done ? `Marquer « ${m.title} » comme non atteint` : `Marquer « ${m.title} » comme atteint`}
-                />
+                <CheckboxTarget>
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-teal-700"
+                    checked={done}
+                    disabled={toggle.isPending && toggle.variables?.id === m.id}
+                    onChange={() => toggle.mutate(m)}
+                    aria-label={done ? `Marquer « ${m.title} » comme non atteint` : `Marquer « ${m.title} » comme atteint`}
+                  />
+                </CheckboxTarget>
                 <div className="min-w-0 flex-1 text-sm">
-                  <p className={done ? "text-stone-500 line-through" : undefined}>{m.title}</p>
+                  <p className={done ? "text-muted line-through" : undefined}>{m.title}</p>
                   {(m.due_date || m.done_at) && (
-                    <p className="text-xs text-stone-500">
+                    <p className="text-xs text-muted">
                       {m.due_date && `Prévu le ${formatDate(m.due_date)}`}
                       {m.due_date && m.done_at && " · "}
                       {m.done_at && `atteint le ${formatDate(m.done_at)}`}
@@ -91,21 +93,18 @@ export function GoalMilestones({ goal }: { goal: GoalDetail }) {
           if (title.trim()) add.mutate();
         }}
       >
-        <Input
-          aria-label="Nouveau jalon"
-          placeholder="Nouveau jalon"
-          value={title}
-          maxLength={200}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <Input
-          type="date"
-          aria-label="Date prévue du jalon (facultatif)"
-          value={due}
-          onChange={(e) => setDue(e.target.value)}
-          className="sm:w-44"
-        />
-        <Button type="submit" variant="secondary" disabled={add.isPending || !title.trim()}>
+        <Field label="Nouveau jalon" className="flex-1">
+          <Input value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+        </Field>
+        <Field label="Date prévue du jalon (facultatif)" className="sm:w-56">
+          <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+        </Field>
+        <Button
+          type="submit"
+          variant="secondary"
+          className="sm:self-end"
+          disabled={add.isPending || !title.trim()}
+        >
           Ajouter
         </Button>
       </form>

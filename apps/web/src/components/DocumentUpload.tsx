@@ -20,11 +20,20 @@ import {
 import { useSpace } from "@/lib/space";
 import type { DocumentDetail } from "@/lib/types";
 
-/** Upload card: the file is encrypted on the server, then read locally in the background. */
-export function DocumentUpload({ onUploaded }: { onUploaded: (document: DocumentDetail) => void }) {
+/**
+ * Upload card: the file is encrypted on the server, then read locally in the background.
+ * `initialFile`: a file shared to LifeOS from the phone (lib/share.ts), chosen in advance.
+ */
+export function DocumentUpload({
+  onUploaded,
+  initialFile = null,
+}: {
+  onUploaded: (document: DocumentDetail) => void;
+  initialFile?: File | null;
+}) {
   const queryClient = useQueryClient();
   const { spaces, selected, writeSpaceId, spaceName } = useSpace();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile);
   const [purpose, setPurpose] = useState<UploadPurpose>("document");
   const [title, setTitle] = useState("");
   const [keepOriginal, setKeepOriginal] = useState(false);
@@ -109,7 +118,7 @@ export function DocumentUpload({ onUploaded }: { onUploaded: (document: Document
             ))}
           </div>
           {purpose === "receipt" && (
-            <span className="text-xs text-stone-500">
+            <span className="text-xs text-muted">
               Le montant, la date et le commerçant sont lus localement ; vous les vérifiez avant tout ajout aux finances.
             </span>
           )}
@@ -151,7 +160,7 @@ export function DocumentUpload({ onUploaded }: { onUploaded: (document: Document
             <label htmlFor={keepId} className="font-medium">
               Conserver l&apos;original sans limite
             </label>
-            <p id={keepHintId} className="mt-0.5 text-xs text-stone-500">
+            <p id={keepHintId} className="mt-0.5 text-xs text-muted">
               Par défaut, l&apos;original chiffré est supprimé à la fin de la durée de conservation (
               {DEFAULT_RETENTION_DAYS} jours, sauf autre réglage du serveur) ; le texte extrait reste disponible. La date
               exacte s&apos;affiche après l&apos;envoi.

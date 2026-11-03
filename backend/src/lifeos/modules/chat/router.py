@@ -15,11 +15,14 @@ from lifeos.modules.chat.schemas import (
     ConversationOut,
     ConversationUpdate,
     MessageOut,
+    PreviewRequest,
     RetainRequest,
     SendMessage,
+    SendPreview,
     SendResult,
 )
 from lifeos.modules.memory.schemas import MemoryOut
+from lifeos.modules.privacy.schemas import DerivedOut
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -58,9 +61,18 @@ async def rename_conversation(
     )
 
 
+@router.get("/conversations/{conversation_id}/derived")
+async def derived(conversation_id: uuid.UUID, ctx: CtxDep) -> DerivedOut:
+    """What was saved from this conversation: shown before deleting it."""
+    return DerivedOut.of(await service.derived(ctx, conversation_id))
+
+
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(conversation_id: uuid.UUID, ctx: CtxDep) -> None:
-    await service.delete_conversation(ctx, conversation_id)
+async def delete_conversation(
+    conversation_id: uuid.UUID, ctx: CtxDep, with_derived: bool = False
+) -> None:
+    """Erasure; `with_derived=true` also erases the facts, tasks and memories saved from it."""
+    await service.delete_conversation(ctx, conversation_id, with_derived=with_derived)
 
 
 @router.post(
@@ -87,6 +99,13 @@ async def send_message(
         body=body,
         run=run,
     )
+
+
+@router.post("/preview")
+async def preview_message(body: PreviewRequest, ctx: CtxDep) -> SendPreview:
+    """Control before sending: attachments left out and identifiers masked, by kind.
+    Local only: nothing is saved, nothing goes to the AI provider."""
+    return await service.preview_message(ctx, body)
 
 
 @router.post("/conversations/{conversation_id}/consolidate")

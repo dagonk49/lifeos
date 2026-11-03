@@ -11,11 +11,17 @@ from lifeos.modules.llm.base import (
     LLMError,
     LLMRequest,
     LLMResponse,
+    LLMUnavailableError,
     LLMUsage,
     parse_structured,
 )
 
 Responder = Callable[[LLMRequest], str]
+
+# A message starting with this marker makes the provider fail as an unreachable cloud
+# provider would: lets a separate process (the end-to-end tests' browser) script an outage,
+# which `push()` cannot do. Test-only provider: never reached in production.
+OUTAGE_MARKER = "[fake:indisponible]"
 
 
 def _default_responder(request: LLMRequest) -> str:
@@ -41,6 +47,9 @@ class FakeProvider:
 
     def _reply(self, request: LLMRequest) -> LLMResponse:
         self.requests.append(request)
+        last = request.messages[-1].text if request.messages else ""
+        if not self.queue and last.startswith(OUTAGE_MARKER):
+            raise LLMUnavailableError("scripted outage")
         item = self.queue.popleft() if self.queue else self.responder(request)
         if isinstance(item, LLMError):
             raise item

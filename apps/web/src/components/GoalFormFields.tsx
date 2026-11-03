@@ -23,10 +23,36 @@ export function GoalFormFields({
       </Field>
       {measurable && (
         <>
-          <Field label="Unité" hint="Ex. kg, km, €, pages">
-            <Input value={form.metric_unit} onChange={text("metric_unit")} maxLength={30} autoComplete="off" />
-          </Field>
-          <Field label="Valeur de départ" hint="Où vous en êtes aujourd'hui (0 si vous partez de zéro).">
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              className="accent-teal-700"
+              checked={form.savings}
+              onChange={(e) => onChange({ savings: e.target.checked })}
+            />
+            Objectif d&apos;épargne (en euros, suivi dans la projection des finances)
+          </label>
+          {form.savings ? (
+            <Field
+              label="Versement mensuel prévu (facultatif)"
+              hint="Sans versement déclaré, la date est estimée à partir du solde prévu de vos finances."
+            >
+              <Input
+                inputMode="decimal"
+                value={form.monthly_contribution}
+                onChange={text("monthly_contribution")}
+                autoComplete="off"
+              />
+            </Field>
+          ) : (
+            <Field label="Unité" hint="Ex. kg, km, pages">
+              <Input value={form.metric_unit} onChange={text("metric_unit")} maxLength={30} autoComplete="off" />
+            </Field>
+          )}
+          <Field
+            label={form.savings ? "Déjà épargné" : "Valeur de départ"}
+            hint={form.savings ? "En euros, au centime près (0 si vous partez de zéro)." : "Où vous en êtes aujourd'hui (0 si vous partez de zéro)."}
+          >
             <Input
               inputMode="decimal"
               value={form.start_value}
@@ -35,7 +61,7 @@ export function GoalFormFields({
               autoComplete="off"
             />
           </Field>
-          <Field label="Valeur cible">
+          <Field label={form.savings ? "Montant visé" : "Valeur cible"}>
             <Input
               inputMode="decimal"
               value={form.target_value}

@@ -1,0 +1,26 @@
+# LifeOS behind an existing reverse proxy (e.g. Nginx Proxy Manager) that already owns ports
+# 80/443 and terminates TLS (docs/installation.md, « Derrière un reverse proxy existant »).
+#
+#   COMPOSE_FILE=compose.yaml:compose.proxy.yaml   (set by: install.sh --behind-proxy)
+#
+# Traefik then publishes no port: the proxy reaches it as http://lifeos-traefik:80 over a shared
+# Docker network. Traefik keeps the LifeOS routing, the security headers and the rate limit
+# of /v1/auth (per client address, read from the X-Forwarded-For header set by the proxy).
+services:
+  traefik:
+    ports: !reset []
+    command: ["--configFile=/etc/traefik/traefik.proxy.yml"]
+    environment:
+      LIFEOS_BEHIND_PROXY: "true"
+    volumes:
+      - ./traefik/traefik.proxy.yml:/etc/traefik/traefik.proxy.yml:ro
+    networks:
+      edge: {}
+      proxy:
+        aliases: [lifeos-traefik]
+
+networks:
+  proxy:
+    # Created by install.sh --behind-proxy; the existing proxy joins it too.
+    external: true
+    name: ${LIFEOS_PROXY_NETWORK:-lifeos-proxy}

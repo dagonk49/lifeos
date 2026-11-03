@@ -25,6 +25,7 @@ from lifeos.modules.journal.schemas import (
 )
 from lifeos.modules.llm.base import LLMMessage, LLMRequest
 from lifeos.modules.memory import service as memory
+from lifeos.modules.privacy import erasure
 from lifeos.modules.tasks import service as tasks
 from lifeos.modules.tasks.schemas import TaskCreate
 
@@ -128,11 +129,27 @@ async def update_entry(
     return entry
 
 
-async def delete_entry(ctx: Ctx, entry_id: uuid.UUID) -> None:
+async def derived(ctx: Ctx, entry_id: uuid.UUID) -> erasure.Derived:
+    """Facts and tasks saved from this entry (its validated analysis)."""
+    entry = await get_entry(ctx, entry_id)
+    return await erasure.derived_from(ctx.db, ctx.principal.user_id, "journal_entry", entry.id)
+
+
+async def delete_entry(ctx: Ctx, entry_id: uuid.UUID, *, with_derived: bool = False) -> None:
+    """Erasure of the entry, of the analyses that quote it and of the reading of the
+    reviews of its day. What was saved from it stays, unless `with_derived`."""
     entry = await get_entry(ctx, entry_id)
     await actions.authorize(ctx, "journal.write", entry.space_id)
-    await ctx.db.delete(entry)
-    await _audit(ctx, "journal.delete", entry)
+    details: dict[str, Any] = {}
+    if with_derived:
+        found = await erasure.derived_from(ctx.db, ctx.principal.user_id, "journal_entry", entry.id)
+        for fact in found.facts:
+            await memory.delete_fact(ctx, fact.id)
+        for task in found.tasks:
+            await tasks.delete_task(ctx, task.id)
+        details = {"derived_facts": len(found.facts), "derived_tasks": len(found.tasks)}
+    details.update(await erasure.erase(ctx.db, entry))
+    await _audit(ctx, "journal.delete", entry, **details)
 
 
 async def analyze(ctx: Ctx, entry_id: uuid.UUID) -> Approval:

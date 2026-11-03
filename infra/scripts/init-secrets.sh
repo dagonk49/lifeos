@@ -37,3 +37,28 @@ if [[ ! -e "$dir/lifeos_hf_token" ]]; then
   : > "$dir/lifeos_hf_token"
   echo "created: lifeos_hf_token (empty: only needed if the embedding model is gated)"
 fi
+# AES-256-GCM key of the OAuth tokens of the connected accounts (ADR 0012). Losing it only
+# forces reconnecting the accounts: never store it with the backups.
+if [[ -e "$dir/lifeos_connectors_key" ]]; then
+  echo "exists:  lifeos_connectors_key"
+else
+  head -c 32 /dev/urandom | base64 | tr -d '\n' > "$dir/lifeos_connectors_key"
+  echo "created: lifeos_connectors_key"
+fi
+if [[ ! -e "$dir/lifeos_google_client_secret" ]]; then
+  : > "$dir/lifeos_google_client_secret"
+  echo "created: lifeos_google_client_secret (empty: paste the Google OAuth client secret to connect Google accounts)"
+fi
+# VAPID key of Web Push (ADR 0019): a P-256 private key, PEM (PKCS#8). Losing it only forces
+# every phone to enable notifications again; the worker signs with it, the API publishes its
+# public half.
+if [[ -e "$dir/lifeos_vapid_private_key" ]]; then
+  echo "exists:  lifeos_vapid_private_key"
+elif command -v openssl >/dev/null 2>&1; then
+  openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt > "$dir/lifeos_vapid_private_key"
+  echo "created: lifeos_vapid_private_key"
+else
+  # A missing file is created by the next run; compose needs it even with push disabled.
+  : > "$dir/lifeos_vapid_private_key"
+  echo "created: lifeos_vapid_private_key (empty: install openssl, delete it and run this script again before LIFEOS_PUSH_PROVIDER=webpush)" >&2
+fi

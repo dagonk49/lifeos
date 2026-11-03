@@ -13,6 +13,10 @@ from lifeos.core.errors import ProblemError, not_found
 from lifeos.modules.audit import service as audit
 from lifeos.modules.guardian.actions import authorize
 from lifeos.modules.identity.models import Space
+from lifeos.modules.notifications.service import retime_pending
+
+# Settings that change when a notification may be delivered.
+_TIMING = ("timezone", "quiet_hours_start", "quiet_hours_end", "critical_bypass_quiet_hours")
 
 router = APIRouter(tags=["settings"])
 
@@ -39,6 +43,7 @@ class SettingsOut(BaseModel):
     quiet_hours_end: time | None
     llm_monthly_token_budget: int
     llm_paused: bool
+    critical_bypass_quiet_hours: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -49,6 +54,9 @@ class SettingsUpdate(BaseModel):
     llm_monthly_token_budget: int | None = Field(default=None, ge=0, le=100_000_000)
     # Emergency stop of every cloud call (F08: "arrêt d'urgence").
     llm_paused: bool | None = None
+    # F09: critical alerts may go through quiet hours. Granting it is reinforced (recent
+    # passkey), withdrawing it is immediate; both are audited.
+    critical_bypass_quiet_hours: bool | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -108,12 +116,35 @@ async def update_settings(body: SettingsUpdate, ctx: CtxDep) -> SettingsOut:
         raise ProblemError(
             422, "quiet_hours_incomplete", "Quiet hours need both a start and an end"
         )
+    before = {key: getattr(ctx.user, key) for key in _TIMING}
+    bypass = changes.pop("critical_bypass_quiet_hours", None)
+    if bypass is not None and bypass != ctx.user.critical_bypass_quiet_hours:
+        if bypass:
+            # Letting alerts through the owner's silence is a consent: reinforced (the
+            # refusal is audited by the guardian).
+            await authorize(ctx, "notification.critical_bypass", None)
+        ctx.user.critical_bypass_quiet_hours = bypass
+        await audit.record(
+            ctx.db,
+            action="notification.critical_bypass",
+            actor_type="user",
+            actor_id=ctx.principal.actor_id,
+            user_id=ctx.principal.user_id,
+            details={"enabled": bypass},
+        )
+    if bypass is not None:
+        changes["critical_bypass_quiet_hours"] = bypass
     for key, value in changes.items():
+        if key == "critical_bypass_quiet_hours":
+            continue
         if key in ("display_name", "timezone", "llm_monthly_token_budget", "llm_paused") and (
             value is None
         ):
             continue
         setattr(ctx.user, key, value)
+    if any(getattr(ctx.user, key) != before[key] for key in _TIMING):
+        # Notifications not delivered yet follow the new quiet hours, zone or permission.
+        await retime_pending(ctx.db, ctx.user)
     await audit.record(
         ctx.db,
         action="settings.update",

@@ -51,7 +51,7 @@ export function AgentSelector({
           </option>
         ))}
       </Select>
-      <div id={helpId} className="flex flex-col gap-0.5 text-xs text-stone-500">
+      <div id={helpId} className="flex flex-col gap-0.5 text-xs text-muted">
         {current?.description && <p>{current.description}</p>}
         {current && current.missing.length > 0 && (
           <p className="text-amber-800 dark:text-amber-300">

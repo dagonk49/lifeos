@@ -11,6 +11,8 @@ os.environ.setdefault("LIFEOS_WEBAUTHN_RP_ID", "localhost")
 os.environ.setdefault("LIFEOS_COOKIE_SECURE", "false")
 os.environ.setdefault("LIFEOS_LOG_FORMAT", "console")
 os.environ.setdefault("LIFEOS_LOG_LEVEL", "WARNING")
+# The gauges are refreshed by the tests themselves (test_observability.py).
+os.environ.setdefault("LIFEOS_METRICS_REFRESH_SECONDS", "0")
 
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass

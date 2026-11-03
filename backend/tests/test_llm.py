@@ -14,7 +14,7 @@ from lifeos.modules.llm.base import (
     LLMRequest,
     LLMUnavailableError,
 )
-from lifeos.modules.llm.fake import DisabledProvider, FakeProvider
+from lifeos.modules.llm.fake import OUTAGE_MARKER, DisabledProvider, FakeProvider
 from lifeos.modules.llm.gemini import GeminiProvider
 
 
@@ -46,6 +46,17 @@ async def test_fake_provider_default_structured_answer() -> None:
     assert parsed.items == []
     with pytest.raises(LLMInvalidOutputError):
         await FakeProvider().generate_structured(_request(), Extraction)  # required field
+
+
+async def test_fake_provider_scripted_outage() -> None:
+    fake = FakeProvider()
+    with pytest.raises(LLMUnavailableError):
+        await fake.generate(_request(f"{OUTAGE_MARKER} Aide-moi"))
+    # Only at the start of the last message: quoted elsewhere, it is plain text.
+    assert (await fake.generate(_request(f"Voir {OUTAGE_MARKER}"))).text.startswith("[fake]")
+    # A scripted reply still comes first.
+    fake.push("Réponse prévue")
+    assert (await fake.generate(_request(OUTAGE_MARKER))).text == "Réponse prévue"
 
 
 async def test_disabled_provider_fails_cleanly() -> None:

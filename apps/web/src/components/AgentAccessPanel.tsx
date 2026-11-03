@@ -126,7 +126,7 @@ function SpaceAgents({
         {space.cloud_ai_enabled === false && <Badge tone="amber">Assistant désactivé ici</Badge>}
       </h3>
       {space.cloud_ai_enabled === false && (
-        <p className="mt-1 text-xs text-stone-500">
+        <p className="mt-1 text-xs text-muted">
           Les agents utilisent l&apos;assistant IA : activez-le pour cet espace (section « Espaces et assistant IA »)
           pour qu&apos;ils puissent répondre.
         </p>

@@ -68,6 +68,8 @@ describe("agentLabel", () => {
     expect(agentLabel("planning")).toBe("Planification");
     expect(agentLabel("coaching", [planning])).toBe("Coaching");
     expect(agentLabel("memory")).toBe("Mémoire");
+    expect(agentLabel("projects")).toBe("Projets");
+    expect(agentLabel("documents")).toBe("Documents");
   });
 
   it("humanises an unknown agent name", () => {
@@ -80,6 +82,8 @@ describe("isAgentChoice", () => {
     expect(isAgentChoice("core")).toBe(true);
     expect(isAgentChoice("memory")).toBe(true);
     expect(isAgentChoice("finance")).toBe(true);
+    expect(isAgentChoice("projects")).toBe(true);
+    expect(isAgentChoice("documents")).toBe(true);
     expect(isAgentChoice("legal")).toBe(false);
     expect(isAgentChoice("")).toBe(false);
   });

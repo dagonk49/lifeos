@@ -76,6 +76,7 @@ export function TransactionForm({
   defaultSpaceId,
   initial,
   receipt,
+  recurringId,
   today,
   submitLabel,
   onSaved,
@@ -89,6 +90,8 @@ export function TransactionForm({
   defaultSpaceId?: string | null;
   initial?: TransactionFormValues;
   receipt?: ReceiptLink;
+  /** The recurring item this new operation pays (« Enregistrer cette échéance »). */
+  recurringId?: string | null;
   /** Today in the owner's time zone: the latest allowed date. */
   today: string;
   submitLabel?: string;
@@ -179,8 +182,9 @@ export function TransactionForm({
     }
     const result = buildTransactionCreate(form, { spaceId: space, today, receiptDocumentId: receipt?.documentId });
     if (!result.ok) return fail(result.errors);
-    pendingKey.current = idempotencyKeyFor(pendingKey.current, result.value, newIdempotencyKey);
-    create.mutate({ body: result.value, key: pendingKey.current.key });
+    const body = recurringId ? { ...result.value, recurring_id: recurringId } : result.value;
+    pendingKey.current = idempotencyKeyFor(pendingKey.current, body, newIdempotencyKey);
+    create.mutate({ body, key: pendingKey.current.key });
   };
 
   const a11y = (field: FormField) => ({
@@ -321,7 +325,7 @@ export function TransactionForm({
           </p>
         )}
         {space !== null && categories.data && choices.length === 0 && (
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-muted">
             Aucune catégorie de {form.direction === "expense" ? "dépenses" : "revenus"} dans cet espace : créez-en dans
             « Catégories ».
           </p>
