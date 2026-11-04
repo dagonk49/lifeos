@@ -38,10 +38,16 @@ async function documentRegion(page: Page) {
 /** The document's detail, opened from the list if the page shows another one. */
 async function openDocument(page: Page) {
   const region = await documentRegion(page);
-  if (!(await region.isVisible())) {
-    await page.getByRole("main").getByRole("link", { name: /attestation-restauration/ }).first().click();
-  }
-  await expect(region).toBeVisible();
+  // Right after the upload the list may not show the document yet: retry until it opens.
+  await expect(async () => {
+    if (!(await region.isVisible())) {
+      await page.reload();
+      await page.getByRole("main").getByRole("link", { name: /attestation-restauration/ }).first().click({
+        timeout: 2_000,
+      });
+    }
+    await expect(region).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   return region;
 }
 
