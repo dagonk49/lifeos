@@ -499,6 +499,10 @@ colonnes ne sort par l'API ni par l'export.
   - Une fois envoyé : `message_id_header` (unique, dérivé de l'approbation),
     `provider_message_id`, `provider_thread_id`, `sent_at` (indexé, purge à 90 jours).
   - `version` (`If-Match`) : modifier le brouillon invalide l'approbation en attente.
+  - Migration 0025 (amendement de l'ADR 0018) : `author_agent null` (agent qui l'a
+    proposé, liste de `agent_permissions.agent` ; `null` : écrit par le propriétaire),
+    `conversation_id null` (conversation d'origine, `SET NULL`, indexé), `owner_edited_at
+    null` (le propriétaire l'a modifié ou a préparé l'envoi : l'agent ne le change plus).
 - **`oauth_states`** : un consentement en cours, à usage unique.
   - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
     jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).

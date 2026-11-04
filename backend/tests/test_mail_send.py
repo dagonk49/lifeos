@@ -861,7 +861,7 @@ async def test_too_large_attachments_are_refused(
     assert response.status_code == 413 and response.json()["code"] == "mail_too_large"
 
 
-async def test_an_agent_proposes_but_never_approves(
+async def test_an_agent_writes_drafts_but_never_proposes_nor_approves_a_send(
     database: Database,
     db: AsyncSession,
     mail_settings: Settings,
@@ -870,7 +870,7 @@ async def test_an_agent_proposes_but_never_approves(
     fake_connector: FakeConnector,
     sender: dict[str, str],
 ) -> None:
-    from lifeos.modules.mail.schemas import DraftIn
+    from lifeos.modules.mail.schemas import DraftIn, DraftPatch
 
     space = uuid.UUID(sender["space"])
     ctx = await owner_ctx(database, db, mail_settings, logged_in, fake_llm, fake_connector)
@@ -886,11 +886,50 @@ async def test_an_agent_proposes_but_never_approves(
     draft = await drafts.create_draft(
         agent_ctx, DraftIn(space_id=space, to=["a@example.org"], subject="Proposé")
     )
-    approval = await send.request_send(agent_ctx, draft.id, requested_by="agent:core")
-    assert approval.status == "pending" and approval.requested_by == "agent:core"
+    assert draft.author_agent == "core"
+    # Owner's decision (ADR 0018 amendment): an agent never even proposes a send.
     with pytest.raises(ProblemError) as exc:
-        await actions.approve(agent_ctx, approval.id)
+        await send.request_send(agent_ctx, draft.id)
     assert exc.value.code == "action_denied"
+    assert exc.value.extra["reason"] == "forbidden_for_agents"
+    await db.rollback()
+    assert await db.scalar(select(func.count()).select_from(Approval)) == 0
+    denied = list(
+        await db.scalars(
+            select(AuditEvent).where(
+                AuditEvent.action == "email.send", AuditEvent.outcome == "denied"
+            )
+        )
+    )
+    assert [(e.actor_type, e.actor_id, e.details) for e in denied] == [
+        ("agent", "core", {"reason": "forbidden_for_agents"})
+    ]
+    # Nor through the guardian directly, nor by approving the owner's proposal.
+    owner_draft = await drafts.create_draft(
+        ctx, DraftIn(space_id=space, to=["a@example.org"], subject="Le mien")
+    )
+    proposal = await send.request_send(ctx, owner_draft.id)
+    with pytest.raises(ProblemError) as exc:
+        await actions.request_approval(
+            agent_ctx,
+            "email.send",
+            space,
+            send.SendEmailParams(**proposal.params),
+            requested_by="agent:core",
+        )
+    assert exc.value.code == "action_denied"
+    with pytest.raises(ProblemError) as exc:
+        await actions.approve(agent_ctx, proposal.id)
+    assert exc.value.code == "action_denied"
+    # The owner's draft: the agent neither changes nor deletes it.
+    with pytest.raises(ProblemError) as exc:
+        await drafts.update_draft(
+            agent_ctx, owner_draft.id, DraftPatch(subject="Changé"), if_match=None
+        )
+    assert exc.value.code == "draft_not_editable_by_agent"
+    with pytest.raises(ProblemError) as exc:
+        await drafts.delete_draft(agent_ctx, owner_draft.id)
+    assert exc.value.code == "draft_not_editable_by_agent"
     reader = Principal(
         kind="agent",
         user_id=logged_in.user.id,

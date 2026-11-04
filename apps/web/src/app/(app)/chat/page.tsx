@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useId, useRef, useState } from "react";
 
+import { AgentDraftPanel } from "@/components/AgentDraftPanel";
 import { AgentPermissionCard, type AgentPermissionNeed } from "@/components/AgentPermissionCard";
 import { AgentSelector } from "@/components/AgentSelector";
 import { AgentSuggestion } from "@/components/AgentSuggestion";
@@ -509,6 +510,15 @@ function ChatView() {
             )}
             {current && detail.data?.id === current && detail.data.messages.length > 0 && (
               <ConsolidationPanel key={detail.data.id} conversation={detail.data} />
+            )}
+            {current && detail.data?.id === current && detail.data.messages.length > 0 && (
+              // An e-mail draft written by the chosen agent: never sent from here.
+              <AgentDraftPanel
+                key={`${detail.data.id}-${agent}`}
+                conversationId={detail.data.id}
+                agent={agent}
+                agents={agents.data}
+              />
             )}
             <ol
               ref={list}

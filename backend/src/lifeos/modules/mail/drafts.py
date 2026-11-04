@@ -1,4 +1,5 @@
-"""E-mail drafts (task 18, ADR 0018): written by the owner, sent only after an approval.
+"""E-mail drafts (task 18, ADR 0018): written by the owner, or proposed by an agent, sent
+only after the owner's approval.
 
 A draft holds exactly what will be sent: recipients (To, Cc, Bcc), subject, plain-text
 body, documents of its space as attachments, and the message it answers. Sending it is a
@@ -15,6 +16,11 @@ provider), so that it can never disagree with what the guardian recorded:
   blindly; the owner may settle it after checking their sent messages;
 - failed: nothing was sent (the error says why); it may be proposed again;
 - sent: the provider accepted it.
+
+An agent (ADR 0018 amendment) writes a draft through the same checks as the owner, in
+the space of its conversation, with an account allowed to send there; it changes only its
+own draft until the owner edits it or prepares its sending, never deletes one and never
+asks for a send (send.request_send is the owner's).
 
 Addresses, subjects and bodies never reach the audit log or the logs (T7): ids and counts.
 """
@@ -87,11 +93,17 @@ def unavailable() -> ProblemError:
 # --- Validation (the input is never echoed) ---------------------------------------------------
 
 
+def normalized(value: str) -> str | None:
+    """The address in lower case, or None when it is not a valid one."""
+    address = value.strip().lower()
+    return address if _ADDRESS.match(address) else None
+
+
 def _addresses(values: list[str], seen: set[str]) -> list[str]:
     cleaned: list[str] = []
     for value in values:
-        address = value.strip().lower()
-        if not _ADDRESS.match(address):
+        address = normalized(value)
+        if address is None:
             raise ProblemError(422, "invalid_recipient", "A recipient address is not valid")
         if address not in seen:
             seen.add(address)
@@ -140,6 +152,34 @@ def _check_write(ctx: Ctx, space_id: uuid.UUID) -> None:
             "The agent has no permission on this data",
             extra={"resource": "email"},
         )
+
+
+def not_for_agents() -> ProblemError:
+    return ProblemError(
+        409,
+        "draft_not_editable_by_agent",
+        "Only the owner can change this draft now",
+        "The owner wrote it, edited it or prepared its sending: the agent may propose a new "
+        "draft instead.",
+    )
+
+
+def author_of(ctx: Ctx, author: str | None) -> str | None:
+    """The agent writing: the agent principal itself, or the general assistant (`core`)
+    working for the owner in a conversation (it reads with the owner's rights, as in the
+    chat). None: the owner writes."""
+    if ctx.principal.kind == "agent":
+        return ctx.principal.agent
+    return author
+
+
+async def _authorize(ctx: Ctx, space_id: uuid.UUID) -> None:
+    from lifeos.modules.guardian.actions import authorize
+
+    _check_write(ctx, space_id)
+    # Writing a draft never sends anything: automatic for the owner, under the explicit
+    # `email` write permission for an agent (guardian/policy.py).
+    await authorize(ctx, "email.draft", space_id)
 
 
 # --- Accounts allowed to send ------------------------------------------------------------------
@@ -412,6 +452,9 @@ async def views(ctx: Ctx, drafts: list[MailDraft]) -> list[DraftOut]:
                 approval_level=approval.level if approval else None,
                 error=approval.error if approval and state.state in ("failed", "unknown") else None,
                 sent_at=draft.sent_at,
+                author_agent=draft.author_agent,
+                conversation_id=draft.conversation_id,
+                owner_edited=draft.owner_edited_at is not None,
                 version=draft.version,
                 created_at=draft.created_at,
                 updated_at=draft.updated_at,
@@ -441,12 +484,14 @@ async def list_drafts(ctx: Ctx, *, space_id: uuid.UUID | None, limit: int = 100)
 # --- Writing ----------------------------------------------------------------------------------
 
 
-async def _audit(ctx: Ctx, action: str, draft: MailDraft, **details: Any) -> None:
+async def _audit(
+    ctx: Ctx, action: str, draft: MailDraft, *, author: str | None = None, **details: Any
+) -> None:
     await audit.record(
         ctx.db,
         action=action,
-        actor_type=ctx.principal.kind,
-        actor_id=ctx.principal.actor_id,
+        actor_type="agent" if author else ctx.principal.kind,
+        actor_id=author or ctx.principal.actor_id,
         user_id=ctx.principal.user_id,
         space_id=draft.space_id,
         target_type="mail_draft",
@@ -473,8 +518,17 @@ async def _reply(ctx: Ctx, draft: MailDraft, message_id: uuid.UUID | None) -> No
         draft.reply_thread_id = message.thread_id
 
 
-async def create_draft(ctx: Ctx, data: DraftIn) -> MailDraft:
-    _check_write(ctx, data.space_id)
+async def create_draft(
+    ctx: Ctx,
+    data: DraftIn,
+    *,
+    author: str | None = None,
+    conversation_id: uuid.UUID | None = None,
+) -> MailDraft:
+    """A new draft, the owner's or an agent's (`author`): the same checks either way;
+    nothing is sent."""
+    writer = author_of(ctx, author)
+    await _authorize(ctx, data.space_id)
     to, cc, bcc = recipients(data.to, data.cc, data.bcc)
     found = await _documents(ctx, data.space_id, data.attachment_ids)
     _check_size(ctx.settings, found)
@@ -489,6 +543,8 @@ async def create_draft(ctx: Ctx, data: DraftIn) -> MailDraft:
         body_text=clean_body(data.body),
         attachment_ids=[d.id for d in found],
         status="draft",
+        author_agent=writer,
+        conversation_id=conversation_id if writer else None,
     )
     await _reply(ctx, draft, data.in_reply_to_id)
     ctx.db.add(draft)
@@ -497,6 +553,7 @@ async def create_draft(ctx: Ctx, data: DraftIn) -> MailDraft:
         ctx,
         "mail.draft.create",
         draft,
+        author=writer,
         recipients=len(to) + len(cc) + len(bcc),
         attachments=len(found),
     )
@@ -504,12 +561,23 @@ async def create_draft(ctx: Ctx, data: DraftIn) -> MailDraft:
 
 
 async def update_draft(
-    ctx: Ctx, draft_id: uuid.UUID, data: DraftPatch, *, if_match: int | None
+    ctx: Ctx,
+    draft_id: uuid.UUID,
+    data: DraftPatch,
+    *,
+    if_match: int | None,
+    author: str | None = None,
 ) -> MailDraft:
-    """A new version of the draft: its pending send approval can no longer be approved."""
+    """A new version of the draft: its pending send approval can no longer be approved.
+
+    An agent changes only its own draft, as long as the owner has not touched it; the
+    owner's first edit makes it the owner's for good."""
+    writer = author_of(ctx, author)
     await lock_target(ctx, draft_id)
     draft = await get_draft(ctx, draft_id, for_update=True)
-    _check_write(ctx, draft.space_id)
+    await _authorize(ctx, draft.space_id)
+    if writer is not None and (draft.author_agent != writer or draft.owner_edited_at):
+        raise not_for_agents()
     require_editable(await state_of(ctx.db, draft))
     if if_match is not None and if_match != draft.version:
         raise ProblemError(
@@ -537,9 +605,18 @@ async def update_draft(
         draft.account_id = await _account(ctx, draft.space_id, data.account_id)
         await _reply(ctx, draft, draft.in_reply_to_id)
     draft.status = "draft"
+    if writer is None and draft.author_agent is not None and draft.owner_edited_at is None:
+        draft.owner_edited_at = utcnow()
     await ctx.db.flush()
     invalidated = await _invalidate(ctx, draft, reason="draft_changed")
-    await _audit(ctx, "mail.draft.update", draft, version=draft.version, invalidated=invalidated)
+    await _audit(
+        ctx,
+        "mail.draft.update",
+        draft,
+        author=writer,
+        version=draft.version,
+        invalidated=invalidated,
+    )
     return draft
 
 
@@ -555,6 +632,8 @@ async def delete_draft(ctx: Ctx, draft_id: uuid.UUID) -> None:
     await lock_target(ctx, draft_id)
     draft = await get_draft(ctx, draft_id, for_update=True)
     _check_write(ctx, draft.space_id)
+    if ctx.principal.kind != "user":
+        raise not_for_agents()  # only the owner deletes a draft
     state = await state_of(ctx.db, draft)
     if state.state in ("sending", "unknown"):
         raise outcome_unknown()

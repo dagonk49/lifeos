@@ -376,6 +376,27 @@ puis envoie le message avec les seules pièces jointes `sent`.
   - Le contenu exact d'une approbation d'envoi décidée est effacé après
     `mail_approval_redact_days` (30 jours) : `params = {redacted, draft_id, recipients,
     attachments}`, l'empreinte `params_sha256` reste.
+  - Brouillon rédigé par un agent (amendement de l'ADR 0018) : `POST
+    /v1/chat/conversations/{id}/mail-draft` (`Idempotency-Key`) `{agent = "core",
+    in_reply_to_id?, draft_id?}` (aucun autre champ : `422`) → `201 {draft,
+    dropped_recipients}`. Un appel au LLM par la passerelle (objectif `mail.draft`), rien
+    n'est envoyé ni proposé à l'envoi. `in_reply_to_id` : un e-mail de l'espace de la
+    conversation, envoyé au modèle comme donnée (refusé s'il est sensible, `mail.attach`
+    audité), son expéditeur devient le destinataire. `draft_id` : nouvelle version d'un
+    brouillon de cet agent, de cette conversation, que le propriétaire n'a pas touché.
+    Refus avant l'appel : `403 agent_permission_required` (`resource: "email"`, agent sans
+    `email` en écriture dans l'espace, audité `mail.draft.create` refusé), `409
+    mail_send_unavailable`, `404 mail_not_found`, `409 nothing_to_draft` (conversation
+    vide), `409 draft_not_editable_by_agent` ; refus du gateway (`503 llm_paused`, `403
+    cloud_consent_required`, `429 …`) ; après l'appel : `422 draft_proposal_empty`. Les
+    adresses non valides proposées par le modèle (masquées `[EMAIL]`, mal formées) sont
+    retirées et comptées (`dropped_recipients`) ; le modèle ne propose jamais de Cci, de
+    pièce jointe ni de compte.
+  - Un brouillon porte aussi `author_agent` (`null` : écrit par le propriétaire),
+    `conversation_id` et `owner_edited` (le propriétaire l'a modifié ou a préparé l'envoi :
+    l'agent ne le change plus). Un agent ne supprime pas de brouillon, ne modifie que le
+    sien (`409 draft_not_editable_by_agent`) et ne demande jamais l'envoi (`POST
+    …/send` par un agent : `403 action_denied`, `reason: forbidden_for_agents`, audité).
 - Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
   - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
     `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous

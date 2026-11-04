@@ -1,4 +1,5 @@
-import type { MailSummary } from "@/lib/types";
+import { agentLabel } from "@/lib/agents";
+import type { AgentInfo, MailDraft, MailSummary } from "@/lib/types";
 
 export const MAIL_KEY = "mail";
 
@@ -106,6 +107,28 @@ export const DRAFT_STATE_LABELS: Record<string, string> = {
   failed: "Non envoyé",
   sent: "Envoyé",
 };
+
+/** Who wrote the draft, when an agent did (ADR 0018 amendment): null for the owner's. */
+export function draftAuthorLabel(
+  draft: Pick<MailDraft, "author_agent">,
+  agents?: readonly AgentInfo[],
+): string | null {
+  if (!draft.author_agent) return null;
+  return `Brouillon proposé par l'agent ${agentLabel(draft.author_agent, agents)}`;
+}
+
+/** What the owner checks in an agent's draft before preparing its sending. */
+export const AGENT_DRAFT_NOTICE =
+  "Texte et destinataires écrits par l'IA : relisez-les. Rien ne part sans votre approbation, et une " +
+  "adresse à laquelle vous n'avez jamais écrit d'ici demande votre passkey.";
+
+/** Addresses the model proposed that were left out. */
+export function droppedRecipientsLabel(count: number): string | null {
+  if (count <= 0) return null;
+  return count === 1
+    ? "Une adresse proposée n'était pas valide (ou était masquée) : elle a été retirée. Complétez les destinataires."
+    : `${count} adresses proposées n'étaient pas valides (ou étaient masquées) : elles ont été retirées. Complétez les destinataires.`;
+}
 
 /** « Re: » once, as mail clients do. */
 export function replySubject(subject: string): string {

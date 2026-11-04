@@ -107,6 +107,12 @@ class DraftOut(BaseModel):
     # Why the last sending failed, or is uncertain (stable code).
     error: str | None
     sent_at: datetime | None
+    # Proposed by this agent (None: the owner's), from this conversation. Its texts and
+    # recipients were written by a model: data to check, shown as plain text (T14, T37).
+    author_agent: str | None = None
+    conversation_id: uuid.UUID | None = None
+    # The owner edited it or prepared its sending: the agent can no longer change it.
+    owner_edited: bool = False
     version: int
     created_at: datetime
     updated_at: datetime

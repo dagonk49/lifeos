@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   activeContentList,
+  draftAuthorLabel,
   draftErrors,
+  droppedRecipientsLabel,
   formatSize,
   isValidAddress,
   labelErrorMessage,
@@ -60,6 +62,16 @@ describe("compose helpers", () => {
     );
     const many = Array.from({ length: 51 }, (_, i) => `p${i}@example.org`).join(",");
     expect(draftErrors({ ...fields, to: many }, { sending: false }).to).toBe("50 destinataires au plus.");
+  });
+
+  it("names the agent that proposed a draft", () => {
+    expect(draftAuthorLabel({ author_agent: null })).toBeNull();
+    expect(draftAuthorLabel({})).toBeNull();
+    expect(draftAuthorLabel({ author_agent: "core" })).toBe("Brouillon proposé par l'agent Assistant général");
+    expect(draftAuthorLabel({ author_agent: "projects" })).toBe("Brouillon proposé par l'agent Projets");
+    expect(droppedRecipientsLabel(0)).toBeNull();
+    expect(droppedRecipientsLabel(1)).toContain("Une adresse proposée");
+    expect(droppedRecipientsLabel(2)).toContain("2 adresses proposées");
   });
 
   it("prefixes a reply subject once", () => {

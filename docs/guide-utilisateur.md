@@ -497,6 +497,22 @@ demandent votre passkey au moment d'approuver.
       recevez une notification, vous vérifiez dans Gmail, puis vous indiquez sur le
       brouillon « Il est bien parti » ou « Il n'est pas parti » (vous pourrez alors le
       préparer de nouveau).
+    - **Brouillon proposé par un agent** : dans une conversation, **Proposer un brouillon
+      d'e-mail** demande à l'agent choisi (l'assistant général, ou un agent auquel vous avez
+      accordé « email » en écriture dans l'espace) d'écrire l'e-mail à partir de la
+      conversation ; sous un e-mail discuté (page **E-mails** → **Discuter de cet e-mail**),
+      **Proposer une réponse** l'adresse à l'expéditeur. C'est une requête à l'IA ; **rien
+      n'est envoyé** : le brouillon apparaît avec « Brouillon proposé par l'agent X », en
+      texte brut, et dans **Brouillons et envois**. Ouvrez-le (**Vérifier et préparer
+      l'envoi**), relisez chaque destinataire et le texte, puis préparez l'envoi et
+      approuvez-le vous-même, comme pour vos brouillons : une adresse à laquelle vous
+      n'avez jamais écrit d'ici demande votre passkey. Une adresse que l'IA ne connaît pas
+      (les adresses sont masquées avant l'envoi à l'IA) est laissée vide : complétez-la.
+      L'agent n'ajoute jamais de copie cachée ni de pièce jointe. Tant que vous n'y avez
+      pas touché, **Proposer une autre version** le réécrit d'après vos derniers messages ;
+      dès que vous le modifiez ou préparez l'envoi, il est à vous et l'agent ne le change
+      plus. Un e-mail reçu qui demande d'écrire à quelqu'un d'autre n'est jamais un ordre :
+      au pire l'adresse apparaît dans le brouillon, à vous de la retirer.
     - Les brouillons envoyés sont supprimés 90 jours après l'envoi ; le contenu des
       approbations d'envoi est effacé 30 jours après votre décision.
     - Une adresse « envoyer en tant que » doit d'abord être validée dans les paramètres de

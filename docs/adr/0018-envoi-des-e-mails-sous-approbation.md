@@ -1,6 +1,6 @@
 # ADR 0018 — Envoi des e-mails : brouillon, aperçu exact, approbation, jamais deux fois
 
-- Statut : acceptée
+- Statut : acceptée, amendée le 2026-11-04 (brouillons rédigés par un agent)
 - Date : 2026-10-30
 - Tâche : 18 (« Envoyer un e-mail sous approbation », UC04), étape 5
 - Liens : [ADR 0012](0012-connecteurs-oauth.md) (comptes connectés),
@@ -51,9 +51,9 @@ Trois risques propres à l'e-mail :
   L'aperçu nomme ces nouveaux destinataires. Le niveau est décidé à partir des
   paramètres et revérifié à l'envoi : une approbation au mauvais niveau, ou une pièce
   devenue sensible depuis, est refusée (`approval_stale`).
-- Les agents (permission `email` en écriture) peuvent seulement rédiger et proposer
-  (`requested_by = agent:<nom>`) ; seul le propriétaire approuve. Aucun agent n'est câblé
-  pour le faire en v1.
+- Les agents rédigent des brouillons, ils ne proposent ni n'envoient jamais un e-mail ;
+  seul le propriétaire prépare l'envoi et l'approuve (voir l'amendement ci-dessous, qui
+  remplace la règle initiale « rédiger et proposer »).
 
 ### 3. À l'envoi
 
@@ -113,6 +113,65 @@ Jusqu'à 4 Mo, le message part encodé en base64url dans le corps JSON de
   reste que l'empreinte et les nombres. L'approbation part ensuite avec les autres (90
   jours). Les brouillons envoyés partent `mail_retention_days` (90 jours) après l'envoi ;
   les autres restent jusqu'à leur suppression.
+
+## Amendement du 2026-11-04 — un agent rédige, il n'envoie jamais
+
+Décision du propriétaire : **les agents peuvent écrire des brouillons, jamais les
+envoyer.** Le mécanisme est celui des propositions existantes (consolidation d'une
+conversation, analyse du journal, propositions d'agenda de l'ADR 0016) : une demande
+explicite du propriétaire, un seul appel au LLM par la passerelle, un résultat qu'il
+contrôle avant tout effet.
+
+1. **Qui.** L'assistant général (`core`), qui travaille pour le propriétaire dans la
+   conversation avec ses droits, comme ses réponses et la consolidation ; et tout agent
+   qui a la permission `email` **en écriture** dans l'espace de la conversation (accordée
+   par une opération renforcée, révocable). Aucun agent spécialisé n'a `email` parmi ses
+   ressources : il ne rédige qu'après cette décision explicite du propriétaire ; une
+   permission en lecture ne suffit pas. Le refus est audité (`mail.draft.create`, refusé,
+   `no_permission`) avant tout appel. La politique déclare `email.draft` (automatique pour
+   le propriétaire, règle pour un agent) ; `email.send` et `email.send_reinforced` n'ont
+   plus de niveau agent : un agent ne peut ni demander l'envoi (`403 action_denied`,
+   `forbidden_for_agents`, audité), ni approuver, et `request_approval` refuse désormais
+   à un agent toute action que la politique lui interdit.
+2. **Comment.** « Proposer un brouillon d'e-mail » dans la conversation, ou « Proposer une
+   réponse » sous un e-mail discuté (`POST /v1/chat/conversations/{id}/mail-draft`). Le
+   contexte est minimal : les messages de la conversation (pour un agent spécialisé, les
+   mots du propriétaire et ses propres réponses seulement) et, pour une réponse, l'e-mail
+   répondu, délimité comme donnée de tiers, refusé s'il est sensible. Objectif `mail.draft`
+   : consentement de l'espace, arrêt d'urgence, budgets, masquage et métrage du gateway.
+3. **Ce qui est créé.** Un brouillon ordinaire, par le même chemin et les mêmes contrôles
+   qu'un brouillon du propriétaire (adresses vérifiées, objet sur une ligne, taille), dans
+   l'espace de la conversation, avec un compte autorisé à envoyer dans cet espace (celui
+   par lequel l'e-mail répondu a été lu s'il peut envoyer). Il garde l'agent auteur et la
+   conversation (migration 0025) ; l'interface affiche « Brouillon proposé par l'agent X ».
+   Audit `mail.draft.create` avec l'agent pour acteur, des nombres seulement.
+4. **Ce que le modèle écrit est une donnée.** Objet ramené à une ligne, texte brut nettoyé
+   (caractères de contrôle et de mise en forme retirés), affiché en texte brut (T14). Le
+   modèle ne propose que To, Cc, objet et texte : jamais de Cci, de pièce jointe ni de
+   compte (champs hors schéma ignorés). Ses destinataires ne sont jamais crus : les
+   adresses non valides (dont les adresses masquées `[EMAIL]`) sont retirées et comptées,
+   les autres sont montrées telles quelles ; pour une réponse, l'expéditeur est ajouté par
+   LifeOS, pas par le modèle.
+5. **L'envoi reste au propriétaire.** Il ouvre le brouillon, le corrige s'il le veut, clique
+   « Préparer l'envoi » et approuve le message exact, avec les règles du §2 : une adresse
+   à laquelle LifeOS n'a jamais écrit depuis l'espace, y compris celle qu'un e-mail piégé
+   aurait fait écrire au modèle, exige la passkey et est nommée dans l'aperçu.
+6. **L'agent ne touche plus un brouillon du propriétaire.** Il ne modifie que le sien,
+   dans la même conversation (« Proposer une autre version »), tant que le propriétaire ne
+   l'a ni modifié ni préparé à l'envoi (`owner_edited_at`) ; sinon `409
+   draft_not_editable_by_agent`, avant tout appel. Il ne supprime aucun brouillon.
+
+Injection de prompt (T10, T37) : une demande cachée dans l'e-mail discuté peut au pire
+finir dans un brouillon visible du propriétaire, jamais dans un e-mail envoyé ni dans une
+approbation ; `backend/tests/test_agent_drafts.py` le vérifie avec le fournisseur factice
+(destinataire pirate, Cci et pièce jointe ignorés, adresse masquée retirée, aperçu qui
+nomme l'adresse inconnue, passkey exigée).
+
+Alternatives écartées : un outil « créer un brouillon » appelé par le modèle pendant une
+réponse ordinaire (le modèle déciderait seul quand écrire, à partir d'un contexte qui peut
+contenir des données de tiers) ; une proposition d'envoi par l'agent à approuver (ce que
+la règle initiale permettait : le propriétaire veut décider lui-même de préparer l'envoi) ;
+des destinataires recopiés du modèle sans contrôle.
 
 ## Alternatives écartées
 
