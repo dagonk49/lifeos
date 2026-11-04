@@ -354,7 +354,7 @@ puis envoie le message avec les seules pièces jointes `sent`.
     parti), `sent`. `sending`, `unknown` et `sent` ne se modifient pas (`409
     outcome_unknown`, `409 draft_already_sent`).
   - `POST /v1/mail/drafts/{id}/send` (`Idempotency-Key`) → `201` l'approbation (`email.send`,
-    ou `email.send_reinforced` pour un nouveau destinataire ou une pièce jointe sensible :
+    ou `email.send_reinforced` pour un nouveau destinataire ou une pièce jointe :
     passkey récente). Ses `params` sont le message ; son `preview` : `from`, `to`, `cc`,
     `bcc`, `subject`, `body`, `attachments [{title, filename, mime, size_bytes,
     sensitivity, local_only}]`, `reply`, `new_recipients`, `reinforced`, `notes`. Un second

@@ -406,7 +406,7 @@ async def test_a_known_recipient_needs_a_plain_approval_a_new_one_a_passkey(
     assert len(fake_connector.outbox) == 3
 
 
-async def test_a_sensitive_attachment_needs_a_reinforced_approval(
+async def test_any_attachment_needs_a_reinforced_approval(
     client: AsyncClient,
     db: AsyncSession,
     mail_settings: Settings,
@@ -425,11 +425,17 @@ async def test_a_sensitive_attachment_needs_a_reinforced_approval(
         assert proposal["action"] == "email.send_reinforced", proposal
         assert proposal["level"] == "reinforced"
         assert any("sensible" in n for n in proposal["preview"]["notes"])
-    # A document that became sensitive after the request: refused at sending.
+    # Any file leaving the server asks for the passkey (owner's decision), even to a known
+    # recipient; only the sensitive ones are flagged as such.
     plain = await add_document(db, mail_settings, logged_in, sender["space"], b"Facture")
     draft = await new_draft(client, sender["space"], attachment_ids=[plain])
     proposal = (await request_send(client, draft["id"])).json()
-    assert proposal["action"] == "email.send"
+    assert proposal["action"] == "email.send_reinforced"
+    assert proposal["level"] == "reinforced"
+    notes = proposal["preview"]["notes"]
+    assert any("passkey est demandée" in n for n in notes)
+    assert not any("sensible" in n for n in notes)
+    # A document that became sensitive after the request: refused at sending.
     await db.execute(
         update(Document).where(Document.id == uuid.UUID(plain)).values(sensitivity=["bank"])
     )
@@ -455,6 +461,15 @@ def test_the_policy_requires_a_reinforced_approval_for_new_recipients() -> None:
     }
     assert not send.reinforced(send.SendEmailParams(**base))
     assert send.reinforced(send.SendEmailParams(**base, new_recipients=["a@example.org"]))
+    attachment = {
+        "document_id": uuid.uuid4(),
+        "title": "Facture",
+        "filename": "facture.pdf",
+        "mime": "application/pdf",
+        "size_bytes": 10,
+        "sha256": "0" * 64,
+    }
+    assert send.reinforced(send.SendEmailParams(**base, attachments=[attachment]))
 
 
 # --- Edits, tampering --------------------------------------------------------------------

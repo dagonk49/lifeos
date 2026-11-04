@@ -45,8 +45,10 @@ Trois risques propres à l'e-mail :
 - Tout e-mail : `email.send`, validation obligatoire.
 - `email.send_reinforced` (approbation **renforcée**, passkey de moins de 10 minutes) dès
   que le message va à une adresse à laquelle LifeOS n'a jamais écrit depuis cet espace (le
-  compte lui-même excepté), ou joint un document sensible (détecté, ou « toujours garder en
-  local »). L'aperçu nomme ces nouveaux destinataires. Le niveau est décidé à partir des
+  compte lui-même excepté), ou joint **un document, quel qu'il soit** (décision du
+  propriétaire, 2026-11 : un fichier qui quitte le serveur demande toujours la passkey ;
+  une pièce sensible, détectée ou « toujours garder en local », est en plus signalée).
+  L'aperçu nomme ces nouveaux destinataires. Le niveau est décidé à partir des
   paramètres et revérifié à l'envoi : une approbation au mauvais niveau, ou une pièce
   devenue sensible depuis, est refusée (`approval_stale`).
 - Les agents (permission `email` en écriture) peuvent seulement rédiger et proposer
@@ -121,9 +123,8 @@ Jusqu'à 4 Mo, le message part encodé en base64url dans le corps JSON de
   doute signalé au propriétaire.
 - **Un en-tête maison (`X-LifeOS-…`) pour retrouver le message** : il signalerait l'outil à
   chaque destinataire ; l'objet et les destinataires suffisent en secours.
-- **Approbation renforcée pour toute pièce jointe** : trop de friction pour un document
-  ordinaire ; seules les pièces sensibles l'exigent (décision à confirmer par le
-  propriétaire).
+- **Approbation renforcée pour les seules pièces sensibles** (choix initial) : remplacé
+  par la passkey pour toute pièce jointe, à la demande du propriétaire (2026-11).
 - **SMTP** : un mot de passe d'application en plus, moins de contrôle des portées.
 
 ## Conséquences

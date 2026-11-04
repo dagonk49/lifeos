@@ -8,9 +8,9 @@ that exact content:
 
 - the approval is bound to its parameters (guardian digest), to the draft version and to
   the attachments' SHA-256: an edit invalidates it, a changed file or draft refuses it;
-- a recipient LifeOS never wrote to from this space, or a sensitive attachment (detected
-  sensitive, or « toujours garder en local »), requires the reinforced approval
-  (`email.send_reinforced`: a recent passkey login);
+- a recipient LifeOS never wrote to from this space, or any attachment (owner's decision:
+  a file leaving the server always asks for the passkey; a sensitive one is also flagged),
+  requires the reinforced approval (`email.send_reinforced`: a recent passkey login);
 - the send runs through guardian/operations.py: claimed once before the provider is
   called, with a Message-ID derived from the approval. Gmail has no idempotency for
   sending: an existing claim (retry, crash) is first looked for at the provider by that
@@ -103,9 +103,8 @@ class SendEmailParams(BaseModel):
 
 
 def reinforced(params: SendEmailParams) -> bool:
-    return bool(params.new_recipients) or any(
-        a.sensitivity or a.local_only for a in params.attachments
-    )
+    """A recent passkey sign-in: for a new recipient, or as soon as a file is attached."""
+    return bool(params.new_recipients) or bool(params.attachments)
 
 
 def recipient_count(params: SendEmailParams) -> int:
@@ -126,6 +125,8 @@ def preview(params: Any) -> dict[str, Any]:
             + ", ".join(params.new_recipients)
             + " — vérifiez l'adresse."
         )
+    if params.attachments:
+        notes.append("Pièce jointe : le fichier quitte votre serveur, votre passkey est demandée.")
     sensitive = [a.title for a in params.attachments if a.sensitivity or a.local_only]
     if sensitive:
         notes.append("Pièce jointe sensible : " + ", ".join(sensitive) + ".")

@@ -113,7 +113,7 @@ _SPECS = [
     ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL, "email"),
     ActionSpec(
         "email.send_reinforced",
-        "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe sensible",
+        "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe",
         Level.APPROVAL,
         Level.APPROVAL,
         "email",

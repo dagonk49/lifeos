@@ -98,7 +98,7 @@ function ComposeView() {
       </PageHeader>
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
         <Card
-          footer="Rien ne part sans votre approbation : l'aperçu montre exactement le message, et un nouveau destinataire ou une pièce jointe sensible demande votre passkey."
+          footer="Rien ne part sans votre approbation : l'aperçu montre exactement le message, et un nouveau destinataire ou une pièce jointe demande votre passkey."
         >
           {form}
         </Card>

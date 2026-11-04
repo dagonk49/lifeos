@@ -486,8 +486,8 @@ demandent votre passkey au moment d'approuver.
        l'envoyer » montre exactement ce qui partira — expéditeur, À, Cc, Cci, objet, texte
        entier, pièces jointes avec leur taille et leur sensibilité.
     3. **Approuver** l'envoie, une seule fois. Une adresse à laquelle LifeOS n'a jamais
-       écrit depuis cet espace (marquée « Nouveau destinataire ») ou une pièce jointe
-       sensible demande votre passkey (**Approuver avec ma passkey**) : vérifiez l'adresse
+       écrit depuis cet espace (marquée « Nouveau destinataire ») ou une pièce jointe,
+       quelle qu'elle soit, demande votre passkey (**Approuver avec ma passkey**) : vérifiez l'adresse
        lettre par lettre, c'est la seule protection contre une faute de frappe.
     4. Modifier le brouillon après l'avoir préparé **annule** l'approbation : préparez de
        nouveau l'envoi. Une approbation refusée ou expirée n'envoie rien.

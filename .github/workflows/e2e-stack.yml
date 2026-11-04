@@ -2,9 +2,12 @@ name: E2E stack
 
 # Browser journeys on a production-like installation (scripts/test-e2e-stack.sh): built
 # images, Traefik and TLS, LIFEOS_ENVIRONMENT=production, secure cookies, scheduler, then a
-# backup and a restore signed in with the same passkey. Slower than the CI's `e2e` job (image
-# builds), so it runs on main, every night and on demand, not on every pull request.
+# backup and a restore signed in with the same passkey. About 7 minutes (image builds, with
+# the layer cache). Runs on every pull request to main (a required check, owner's decision),
+# on main, every night and on demand.
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
   schedule:

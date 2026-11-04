@@ -335,6 +335,27 @@ async def test_the_sweep_releases_only_old_reservations(
     assert outcomes == {old: "abandoned", recent: "reserved"}
 
 
+async def test_the_call_journal_is_purged_after_its_retention(
+    database: Database, db: AsyncSession, owner: Owner, settings: Settings
+) -> None:
+    space = await _enable_cloud(database, owner)
+    days = settings.llm_calls_retention_days
+    old = await _stale_reservation(database, owner, space, tokens=1, age=timedelta(days=days + 1))
+    kept = await _stale_reservation(database, owner, space, tokens=1, age=timedelta(days=days - 1))
+    open_old = await _stale_reservation(
+        database, owner, space, tokens=1, age=timedelta(days=days + 1)
+    )
+    async with database.sessionmaker() as session, session.begin():
+        await session.execute(
+            update(LLMCall).where(LLMCall.id.in_([old, kept])).values(outcome="ok")
+        )
+    async with database.sessionmaker() as session, session.begin():
+        assert await gateway.purge_old_calls(session, days=days) == 1
+    # Settled and old: gone. Recent: kept. Still reserved: never purged before it settles.
+    assert {c.id for c in await _calls(db)} == {kept, open_old}
+    assert days == 400
+
+
 async def test_a_late_call_still_records_its_real_usage(
     database: Database, db: AsyncSession, owner: Owner, settings: Settings
 ) -> None:

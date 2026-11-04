@@ -25,7 +25,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lifeos.config import Settings
@@ -228,6 +228,16 @@ async def requests_today(ctx: Ctx, tier: Tier) -> int:
 
 async def cost_since(ctx: Ctx, since: datetime) -> Decimal:
     return await _cost_since(ctx.db, ctx.user.id, since)
+
+
+async def purge_old_calls(session: AsyncSession, *, days: int, now: datetime | None = None) -> int:
+    """Retention of the cloud-call journal: settled calls older than `days` go. A
+    reservation still open is never purged (release_stale_reservations settles it first)."""
+    cutoff = (now or utcnow()) - timedelta(days=days)
+    result = await session.execute(
+        delete(LLMCall).where(LLMCall.created_at < cutoff, LLMCall.outcome != "reserved")
+    )
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
 async def release_stale_reservations(

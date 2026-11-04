@@ -82,7 +82,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 
 | Exigence | Statut | Remarque |
 |---|---|---|
-| §5 — Quatre niveaux, moteur d'autorisation hors IA | Réalisé | Guardian ; approbation aux paramètres exacts ; modification d'un événement partagé avec passkey. Envoi d'un e-mail : approbation du message exact, passkey pour un nouveau destinataire ou une pièce sensible. Partage de document : pas encore d'action réelle |
+| §5 — Quatre niveaux, moteur d'autorisation hors IA | Réalisé | Guardian ; approbation aux paramètres exacts ; modification d'un événement partagé avec passkey. Envoi d'un e-mail : approbation du message exact, passkey pour un nouveau destinataire ou une pièce jointe. Partage de document : pas encore d'action réelle |
 | §5 — Instructions des contenus importés jamais autorisation | Réalisé | e-mails, documents et événements présentés comme des données ([recette-securite.md](recette-securite.md)) |
 | §6 — Minimisation, masquage, séparation des espaces, consentement, audit, conservation, export complet | Réalisé | [politique-de-donnees.md](politique-de-donnees.md) |
 | §6 — Sauvegardes chiffrées, test de restauration | Réalisé | sauvegardes restic quotidiennes, copie hors site, tests automatiques ; exercice réel à faire |
@@ -95,7 +95,7 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | UC01 — Journal oral | Réalisé | dictée transcrite localement, tâches et faits proposés puis validés, échéances proposées |
 | UC02 — Ticket de caisse | Réalisé | marchand, date et total avec leur ligne d'origine, vérifiés avant l'ajout |
 | UC03 — Achat important | Partiel | l'agent Finances voit budget et projection ; pas d'orchestration Finances + Coaching en une recommandation |
-| UC04 — Action externe (e-mail) | Réalisé | brouillon, approbation du message exact (passkey pour un nouveau destinataire ou une pièce sensible), jamais envoyé deux fois, issue incertaine vérifiée dans Gmail ([ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) |
+| UC04 — Action externe (e-mail) | Réalisé | brouillon, approbation du message exact (passkey pour un nouveau destinataire ou une pièce jointe), jamais envoyé deux fois, issue incertaine vérifiée dans Gmail ([ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) |
 | UC05 — Droit à l'oubli | Réalisé | effacement propagé aux index, copies, sauvegardes (sous 23 jours) et rejoué à la restauration |
 
 ### Exigences non fonctionnelles (§8)
@@ -132,6 +132,6 @@ Familles réellement servies : [conventions-api.md](conventions-api.md#familles-
 | Fournisseur LLM | Gemini, niveau gratuit ([ADR 0003](adr/0003-gemini-derriere-une-abstraction.md), [0007](adr/0007-couts-gemini-niveau-gratuit.md)) |
 | Authentik ou Keycloak | ni l'un ni l'autre : passkeys intégrées ([ADR 0002](adr/0002-authentification-integree-passkeys.md)) |
 | Matériel (transcription, embeddings) | embeddings sur CPU, transcription sur CPU ou GTX 1050 Ti ([ADR 0006](adr/0006-embeddings-locaux.md), [0009](adr/0009-voix-locale.md)) |
-| Horaires des bilans, catégories sensibles, rétentions, sauvegardes | [politique-de-donnees.md](politique-de-donnees.md) ; restent **à valider** : journal d'audit (1 an), appels LLM (sans limite à ce jour) |
+| Horaires des bilans, catégories sensibles, rétentions, sauvegardes | [politique-de-donnees.md](politique-de-donnees.md)  ; validées par le propriétaire : journal d'audit (1 an), appels LLM (400 jours), évaluations d'achat (90 jours), contenu des approbations d'envoi (30 jours) |
 | Périmètre Android | application web installée d'abord, pas de client natif ([ADR 0022](adr/0022-client-mobile-web-dabord.md)) ; restent **à confirmer** par le propriétaire : téléphone cible, besoins natifs (alertes qui traversent « Ne pas déranger », widget, partage depuis iOS) |
 | Budget d'inférence et seuils d'arrêt | plafonds quotidiens et arrêt d'urgence ([ADR 0007](adr/0007-couts-gemini-niveau-gratuit.md), [0010](adr/0010-reservation-des-quotas-llm.md)) |
