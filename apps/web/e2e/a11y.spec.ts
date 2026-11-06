@@ -42,7 +42,9 @@ test("every page meets the WCAG 2.2 AA checks, light and dark", async ({ page },
     await page.getByRole("button", { name: "Enregistrer" }).click();
     await expect(page.getByText(ENTRY)).toBeVisible();
     await nav(page, "Bilans");
-    await page.getByRole("button", { name: "Établir le bilan" }).click();
+    // « Établir à nouveau » when another journey (step3, on the desktop) already made this
+    // week's review: it is then replaced.
+    await page.getByRole("button", { name: /^Établir (le bilan|à nouveau)$/ }).click();
     await expect(page.getByRole("region", { name: "Faits (calculés localement, sans IA)" })).toBeVisible();
     await auditEveryPage(page, reviews);
   } finally {
