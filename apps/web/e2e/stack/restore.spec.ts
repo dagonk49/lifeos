@@ -32,22 +32,28 @@ test.skip(!STACK_DIR, "production-like stack only (scripts/test-e2e-stack.sh)");
 
 async function documentRegion(page: Page) {
   await nav(page, "Documents");
+  // Wait for that navigation to land: a slower one finishing after the document's link
+  // was clicked would bring the page back to /documents and close the document.
+  await expect(page).toHaveURL(/\/documents$/);
+  await expect(page.getByRole("region", { name: "Mes documents" })).toBeVisible();
   return page.getByRole("region", { name: "attestation-restauration" });
 }
 
 /** The document's detail, opened from the list if the page shows another one. */
 async function openDocument(page: Page) {
   const region = await documentRegion(page);
-  // Right after the upload the list may not show the document yet: retry until it opens.
+  const link = page.getByRole("main").getByRole("link", { name: /attestation-restauration/ }).first();
+  // Right after an upload the list may not show the document yet, and right after a restore
+  // the first loads are slow: retry, reloading only from the second attempt on.
+  let attempt = 0;
   await expect(async () => {
-    if (!(await region.isVisible())) {
-      await page.reload();
-      await page.getByRole("main").getByRole("link", { name: /attestation-restauration/ }).first().click({
-        timeout: 2_000,
-      });
-    }
-    await expect(region).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
+    attempt += 1;
+    if (await region.isVisible()) return;
+    if (attempt > 1) await page.reload();
+    await link.click({ timeout: 20_000 });
+    await expect(page).toHaveURL(/\/documents\?id=/, { timeout: 5_000 });
+    await expect(region).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 90_000 });
   return region;
 }
 
