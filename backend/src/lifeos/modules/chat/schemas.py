@@ -30,8 +30,9 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
 
-# What the owner may explicitly attach to a message as its subject (task 24): a closed list.
-ContextType = Literal["task", "goal"]
+# What the owner may explicitly attach to a message as its subject (task 24): a closed list,
+# mirrored by chat.models.CONTEXT_TYPES (CHECK constraint).
+ContextType = Literal["task", "goal", "journal", "review"]
 
 
 class ContextRef(BaseModel):
@@ -57,7 +58,8 @@ class MessageOut(BaseModel):
     agent: str | None = None
     # Documents attached by the owner (their extracted text was sent with the message).
     attachments: list[uuid.UUID] = []
-    # Task or goal the owner explicitly chose for this message (task 24): a reference only.
+    # Task, goal, journal entry or review the owner explicitly chose for this message
+    # (task 24): a reference only.
     context: ContextRef | None = None
     purge_after: datetime | None
     created_at: datetime

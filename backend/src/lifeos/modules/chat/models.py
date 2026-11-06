@@ -8,6 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lifeos.db.base import Base, Owned, Timestamps, UUIDPrimaryKey, search_vector_column
 
+# Kinds of object the owner may choose as the subject of a message (task 24, « Discuter
+# de… »): mirrored by chat.schemas.ContextType and migrations 0023/0026.
+CONTEXT_TYPES = ("task", "goal", "journal", "review")
+
 
 class Conversation(UUIDPrimaryKey, Owned, Timestamps, Base):
     __tablename__ = "conversations"
@@ -25,7 +29,9 @@ class Message(UUIDPrimaryKey, Owned, Base):
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant')", name="role"),
         CheckConstraint("status IN ('ok', 'error')", name="status"),
-        CheckConstraint("context_type IN ('task', 'goal')", name="context_type"),
+        CheckConstraint(
+            f"context_type IN ({', '.join(repr(t) for t in CONTEXT_TYPES)})", name="context_type"
+        ),
         CheckConstraint("(context_type IS NULL) = (context_id IS NULL)", name="context_ref"),
         Index("ix_messages_search_vector", "search_vector", postgresql_using="gin"),
     )
@@ -46,7 +52,8 @@ class Message(UUIDPrimaryKey, Owned, Base):
     attachments: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(Uuid), default=list, server_default="{}"
     )
-    # Task or goal explicitly chosen by the owner as the subject of this message (task 24).
+    # Task, goal, journal entry or review explicitly chosen by the owner as the subject of
+    # this message (task 24).
     # References only, like `attachments`: a deleted object stays referenced here.
     context_type: Mapped[str | None] = mapped_column(Text)
     context_id: Mapped[uuid.UUID | None]

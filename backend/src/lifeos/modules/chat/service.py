@@ -395,8 +395,10 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
 
     call_ctx = ctx
     if data.agent == "core":
-        # The chosen object widens the search, still in this conversation's space only.
-        query = f"{data.content} {selected.title}" if selected else data.content
+        # A chosen task or goal widens the search by its title, still in this
+        # conversation's space only.
+        hint = selected.search_hint if selected else None
+        query = f"{data.content} {hint}" if hint else data.content
         items = await relevant_context(ctx, space_id=conversation.space_id, query=query)
         system = await _system_prompt(ctx, space, data.context.screen, items)
         context_items = len(items)

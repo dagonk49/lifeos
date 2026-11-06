@@ -184,15 +184,24 @@ Chaque carte indique l'heure à laquelle elle a été calculée.
   valeurs). **Confirmer l'envoi** envoie le message ; **Retirer** enlève une pièce jointe ;
   **Annuler** (ou Échap) garde le message sans rien envoyer. Sans rien à signaler, le
   message part directement.
-- **Discuter d'une tâche ou d'un objectif** : **Discuter** sur une tâche, ou **Discuter de
-  cet objectif** dans le détail d'un objectif, ouvre l'assistant avec un encadré « À propos
-  de « … » ». Tant qu'il est affiché, cet élément (et lui seul : titre, statut, échéance,
-  notes ; pour un objectif, progression, jalons ouverts et derniers points d'étape)
-  accompagne vos messages, comme une donnée à analyser. **Retirer le contexte** l'enlève. La
-  conversation est toujours celle de l'espace de l'élément : si la conversation ouverte est
-  d'un autre espace, une nouvelle est ouverte. Le message garde un lien « Tâche liée » ou
-  « Objectif lié ». Un agent ne le reçoit que s'il lit ce type d'élément (Planification :
-  tâches et objectifs ; Coaching : objectifs) ; sinon la page vous le dit avant l'envoi.
+- **Discuter d'une tâche, d'un objectif, d'une entrée de journal ou d'un bilan** :
+  **Discuter** sur une tâche, **Discuter de cet objectif** dans le détail d'un objectif,
+  **Discuter de cette entrée** sur une entrée du journal ou **Discuter de ce bilan** sur le
+  bilan affiché ouvre l'assistant avec un encadré « À propos de « … » » (le titre, la date
+  de l'entrée ou la période du bilan). Tant qu'il est affiché, cet élément (et lui seul :
+  titre, statut, échéance, notes ; pour un objectif, progression, jalons ouverts et derniers
+  points d'étape ; pour une entrée, sa date, l'humeur si vous l'avez indiquée et son texte,
+  jusqu'à 2 000 caractères ; pour un bilan, ses faits calculés localement et, s'il y en a
+  une, la lecture de l'assistant avec ses suggestions) accompagne vos messages, comme une
+  donnée à analyser. **Retirer le contexte** l'enlève. La conversation est toujours celle de
+  l'espace de l'élément : si la conversation ouverte est d'un autre espace, une nouvelle est
+  ouverte. Le message garde un lien « Tâche liée », « Objectif lié », « Entrée liée » ou
+  « Bilan lié ». Un agent ne le reçoit que s'il lit ce type d'élément (Planification :
+  tâches et objectifs ; Coaching : objectifs, journal et bilans, sans les titres de tâches
+  ni les décisions qu'un bilan contient) ; sinon la page vous le dit avant l'envoi. Une
+  entrée de journal est masquée comme le reste (téléphones, e-mails, IBAN…), mais son texte
+  part bien au fournisseur : n'utilisez ce bouton que pour une entrée que vous acceptez de
+  confier à l'assistant IA de cet espace.
 - **Dicter** : le texte dicté s'ajoute au message, que vous relisez avant d'envoyer.
 - **Écouter** : lit une réponse à voix haute avec une voix de votre appareil. Le bouton
   n'apparaît que si l'appareil a une voix française locale.
@@ -247,6 +256,8 @@ Il n'y a pas encore de **tâches récurrentes** : recréez la tâche après l'av
   la transcription pour la dictée suivante.
 - **Extraire tâches et faits** : l'assistant propose des tâches et des faits tirés de
   l'entrée. Cochez ceux à garder, ajustez-les, puis approuvez.
+- **Discuter de cette entrée** : ouvre l'assistant avec cette entrée seule comme sujet de
+  vos messages (voir [Assistant](#assistant)).
 
 ### Objectifs
 
@@ -358,7 +369,9 @@ Bilans du jour, de la semaine et du mois :
 - **faits** calculés localement (tâches terminées, objectifs, journal) ;
 - **lecture** de l'assistant, si autorisée, séparée des faits ; ses hypothèses sont
   présentées comme telles ;
-- génération automatique possible, sur demande.
+- génération automatique possible, sur demande ;
+- **Discuter de ce bilan** : ouvre l'assistant avec ce bilan seul comme sujet de vos
+  messages (voir [Assistant](#assistant)).
 
 ### Mémoire
 
@@ -581,8 +594,8 @@ demandent votre passkey au moment d'approuver.
 | les souvenirs et faits pertinents du même espace | le texte d'un document sensible ou gardé en local |
 | le texte d'une autre pièce jointe, avec ce message | votre voix (transcrite sur le serveur) |
 | le texte d'un e-mail que vous joignez, avec ce message | un e-mail sensible, ou que vous n'avez pas joint |
-| la tâche ou l'objectif que vous avez choisi (« Discuter de… »), du même espace, avec ce message | une autre tâche ou un autre objectif que l'assistant général n'a pas trouvé pertinent ; un élément d'un autre espace |
-| pour un agent : uniquement les ressources que vous lui avez ouvertes | les vecteurs de recherche, les budgets, les faits des bilans |
+| la tâche, l'objectif, l'entrée de journal ou le bilan que vous avez choisi (« Discuter de… »), du même espace, avec ce message | un autre élément que l'assistant général n'a pas trouvé pertinent ; un élément d'un autre espace |
+| pour un agent : uniquement les ressources que vous lui avez ouvertes | les vecteurs de recherche, les budgets, le calcul des faits des bilans (fait sur votre serveur) |
 
 Les e-mails, numéros de téléphone, IBAN, numéros de carte, numéros de sécurité sociale, mots
 de passe et codes annoncés, et numéros de passeport, de pièce d'identité ou fiscaux écrits

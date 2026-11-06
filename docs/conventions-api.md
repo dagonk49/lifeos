@@ -144,8 +144,10 @@ un texte libre : toute autre valeur répond `422 validation_error`. `context` n'
 autre clé que `screen` et `ref` (`422`).
 
 Élément choisi (tâche 24, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
-`context.ref = {"type": "task" | "goal", "id": "<uuid>"}` désigne la tâche ou l'objectif dont
-le propriétaire veut parler (« Discuter de… »). Le serveur le relit avec les droits de celui
+`context.ref = {"type": "task" | "goal" | "journal" | "review", "id": "<uuid>"}` désigne la
+tâche, l'objectif, l'entrée de journal ou le bilan dont le propriétaire veut parler
+(« Discuter de… » ; ressource exigée d'un agent : `tasks`, `goals`, `journal` ou `reviews`).
+Le serveur le relit avec les droits de celui
 qui répond, **dans l'espace de la conversation seulement**, puis l'ajoute au message de ce
 seul tour comme bloc de données délimité et borné ; le message enregistré le référence
 (`MessageOut.context`, même forme, `null` sinon). Il n'est jamais renvoyé implicitement au
@@ -154,13 +156,16 @@ raison et type) :
 
 - `404 context_not_found` : élément inconnu, d'un autre compte ou d'un **autre espace** que
   la conversation (même un espace du propriétaire) ;
-- `403 context_not_allowed` : agent qui ne lit jamais ce type d'élément (Finances, ou
-  Coaching pour une tâche). Un agent dont c'est une ressource mais qui n'y a pas encore accès
-  répond comme d'habitude `201` avec `agent_permission_required` : rien n'est envoyé, le
+- `403 context_not_allowed` : agent qui ne lit jamais ce type d'élément (Finances ; Coaching
+  pour une tâche ; tout agent autre que Coaching pour une entrée de journal ou un bilan, même
+  si le journal lui a été accordé pour un autre usage). Un agent dont c'est une ressource
+  mais qui n'y a pas encore accès répond comme d'habitude `201` avec `agent_permission_required` : rien n'est envoyé, le
   message ne référence pas l'élément, le client le renvoie après l'autorisation ;
 - `422 validation_error` : type hors de la liste ou identifiant qui n'est pas un UUID.
 
-Un envoi réussi est audité `chat.context` (`success`, cible `task` ou `goal`, `message_id`).
+Un envoi réussi est audité `chat.context` (`success`, cible `task`, `goal`, `journal` ou
+`review`, `message_id`). Un bilan ne montre les titres de tâches, d'objectifs et de décisions
+de ses faits qu'à un lecteur qui peut lire lui-même `tasks`, `goals` ou `facts` dans l'espace.
 
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :

@@ -156,11 +156,16 @@ Contenu transmis :
 
 - uniquement le **paquet de contexte minimal** construit pour la requête (message courant,
   derniers échanges de la conversation, souvenirs pertinents du même espace) et, s'il l'a
-  choisi explicitement (« Discuter de… »), **un seul élément** : la tâche ou l'objectif
-  sélectionné, **du même espace** que la conversation, relu avec les droits de celui qui
-  répond (un agent n'en reçoit que s'il a le droit `tasks` ou `goals` dans l'espace), borné
-  (notes et description 1 000 caractères, motivation 400, jalons ouverts et trois derniers
-  points d'étape, 2 500 caractères au plus), délimité et annoncé comme des **données, jamais
+  choisi explicitement (« Discuter de… »), **un seul élément** : la tâche, l'objectif,
+  l'entrée de journal ou le bilan sélectionné, **du même espace** que la conversation, relu
+  avec les droits de celui qui répond (un agent n'en reçoit que s'il a le droit `tasks`,
+  `goals`, `journal` ou `reviews` dans l'espace et parmi ses propres ressources : seul
+  Coaching lit journal et bilans), borné (notes et description 1 000 caractères, motivation
+  400, jalons ouverts et trois derniers points d'étape ; texte d'une entrée 2 000 caractères,
+  humeur seulement si elle a été partagée ; pour un bilan, ses faits enregistrés — les titres
+  de tâches, d'objectifs et de décisions seulement si le lecteur peut les lire lui-même — et
+  sa lecture : synthèse 600 caractères, quatre progrès, quatre difficultés, trois
+  suggestions ; 2 500 caractères au plus), délimité et annoncé comme des **données, jamais
   des instructions**, joint au seul message envoyé avec lui et audité (`chat.context`, sans
   contenu). L'écran d'où vient la demande n'est jamais transmis comme texte libre
   ([ADR 0020](adr/0020-conversation-liee-a-un-element.md)) ;
@@ -254,7 +259,8 @@ Ce qui n'est **jamais** envoyé au cloud :
 
 - les embeddings et la recherche par le sens (calculés localement) ;
 - la détection des doublons et contradictions de la mémoire ;
-- les faits des bilans et la progression des objectifs ;
+- le calcul des faits des bilans et de la progression des objectifs (fait localement ; seuls
+  leurs résultats accompagnent une demande : lecture d'un bilan, agents, « Discuter de… ») ;
 - les fichiers importés, leur OCR et la détection de sensibilité (service `ml`) ;
 - la lecture des tickets de caisse ;
 - la voix : la transcription a lieu sur le serveur (service `stt`) et la lecture à voix

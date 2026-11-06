@@ -141,7 +141,7 @@ export interface Conversation {
   created_at: string;
 }
 
-export type ChatContextType = "task" | "goal";
+export type ChatContextType = "task" | "goal" | "journal" | "review";
 
 /** An object of the conversation's space, explicitly chosen by the owner (« Discuter de… »). */
 export interface ChatContextRef {

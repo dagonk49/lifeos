@@ -359,11 +359,15 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     enhanced, pass}`, comment l'image a été lue (quart de tour, redressement, lecture gardée).
 - **`messages.attachments uuid[]`** : documents joints par le propriétaire (seul leur texte
   extrait a accompagné le message ; références conservées même si le document est supprimé).
-- **`messages.context_type text null`** (`task` \| `goal`) et **`messages.context_id uuid
-  null`** (migration 0023, tâche 24, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
-  tâche ou objectif choisi par le propriétaire comme sujet du message (« Discuter de… »).
-  Références seules, sans clé étrangère (comme `attachments`) : l'élément supprimé reste
-  référencé. Les deux colonnes sont nulles ensemble (`ck_messages_context_ref`).
+- **`messages.context_type text null`** (`task` \| `goal` \| `journal` \| `review`) et
+  **`messages.context_id uuid null`** (migration 0023, tâche 24 ; `journal` et `review`
+  ajoutés par la migration 0026, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
+  tâche, objectif, entrée de journal (`journal_entries`) ou bilan (`reviews`) choisi par le
+  propriétaire comme sujet du message (« Discuter de… »). Liste de `ck_messages_context_type`
+  tenue en miroir par `chat.models.CONTEXT_TYPES` et `chat.schemas.ContextType`. Références
+  seules, sans clé étrangère (comme `attachments`) : l'élément supprimé reste référencé. Les
+  deux colonnes sont nulles ensemble (`ck_messages_context_ref`) ; la descente de 0026 efface
+  la référence des messages qui citent une entrée ou un bilan, sans supprimer le message.
 - **`embeddings.object_type`** : s'étend à `document` et `transaction` (suppression par
   trigger).
 

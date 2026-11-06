@@ -89,6 +89,22 @@ test("MVP journey: enrol, organise, converse, remember, search, sign in again", 
   await page.getByRole("button", { name: "Approuver" }).click();
   await expect(page.getByText("Analysée")).toBeVisible();
 
+  // « Discuter de cette entrée » (task 24): this entry only, sent as data with the message.
+  await page.getByRole("link", { name: /^Discuter de cette entrée du / }).click();
+  await expect(page).toHaveURL(/\/chat\?about=journal:[0-9a-f-]{36}$/);
+  const entryChip = page.getByRole("group", { name: "Élément joint au message" });
+  await expect(entryChip.getByText(/^À propos de « .+ » \(Entrée de journal\)$/)).toBeVisible();
+  await page.getByLabel("Votre message").fill("Qu'en retenir ?");
+  await page.getByRole("button", { name: "Envoyer" }).click();
+  // The fake model echoes the start of what it received: the question, then the entry's
+  // header (its text follows, as delimited data, beyond the echoed 200 characters).
+  await expect(
+    messages(page).getByText(/^\[fake\] Qu'en retenir \?[\s\S]*\[Entrée de journal : « \d{2}\/\d{2}\/\d{4} »\]/),
+  ).toBeVisible();
+  await expect(messages(page).getByRole("link", { name: "Entrée liée" })).toHaveAttribute("href", "/journal");
+  await entryChip.getByRole("button", { name: "Retirer le contexte" }).click();
+  await expect(entryChip).toHaveCount(0);
+
   // Memory: declare, correct (history kept), export available.
   await nav(page, "Mémoire");
   await page.getByLabel("Énoncé").fill("Je préfère le thé");

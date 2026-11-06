@@ -1,13 +1,28 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 
 import { ApprovalReview } from "@/components/ApprovalReview";
 import { EraseConfirm } from "@/components/EraseConfirm";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
-import { Alert, Badge, Button, Card, Empty, Field, Input, PageHeader, Select, Spinner, Textarea } from "@/components/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  buttonClasses,
+  Card,
+  Empty,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  Spinner,
+  Textarea,
+} from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { chatHref } from "@/lib/chatContext";
 import { useSessionDraft } from "@/lib/drafts";
 import { DRAFT_KEYS } from "@/lib/session";
 import { formatDate, todayLocal } from "@/lib/format";
@@ -77,6 +92,14 @@ function EntryCard({ entry }: { entry: JournalEntry }) {
           <Button size="sm" onClick={() => analyze.mutate()} disabled={analyze.isPending}>
             {analyze.isPending ? "Analyse…" : "Extraire tâches et faits"}
           </Button>
+          {/* The assistant receives this entry only, as data, in a conversation of its space. */}
+          <Link
+            href={chatHref({ type: "journal", id: entry.id })}
+            aria-label={`Discuter de cette entrée du ${formatDate(entry.entry_date)}`}
+            className={buttonClasses({ variant: "secondary", size: "sm" })}
+          >
+            Discuter de cette entrée
+          </Link>
           <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
             Modifier
           </Button>
