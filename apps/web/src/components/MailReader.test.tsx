@@ -125,6 +125,14 @@ describe("MailReader", () => {
     expect(JSON.parse(String(created[1]!.body))).toMatchObject({ space_id: "perso" });
     const sent = fetchMock.mock.calls.find(([url]) => url === "/v1/chat/conversations/c1/messages")!;
     expect(JSON.parse(String(sent[1]!.body)).mail_ids).toEqual(["m1"]);
+    // A reply can be drafted from the same conversation: a draft, never a sending.
+    fireEvent.click(screen.getByRole("button", { name: "Proposer une réponse" }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === "/v1/chat/conversations/c1/mail-draft")).toBe(true),
+    );
+    const drafted = fetchMock.mock.calls.find(([url]) => url === "/v1/chat/conversations/c1/mail-draft")!;
+    expect(JSON.parse(String(drafted[1]!.body))).toEqual({ agent: "core", in_reply_to_id: "m1" });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/send"))).toBe(false);
 
     cleanup();
     vi.stubGlobal("fetch", vi.fn(async () => json(200, mail({ sensitivity: ["bank"] }))));

@@ -227,6 +227,11 @@ async def request_approval(
     entry = _registered(action)
     ctx.principal.require_space(space_id)
     spec = ACTIONS[action]
+    if ctx.principal.kind == "agent":
+        # An agent proposes only what the policy lets it propose, with its permission.
+        decision = evaluate(ctx.principal, action, space_id)
+        if decision.code in ("forbidden_for_agents", "no_permission", "space_forbidden"):
+            await _refuse(ctx, action, space_id, decision)
     level = spec.agent_level if ctx.principal.kind == "agent" else spec.user_level
     now = utcnow()
     dump = params.model_dump(mode="json")

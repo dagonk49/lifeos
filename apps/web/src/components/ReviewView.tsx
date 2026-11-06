@@ -1,12 +1,14 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState, type Ref } from "react";
 
 import { ReviewFactsBlock } from "@/components/ReviewFacts";
 import { ReviewNarrativeBlock } from "@/components/ReviewNarrative";
-import { Alert, Badge, Button, Card } from "@/components/ui";
+import { Alert, Badge, Button, buttonClasses, Card } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
+import { chatHref } from "@/lib/chatContext";
 import { formatDateTime } from "@/lib/format";
 import { generatedByLabel, isAutomatic, PERIOD_OPTIONS, periodLabel } from "@/lib/reviews";
 import type { Review } from "@/lib/types";
@@ -64,9 +66,23 @@ export function ReviewView({
               </div>
             </div>
           ) : (
-            <Button size="sm" variant="ghost" onClick={() => setConfirming(true)} aria-label={`Supprimer le bilan « ${label} »`}>
-              Supprimer
-            </Button>
+            <>
+              {/* The assistant receives this review only, as data, in a conversation of its space. */}
+              <Link
+                href={chatHref({ type: "review", id: review.id })}
+                className={buttonClasses({ variant: "secondary", size: "sm" })}
+              >
+                Discuter de ce bilan
+              </Link>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirming(true)}
+                aria-label={`Supprimer le bilan « ${label} »`}
+              >
+                Supprimer
+              </Button>
+            </>
           )}
         </div>
       </header>

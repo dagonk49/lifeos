@@ -25,8 +25,10 @@ Ce qui existe déjà dans le client web, au téléphone :
 - contrôles automatiques au format téléphone (360, 375 et 412 px, écran tactile) et
   WCAG 2.2 AA ([accessibilite.md](../accessibilite.md)).
 
-Contraintes propres à LifeOS : un seul utilisateur ; serveur domestique, souvent joignable
-par le réseau local ou un VPN seulement ([installation.md §3](../installation.md)) ; session
+Contraintes propres à LifeOS : un seul utilisateur ; serveur domestique, joignable par le
+réseau local ou un VPN, et aussi depuis l'extérieur par un reverse proxy que le propriétaire
+installe et gère lui-même, **hors de l'application** (précision du propriétaire, 2026-11 ;
+mode « derrière un reverse proxy » de [installation.md](../installation.md)) ; session
 par cookie `HttpOnly`, `SameSite=Strict`, contrôle `Origin` sur toute écriture ; CSP avec un
 nonce par requête et pages `no-store` ; aucune dépendance React Native ou Expo ne peut être
 installée dans l'environnement de développement actuel.

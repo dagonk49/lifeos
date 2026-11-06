@@ -1,16 +1,16 @@
 """Sending an e-mail under approval (task 18, ADR 0018).
 
-The owner (or an agent allowed to write e-mails in the space) asks to send a draft: that
-is a proposal. Its parameters ARE the message: sender account, To, Cc, Bcc, subject,
-plain-text body, attachments (title, type, size, SHA-256, sensitivity) and the message
-answered; the preview renders those same fields. Nothing leaves before the owner approves
-that exact content:
+The owner asks to send a draft (also one an agent wrote: agents write drafts, never send
+them nor propose to): that is a proposal. Its parameters ARE the message: sender account,
+To, Cc, Bcc, subject, plain-text body, attachments (title, type, size, SHA-256,
+sensitivity) and the message answered; the preview renders those same fields. Nothing
+leaves before the owner approves that exact content:
 
 - the approval is bound to its parameters (guardian digest), to the draft version and to
   the attachments' SHA-256: an edit invalidates it, a changed file or draft refuses it;
-- a recipient LifeOS never wrote to from this space, or a sensitive attachment (detected
-  sensitive, or « toujours garder en local »), requires the reinforced approval
-  (`email.send_reinforced`: a recent passkey login);
+- a recipient LifeOS never wrote to from this space, or any attachment (owner's decision:
+  a file leaving the server always asks for the passkey; a sensitive one is also flagged),
+  requires the reinforced approval (`email.send_reinforced`: a recent passkey login);
 - the send runs through guardian/operations.py: claimed once before the provider is
   called, with a Message-ID derived from the approval. Gmail has no idempotency for
   sending: an existing claim (retry, crash) is first looked for at the provider by that
@@ -103,9 +103,8 @@ class SendEmailParams(BaseModel):
 
 
 def reinforced(params: SendEmailParams) -> bool:
-    return bool(params.new_recipients) or any(
-        a.sensitivity or a.local_only for a in params.attachments
-    )
+    """A recent passkey sign-in: for a new recipient, or as soon as a file is attached."""
+    return bool(params.new_recipients) or bool(params.attachments)
 
 
 def recipient_count(params: SendEmailParams) -> int:
@@ -126,6 +125,8 @@ def preview(params: Any) -> dict[str, Any]:
             + ", ".join(params.new_recipients)
             + " — vérifiez l'adresse."
         )
+    if params.attachments:
+        notes.append("Pièce jointe : le fichier quitte votre serveur, votre passkey est demandée.")
     sensitive = [a.title for a in params.attachments if a.sensitivity or a.local_only]
     if sensitive:
         notes.append("Pièce jointe sensible : " + ", ".join(sensitive) + ".")
@@ -168,10 +169,17 @@ def _adapter(provider: object) -> MailAdapter:
     return adapter
 
 
-async def request_send(ctx: Ctx, draft_id: uuid.UUID, *, requested_by: str = "owner") -> Approval:
-    """The draft as a proposal to send (nothing leaves before the owner approves it)."""
+async def request_send(ctx: Ctx, draft_id: uuid.UUID) -> Approval:
+    """The draft as a proposal to send (nothing leaves before the owner approves it).
+
+    Only the owner asks for it (« Préparer l'envoi »), also for a draft an agent wrote:
+    an agent never proposes a send (`email.send` has no agent level), the refusal is
+    audited."""
     await drafts.lock_target(ctx, draft_id)
     draft = await drafts.get_draft(ctx, draft_id, for_update=True)
+    if ctx.principal.kind != "user":
+        await actions.authorize(ctx, SEND, draft.space_id)  # always refused for agents
+        raise ProblemError(403, "action_denied", "Only the owner can send an e-mail")
     state = await drafts.state_of(ctx.db, draft)
     drafts.require_editable(state)
     if state.state == "awaiting_approval" and state.approval is not None:
@@ -231,10 +239,13 @@ async def request_send(ctx: Ctx, draft_id: uuid.UUID, *, requested_by: str = "ow
         action,
         draft.space_id,
         params,
-        requested_by=requested_by,
+        requested_by="owner",
         target=drafts.target(draft.id),
     )
-    await drafts.mark_status(ctx.db, draft.id, status="awaiting_approval", approval_id=approval.id)
+    values: dict[str, Any] = {"status": "awaiting_approval", "approval_id": approval.id}
+    if draft.author_agent is not None and draft.owner_edited_at is None:
+        values["owner_edited_at"] = utcnow()  # the owner took it over: no agent changes it
+    await drafts.mark_status(ctx.db, draft.id, **values)
     return approval
 
 

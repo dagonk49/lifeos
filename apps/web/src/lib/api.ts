@@ -314,6 +314,12 @@ const MESSAGES: Record<string, string> = {
     "Aucun compte connecté ne peut envoyer d'e-mails dans cet espace : autorisez « Envoyer des e-mails » dans Réglages > Comptes connectés.",
   attachment_unavailable: "Ce document ne peut pas être joint : son original n'est plus disponible.",
   attachment_changed: "Une pièce jointe a changé depuis la demande : rien n'a été envoyé.",
+  // Drafts written by an agent (ADR 0018 amendment)
+  draft_not_editable_by_agent:
+    "Ce brouillon est désormais le vôtre : l'agent ne le modifie plus. Demandez-lui un nouveau brouillon si besoin.",
+  nothing_to_draft: "Dites d'abord dans la conversation ce que l'e-mail doit contenir.",
+  draft_proposal_empty: "L'assistant n'a proposé aucun texte : précisez votre demande et réessayez.",
+  invalid_draft_request: "Une nouvelle version répond au même e-mail que le brouillon.",
 };
 
 export function problemMessage(code: string, fallback: string): string {

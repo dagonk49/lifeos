@@ -235,6 +235,7 @@ export function assistantQuotaSummary(
 const PURPOSE_LABELS: Record<string, string> = {
   "chat.reply": "Assistant",
   "chat.consolidate": "Consolidation d'une conversation",
+  "mail.draft": "Brouillon d'e-mail",
   "journal.analyze": "Analyse du journal",
   "review.daily": "Bilan quotidien",
   "review.weekly": "Bilan hebdomadaire",

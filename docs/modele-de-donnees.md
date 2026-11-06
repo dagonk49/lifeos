@@ -359,11 +359,15 @@ de rétention (variable de transaction `lifeos.audit_purge = on`).
     enhanced, pass}`, comment l'image a été lue (quart de tour, redressement, lecture gardée).
 - **`messages.attachments uuid[]`** : documents joints par le propriétaire (seul leur texte
   extrait a accompagné le message ; références conservées même si le document est supprimé).
-- **`messages.context_type text null`** (`task` \| `goal`) et **`messages.context_id uuid
-  null`** (migration 0023, tâche 24, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
-  tâche ou objectif choisi par le propriétaire comme sujet du message (« Discuter de… »).
-  Références seules, sans clé étrangère (comme `attachments`) : l'élément supprimé reste
-  référencé. Les deux colonnes sont nulles ensemble (`ck_messages_context_ref`).
+- **`messages.context_type text null`** (`task` \| `goal` \| `journal` \| `review`) et
+  **`messages.context_id uuid null`** (migration 0023, tâche 24 ; `journal` et `review`
+  ajoutés par la migration 0026, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
+  tâche, objectif, entrée de journal (`journal_entries`) ou bilan (`reviews`) choisi par le
+  propriétaire comme sujet du message (« Discuter de… »). Liste de `ck_messages_context_type`
+  tenue en miroir par `chat.models.CONTEXT_TYPES` et `chat.schemas.ContextType`. Références
+  seules, sans clé étrangère (comme `attachments`) : l'élément supprimé reste référencé. Les
+  deux colonnes sont nulles ensemble (`ck_messages_context_ref`) ; la descente de 0026 efface
+  la référence des messages qui citent une entrée ou un bilan, sans supprimer le message.
 - **`embeddings.object_type`** : s'étend à `document` et `transaction` (suppression par
   trigger).
 
@@ -499,6 +503,10 @@ colonnes ne sort par l'API ni par l'export.
   - Une fois envoyé : `message_id_header` (unique, dérivé de l'approbation),
     `provider_message_id`, `provider_thread_id`, `sent_at` (indexé, purge à 90 jours).
   - `version` (`If-Match`) : modifier le brouillon invalide l'approbation en attente.
+  - Migration 0025 (amendement de l'ADR 0018) : `author_agent null` (agent qui l'a
+    proposé, liste de `agent_permissions.agent` ; `null` : écrit par le propriétaire),
+    `conversation_id null` (conversation d'origine, `SET NULL`, indexé), `owner_edited_at
+    null` (le propriétaire l'a modifié ou a préparé l'envoi : l'agent ne le change plus).
 - **`oauth_states`** : un consentement en cours, à usage unique.
   - `id`, `user_id`, `provider`, `state_hash bytea` (unique : empreinte SHA-256 du `state`,
     jamais le `state` lui-même), `verifier_enc bytea` (vérificateur PKCE scellé).

@@ -1,6 +1,7 @@
 # ADR 0020 — Conversation liée à l'écran courant : un élément choisi, jamais l'écran
 
-- Statut : acceptée
+- Statut : acceptée ; amendée le 2026-11-04 (entrées de journal et bilans, voir
+  [Amendement](#amendement-du-2026-11-04--entrées-de-journal-et-bilans))
 - Date : 2026-10-30
 
 ## Contexte
@@ -32,7 +33,8 @@ Option 3, sur le modèle des pièces jointes (`chat/attachments.py`) et des e-ma
 1. **Référence seulement** : `context.ref = {type: "task" | "goal", id}` ; `context` n'accepte
    aucune autre clé, `screen` reste la liste fermée `"chat"` et n'apporte rien au modèle
    d'autre que ce mot. Aucun autre type en V1 (documents et e-mails ont déjà leur pièce
-   jointe ; journal et bilans : à décider par le propriétaire).
+   jointe ; journal et bilans : à décider par le propriétaire — ajoutés par l'amendement du
+   2026-11-04).
 2. **Contrôlé avant tout enregistrement** (`chat/context_ref.py::load`) :
    - l'élément doit appartenir au propriétaire **et à l'espace de la conversation**, même si
      le propriétaire peut lire l'autre espace : sinon `404 context_not_found` (pas d'accès
@@ -75,5 +77,60 @@ Option 3, sur le modèle des pièces jointes (`chat/attachments.py`) et des e-ma
 - Le contrat v1 se resserre : `context` refuse toute clé inconnue (`422`).
 - Un élément supprimé reste référencé par ses messages (le lien mène à « introuvable »),
   comme une pièce jointe supprimée.
-- À valider par le propriétaire : périmètre (journal, bilans), et le refus explicite pour
-  un agent qui ne lit pas ce type d'élément.
+- À valider par le propriétaire : le refus explicite pour un agent qui ne lit pas ce type
+  d'élément (le périmètre a été tranché : journal et bilans, amendement ci-dessous).
+
+## Amendement du 2026-11-04 : entrées de journal et bilans
+
+Le propriétaire a décidé d'ouvrir « Discuter de… » aux **entrées de journal** et aux
+**bilans**. Les règles ci-dessus s'appliquent telles quelles ; ce qui change :
+
+1. **Types** : `context.ref.type` accepte `journal` et `review` (liste fermée
+   `task | goal | journal | review`, `chat.schemas.ContextType`, miroir
+   `chat.models.CONTEXT_TYPES`). Ressource exigée d'un agent : `journal` ou `reviews`
+   (noms de `guardian.models.RESOURCES`). Seul l'agent Coaching lit ces ressources : les
+   autres (Planification, Mémoire, Finances, Projets, Documents) reçoivent
+   `403 context_not_allowed`, même si le journal leur a été accordé pour un autre usage
+   (`Principal.restricted`, tâche 27). Coaching sans accès encore : parcours habituel
+   `agent_permission_required`.
+2. **Entrée de journal** : en-tête `[Entrée de journal : « JJ/MM/AAAA »]`, puis la date,
+   l'humeur **si elle a été partagée** (« Humeur partagée : 2/5 (difficile) ») et le texte
+   sur une ligne, borné à 2 000 caractères. Pas de règle « gardé en local » propre au
+   journal aujourd'hui : une entrée n'a ni catégorie sensible ni option « Toujours garder en
+   local » (à la différence des documents et des e-mails). Elle suit donc les règles déjà en
+   vigueur pour le journal (section « JOURNAL RÉCENT » de l'agent Coaching, extraits des
+   bilans, analyse d'une entrée, souvenirs pertinents de l'assistant général) : consentement
+   cloud de l'espace et masquage local des identifiants par le gateway. Si une option
+   « garder en local » est un jour ajoutée au journal, `context_ref.load` devra la refuser
+   comme une pièce jointe sensible.
+3. **Bilan** : en-tête `[Bilan : « semaine du 26/10/2026 au 01/11/2026 »]`, puis la période
+   (et « en cours lors du bilan »), la date d'établissement, les **faits calculés
+   localement** tels qu'ils ont été enregistrés (comptes de tâches, journal et humeur
+   moyenne, objectifs suivis, faits ajoutés, messages, données non lues), puis, si elle a été
+   produite, la **lecture de l'assistant** annoncée comme une interprétation : synthèse (600
+   caractères), 4 progrès, 4 difficultés et 3 suggestions au plus (200 caractères chacun) ;
+   les hypothèses et les questions ne sont pas renvoyées. Le tout reste plafonné à 2 500
+   caractères. Les faits d'un bilan ont été calculés avec les droits de celui qui l'a établi
+   (souvent le propriétaire) : les **titres** de tâches, d'objectifs et de décisions qu'ils
+   contiennent ne sont montrés qu'à un lecteur qui peut lire lui-même `tasks`, `goals` ou
+   `facts` dans l'espace (Coaching voit les objectifs, pas les titres de tâches ni les
+   décisions) ; les comptes font partie du bilan et sont toujours montrés. Les faits stockés
+   sont relus prudemment (JSON d'une version antérieure : valeur inattendue ignorée).
+4. **Recherche des souvenirs** : le titre d'une tâche ou d'un objectif élargit la recherche
+   de l'assistant général ; la date d'une entrée ou la période d'un bilan n'apporteraient que
+   du bruit : seule la question est cherchée.
+5. **Trace** : migration 0026, la contrainte `ck_messages_context_type` accepte les nouveaux
+   types ; à la descente, les messages qui citent une entrée ou un bilan perdent leur
+   référence (les deux colonnes, `ck_messages_context_ref`) mais restent. Audit
+   `chat.context` inchangé (cible `journal` ou `review`).
+6. **Interface** : « Discuter de cette entrée » sur chaque entrée du journal (nom accessible
+   « Discuter de cette entrée du <date> »), « Discuter de ce bilan » sur le bilan affiché ;
+   pastille « À propos de « <date> » (Entrée de journal) » ou « À propos de « Semaine du … »
+   (Bilan) » ; liens « Entrée liée » (vers le journal) et « Bilan lié » (vers
+   `/reviews?review=<id>`) sous le message envoyé.
+
+Conséquence : une entrée de journal, contenu parmi les plus personnels (santé, relations,
+humeur), peut partir au fournisseur avec un seul message, à la demande explicite du
+propriétaire et dans l'espace de la conversation seulement ; c'est déjà le cas, en plus
+large, pour l'agent Coaching et les bilans. **À valider par le propriétaire** : faut-il une
+option « garder en local » par entrée de journal (refus alors, comme un document sensible) ?

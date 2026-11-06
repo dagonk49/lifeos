@@ -7,9 +7,11 @@ from fastapi.responses import JSONResponse
 from lifeos.api.deps import CtxDep
 from lifeos.core.idempotency import idempotent
 from lifeos.core.pagination import Page
-from lifeos.modules.chat import consolidation, service
+from lifeos.modules.chat import consolidation, mail_draft, service
 from lifeos.modules.chat.consolidation import ConsolidationResult
 from lifeos.modules.chat.schemas import (
+    AgentDraftOut,
+    AgentDraftRequest,
     ConversationCreate,
     ConversationDetail,
     ConversationOut,
@@ -117,6 +119,35 @@ async def consolidate(conversation_id: uuid.UUID, ctx: CtxDep) -> ConsolidationR
         proposed = len(approval.params.get("tasks", [])) + len(approval.params.get("facts", []))
     return ConsolidationResult(
         approval_id=approval.id if approval else None, messages=count, proposed=proposed
+    )
+
+
+@router.post(
+    "/conversations/{conversation_id}/mail-draft",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AgentDraftOut,
+)
+async def propose_mail_draft(
+    conversation_id: uuid.UUID,
+    body: AgentDraftRequest,
+    request: Request,
+    ctx: CtxDep,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> JSONResponse:
+    """An agent of the conversation writes an e-mail draft (one cloud call). Nothing is
+    sent: the owner checks it, prepares the sending and approves the exact message."""
+
+    async def run() -> AgentDraftOut:
+        return await mail_draft.propose(ctx, conversation_id, body)
+
+    return await idempotent(
+        ctx.db,
+        user_id=ctx.principal.user_id,
+        key=idempotency_key,
+        method="POST",
+        path=request.url.path,
+        body=body,
+        run=run,
     )
 
 

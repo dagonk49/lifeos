@@ -141,7 +141,7 @@ export interface Conversation {
   created_at: string;
 }
 
-export type ChatContextType = "task" | "goal";
+export type ChatContextType = "task" | "goal" | "journal" | "review";
 
 /** An object of the conversation's space, explicitly chosen by the owner (« Discuter de… »). */
 export interface ChatContextRef {
@@ -1180,9 +1180,22 @@ export interface MailDraft {
   approval_level: "approval" | "reinforced" | null;
   error: string | null;
   sent_at: string | null;
+  /** Proposed by this agent (null: written by the owner), from this conversation. Its text
+   * and recipients were written by a model: shown as plain text, to be checked. */
+  author_agent?: AgentName | "core" | null;
+  conversation_id?: Uuid | null;
+  /** The owner edited it or prepared its sending: the agent can no longer change it. */
+  owner_edited?: boolean;
   version: number;
   created_at: string;
   updated_at: string;
+}
+
+/** POST /v1/chat/conversations/{id}/mail-draft: a draft written by an agent, never sent. */
+export interface AgentDraftResult {
+  draft: MailDraft;
+  /** Addresses proposed by the model that were not valid (masked, malformed): left out. */
+  dropped_recipients: number;
 }
 
 export interface SendAccount {

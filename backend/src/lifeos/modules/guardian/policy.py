@@ -109,13 +109,22 @@ _SPECS = [
     ActionSpec("llm.cloud_call", "Appeler le LLM cloud", Level.AUTOMATIC, Level.RULE, None, "read"),
     # E-mail sending (task 18, ADR 0018): every e-mail is approved by the owner from its
     # exact content; a new recipient (never written to from LifeOS in this space) or a
-    # sensitive attachment also requires a recent passkey login. Agents only propose.
-    ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, Level.APPROVAL, "email"),
+    # sensitive attachment also requires a recent passkey login. Owner's decision (ADR
+    # 0018 amendment): an agent writes drafts (`email.draft`, with its `email` write
+    # permission in the space), it never proposes nor performs a send.
+    ActionSpec(
+        "email.draft",
+        "Rédiger un brouillon d'e-mail (rien n'est envoyé)",
+        Level.AUTOMATIC,
+        Level.RULE,
+        "email",
+    ),
+    ActionSpec("email.send", "Envoyer un e-mail", Level.APPROVAL, None, "email"),
     ActionSpec(
         "email.send_reinforced",
-        "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe sensible",
+        "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe",
         Level.APPROVAL,
-        Level.APPROVAL,
+        None,
         "email",
         approval_level="reinforced",
     ),

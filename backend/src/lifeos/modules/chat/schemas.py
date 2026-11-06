@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from lifeos.modules.chat.attachments import MAX_ATTACHMENTS
+from lifeos.modules.mail.schemas import DraftOut
 
 # E-mails attached to one message at most (lifeos.modules.mail.service.MAX_MAILS).
 MAX_MAILS = 3
@@ -29,8 +30,9 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
 
-# What the owner may explicitly attach to a message as its subject (task 24): a closed list.
-ContextType = Literal["task", "goal"]
+# What the owner may explicitly attach to a message as its subject (task 24): a closed list,
+# mirrored by chat.models.CONTEXT_TYPES (CHECK constraint).
+ContextType = Literal["task", "goal", "journal", "review"]
 
 
 class ContextRef(BaseModel):
@@ -56,7 +58,8 @@ class MessageOut(BaseModel):
     agent: str | None = None
     # Documents attached by the owner (their extracted text was sent with the message).
     attachments: list[uuid.UUID] = []
-    # Task or goal the owner explicitly chose for this message (task 24): a reference only.
+    # Task, goal, journal entry or review the owner explicitly chose for this message
+    # (task 24): a reference only.
     context: ContextRef | None = None
     purge_after: datetime | None
     created_at: datetime
@@ -153,6 +156,26 @@ class SendResult(BaseModel):
     agent: str = "core"
     # Deterministic hint shown by the client: an agent that could help next time.
     suggested_agent: str | None = None
+
+
+class AgentDraftRequest(BaseModel):
+    """Asks an agent of the conversation for a draft (nothing is sent, ever)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent: AgentChoice = "core"
+    # The e-mail answered (same space as the conversation): its text goes to the model as
+    # data, its sender becomes the recipient, the reply is threaded.
+    in_reply_to_id: uuid.UUID | None = None
+    # A new version of a draft this agent proposed in this conversation, untouched by
+    # the owner.
+    draft_id: uuid.UUID | None = None
+
+
+class AgentDraftOut(BaseModel):
+    draft: DraftOut
+    # Addresses proposed by the model that were not valid (masked, malformed): left out.
+    dropped_recipients: int = 0
 
 
 class RetainRequest(BaseModel):

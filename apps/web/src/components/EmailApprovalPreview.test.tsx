@@ -13,7 +13,7 @@ const email: Approval = {
   id: "ap1",
   space_id: "s1",
   action: "email.send_reinforced",
-  description: "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe sensible",
+  description: "Envoyer un e-mail à un nouveau destinataire ou avec une pièce jointe",
   params: {},
   preview: {
     from: "moi@example.org",

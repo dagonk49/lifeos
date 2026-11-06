@@ -1,7 +1,7 @@
 """Local copies of the e-mails of the labels the owner chose (task 17, ADR 0017), and the
 owner's drafts sent under approval (task 18, ADR 0018).
 
-Keep in sync with migrations 0018, 0019 and docs/modele-de-donnees.md.
+Keep in sync with migrations 0018, 0019, 0025 and docs/modele-de-donnees.md.
 """
 
 import uuid
@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lifeos.db.base import Base, Owned, Timestamps, UUIDPrimaryKey
+from lifeos.modules.guardian.models import AGENTS
 
 
 class MailMessage(UUIDPrimaryKey, Owned, Timestamps, Base):
@@ -73,10 +74,18 @@ class MailDraft(UUIDPrimaryKey, Owned, Timestamps, Base):
 
     Editing it bumps `version` and invalidates the pending approval. Once sent, it can no
     longer be edited; it is purged `mail_retention_days` after it was sent.
+
+    An agent only writes drafts (migration 0025): `author_agent` names it, the draft stays
+    in the space of the conversation it came from, and once the owner edited it or asked
+    to send it (`owner_edited_at`), the agent can no longer change it. Only the owner
+    prepares the sending and approves it.
     """
 
     __tablename__ = "mail_drafts"
-    __table_args__ = (CheckConstraint(_in("status", DRAFT_STATUSES), name="status"),)
+    __table_args__ = (
+        CheckConstraint(_in("status", DRAFT_STATUSES), name="status"),
+        CheckConstraint(_in("author_agent", AGENTS), name="author_agent"),
+    )
 
     # The account it goes through; None once that account is gone.
     account_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -105,6 +114,13 @@ class MailDraft(UUIDPrimaryKey, Owned, Timestamps, Base):
     provider_message_id: Mapped[str | None] = mapped_column(Text)
     provider_thread_id: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime | None] = mapped_column(index=True)
+    # Proposed by this agent (None: written by the owner), from this conversation.
+    author_agent: Mapped[str | None] = mapped_column(Text)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), index=True
+    )
+    # The owner edited it or prepared its sending: no agent changes it any more.
+    owner_edited_at: Mapped[datetime | None]
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
     __mapper_args__ = {"version_id_col": version}  # noqa: RUF012

@@ -18,7 +18,7 @@ from lifeos.modules.documents import processing as documents
 from lifeos.modules.finance.imports import purge_expired_imports
 from lifeos.modules.guardian import operations
 from lifeos.modules.guardian.actions import expire_stale, purge_decided
-from lifeos.modules.guardian.gateway import release_stale_reservations
+from lifeos.modules.guardian.gateway import purge_old_calls, release_stale_reservations
 from lifeos.modules.identity.service import purge_expired
 from lifeos.modules.mail import drafts as mail_drafts
 from lifeos.modules.mail import send as mail_send  # noqa: F401  (registers the send actions)
@@ -77,6 +77,17 @@ async def purge_audit_events() -> None:
         return await purge_older_than(session, days=days)
 
     await run_job("purge_audit_events", job)
+
+
+@dramatiq.actor(queue_name="maintenance", max_retries=3)
+async def purge_llm_calls() -> None:
+    """The cloud-call journal past its retention (ids, purposes and counts only)."""
+    days = get_settings().llm_calls_retention_days
+
+    async def job(session: AsyncSession) -> int:
+        return await purge_old_calls(session, days=days)
+
+    await run_job("purge_llm_calls", job)
 
 
 @dramatiq.actor(queue_name="maintenance", max_retries=3)

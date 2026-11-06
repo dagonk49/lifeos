@@ -143,7 +143,7 @@ vraie instance (ils recréent le schéma).
 
 ### Sur une installation proche de la production
 
-`scripts/test-e2e-stack.sh` (workflow `e2e-stack` : sur `main`, chaque nuit et à la demande ;
+`scripts/test-e2e-stack.sh` (workflow `e2e-stack` : sur chaque pull request, sur `main`, chaque nuit et à la demande ;
 localement `scripts/check.sh --e2e-stack`) démarre une copie jetable de `infra/` avec les
 images construites (`LIFEOS_TEST_BACKEND_IMAGE`, `LIFEOS_TEST_WEB_IMAGE`, par défaut
 `lifeos-*:local`) : Traefik, TLS d'une autorité locale ajoutée le temps du test à la base NSS

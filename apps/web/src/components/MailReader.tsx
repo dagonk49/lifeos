@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 
+import { AgentDraftPanel } from "@/components/AgentDraftPanel";
 import { Alert, Badge, Button, Field, Spinner, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { SENSITIVITY_LABELS } from "@/lib/documents";
@@ -210,6 +211,12 @@ function Discuss({ mail }: { mail: MailDetail }) {
           <Link href="/chat" className="text-sm text-teal-700 underline dark:text-teal-400">
             Continuer dans l&apos;assistant
           </Link>
+          {/* A reply written by the assistant: a draft to check, never sent from here. */}
+          <AgentDraftPanel
+            conversationId={ask.data.conversation.id}
+            replyToId={mail.id}
+            label="Proposer une réponse"
+          />
         </div>
       )}
     </section>

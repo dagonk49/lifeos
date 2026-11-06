@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # Default time zone for scheduled jobs.
     timezone: str = "Europe/Paris"
     audit_retention_days: int = 365
+    # Journal of the cloud calls (llm_calls: purpose, tokens, cost, never a content): about
+    # 13 months, so that the usage of the past year stays visible month by month.
+    llm_calls_retention_days: int = Field(default=400, ge=31, le=3650)
 
     llm_provider: Literal["disabled", "fake", "gemini"] = "disabled"
     llm_timeout_seconds: float = 60.0

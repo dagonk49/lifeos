@@ -53,12 +53,16 @@ test("Step 5 journey: connect an account, authorise it per space, disconnect it"
   // Reload only once the client navigation is done (else the settings page is reloaded).
   await expect(page).toHaveURL(/\/agenda$/);
   await expect(page.getByRole("heading", { name: "Agenda", exact: true })).toBeVisible();
+  // The events of a page are committed as they come, the read date at the end of the pass:
+  // wait for both (an event can show a moment before its « lu le »).
   await expect(async () => {
     await page.reload();
     await expect(page.getByText("Point d'équipe")).toBeVisible({ timeout: 2_000 });
+    await expect(page.getByText(/Source : Agenda de démonstration · lu le/).first()).toBeVisible({
+      timeout: 2_000,
+    });
   }).toPass({ timeout: 30_000 });
   await expect(page.getByText("09:30 – 10:00")).toBeVisible();
-  await expect(page.getByText(/Source : Agenda de démonstration · lu le/).first()).toBeVisible();
   await nav(page, "Accueil");
   await expect(page.getByRole("heading", { name: "Agenda du jour" })).toBeVisible();
   await expect(page.getByText("Point d'équipe")).toBeVisible();

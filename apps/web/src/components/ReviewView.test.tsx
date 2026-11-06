@@ -96,6 +96,12 @@ describe("ReviewView", () => {
     expect(within(reading).getByText("Tâche en retard")).toBeTruthy();
   });
 
+  it("offers to discuss this review with the assistant (a reference only)", () => {
+    renderView(review);
+    const link = screen.getByRole("link", { name: "Discuter de ce bilan" });
+    expect(link.getAttribute("href")).toBe("/chat?about=review:r1");
+  });
+
   it("explains why there is no reading", () => {
     renderView({ ...review, narrative: null, narrative_status: "unavailable", narrative_error: "llm_daily_quota_reached" });
     const reading = screen.getByRole("region", { name: "Lecture de l'assistant" });

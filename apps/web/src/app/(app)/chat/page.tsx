@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useId, useRef, useState } from "react";
 
+import { AgentDraftPanel } from "@/components/AgentDraftPanel";
 import { AgentPermissionCard, type AgentPermissionNeed } from "@/components/AgentPermissionCard";
 import { AgentSelector } from "@/components/AgentSelector";
 import { AgentSuggestion } from "@/components/AgentSuggestion";
@@ -26,10 +27,13 @@ import {
 import {
   agentContextIssue,
   contextLabel,
-  contextResource,
   linkedLabel,
+  missingLabel,
   objectHref,
+  objectTitle,
   parseAbout,
+  resourceLabel,
+  type ContextObject,
 } from "@/lib/chatContext";
 import { COMPOSER_HINTS, enterSends, useCoarsePointer } from "@/lib/composer";
 import { useSessionDraft } from "@/lib/drafts";
@@ -46,8 +50,10 @@ import type {
   ConversationDetail,
   DocumentSummary,
   GoalDetail,
+  JournalEntry,
   Message,
   Page,
+  Review,
   SendPreview,
   SendResult,
   Task,
@@ -101,7 +107,7 @@ function MessageBubble({
         </ul>
       )}
       {mine && message.context && (
-        <Link className="text-xs underline" href={objectHref(message.context)}>
+        <Link className="inline-flex min-h-6 items-center text-xs underline" href={objectHref(message.context)}>
           {linkedLabel(message.context.type)}
         </Link>
       )}
@@ -143,14 +149,30 @@ interface SendVars {
   refSpace?: string | null;
 }
 
-/** The object named by `?about=`, as shown in the chip (title and space). */
+/** The object named by `?about=`, as shown in the chip (title, date or period, and space). */
 function useContextObject(ref: ChatContextRef | null) {
+  const id = encodeURIComponent(ref?.id ?? "");
   return useQuery({
-    queryKey: ref?.type === "goal" ? goalKeys.detail(ref.id) : ["tasks", "detail", ref?.id ?? ""],
-    queryFn: async (): Promise<{ title: string; space_id: string }> =>
+    queryKey:
       ref?.type === "goal"
-        ? api<GoalDetail>(`/v1/goals/${encodeURIComponent(ref.id)}`)
-        : api<Task>(`/v1/tasks/${encodeURIComponent(ref?.id ?? "")}`),
+        ? goalKeys.detail(ref.id)
+        : ref?.type === "review"
+          ? ["review", ref.id]
+          : ref?.type === "journal"
+            ? ["journal", "detail", ref.id]
+            : ["tasks", "detail", ref?.id ?? ""],
+    queryFn: async (): Promise<ContextObject> => {
+      switch (ref?.type) {
+        case "goal":
+          return api<GoalDetail>(`/v1/goals/${id}`);
+        case "review":
+          return api<Review>(`/v1/reviews/${id}`);
+        case "journal":
+          return api<JournalEntry>(`/v1/journal/${id}`);
+        default:
+          return api<Task>(`/v1/tasks/${id}`);
+      }
+    },
     enabled: ref !== null,
     retry: false,
   });
@@ -161,7 +183,7 @@ function ChatView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { selected, writeSpaceId, spaceName } = useSpace();
-  // « Discuter de cet objectif / de cette tâche »: the chosen object, carried by the URL.
+  // « Discuter de… » (task, goal, journal entry, review): the chosen object, carried by the URL.
   const aboutParam = searchParams?.get("about") ?? null;
   const [about, setAbout] = useState<{ param: string | null; ref: ChatContextRef | null }>(() => ({
     param: aboutParam,
@@ -510,6 +532,15 @@ function ChatView() {
             {current && detail.data?.id === current && detail.data.messages.length > 0 && (
               <ConsolidationPanel key={detail.data.id} conversation={detail.data} />
             )}
+            {current && detail.data?.id === current && detail.data.messages.length > 0 && (
+              // An e-mail draft written by the chosen agent: never sent from here.
+              <AgentDraftPanel
+                key={`${detail.data.id}-${agent}`}
+                conversationId={detail.data.id}
+                agent={agent}
+                agents={agents.data}
+              />
+            )}
             <ol
               ref={list}
               aria-label="Messages"
@@ -598,7 +629,7 @@ function ChatView() {
                     ) : object.data ? (
                       <>
                         <p className="font-medium break-words">
-                          À propos de « {object.data.title} » ({contextLabel(ref.type)})
+                          À propos de « {objectTitle(ref.type, object.data)} » ({contextLabel(ref.type)})
                         </p>
                         <p className="text-xs">
                           Joint à vos messages tant qu&apos;il est affiché, comme donnée à analyser : rien
@@ -608,10 +639,7 @@ function ChatView() {
                         </p>
                       </>
                     ) : (
-                      <p>
-                        {contextLabel(ref.type)} introuvable ou supprimé{ref.type === "task" ? "e" : ""} : rien ne sera
-                        joint au message.
-                      </p>
+                      <p>{missingLabel(ref.type)} : rien ne sera joint au message.</p>
                     )}
                   </div>
                   <Button variant="secondary" size="sm" className="self-start sm:self-center" onClick={clearContext}>
@@ -621,7 +649,7 @@ function ChatView() {
               )}
               {ref && contextIssue && (
                 <Alert tone="warning">
-                  {`L'agent ${agentLabel(agent, agents.data)} ne lit pas les ${contextResource(ref.type) === "goals" ? "objectifs" : "tâches"} : choisissez l'assistant général ou un autre agent, ou retirez le contexte.`}
+                  {`L'agent ${agentLabel(agent, agents.data)} ne lit pas les ${resourceLabel(ref.type)} : choisissez l'assistant général ou un autre agent, ou retirez le contexte.`}
                 </Alert>
               )}
               <VoiceRecorder

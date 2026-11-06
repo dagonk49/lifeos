@@ -26,6 +26,18 @@ test("Step 3 journey: goals, reviews, memory review, agents, consolidation, sema
   await nav(page, "Bilans");
   await page.getByRole("button", { name: "Établir le bilan" }).click();
   await expect(page.getByRole("region", { name: "Faits (calculés localement, sans IA)" })).toBeVisible();
+  // « Discuter de ce bilan » (task 24): this review only, as data, linked from the message.
+  await page.getByRole("link", { name: "Discuter de ce bilan" }).click();
+  await expect(page).toHaveURL(/\/chat\?about=review:[0-9a-f-]{36}$/);
+  const reviewChip = page.getByRole("group", { name: "Élément joint au message" });
+  await expect(reviewChip.getByText(/^À propos de « .+ » \(Bilan\)$/)).toBeVisible();
+  await page.getByLabel("Votre message").fill("Que retenir ?");
+  await page.getByRole("button", { name: "Envoyer" }).click();
+  const reviewThread = page.getByRole("list", { name: "Messages" });
+  await expect(reviewThread.getByText(/^\[fake\] Que retenir \?[\s\S]*\[Bilan : « (jour|semaine|mois) du /)).toBeVisible();
+  await expect(reviewThread.getByRole("link", { name: "Bilan lié" })).toHaveAttribute("href", /\/reviews\?review=/);
+  await reviewChip.getByRole("button", { name: "Retirer le contexte" }).click();
+  await expect(reviewChip).toHaveCount(0);
 
   // Memory quality (F07): an exact duplicate is flagged, the owner keeps both.
   await nav(page, "Mémoire");

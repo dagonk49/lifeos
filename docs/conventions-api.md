@@ -144,8 +144,10 @@ un texte libre : toute autre valeur répond `422 validation_error`. `context` n'
 autre clé que `screen` et `ref` (`422`).
 
 Élément choisi (tâche 24, [ADR 0020](adr/0020-conversation-liee-a-un-element.md)) :
-`context.ref = {"type": "task" | "goal", "id": "<uuid>"}` désigne la tâche ou l'objectif dont
-le propriétaire veut parler (« Discuter de… »). Le serveur le relit avec les droits de celui
+`context.ref = {"type": "task" | "goal" | "journal" | "review", "id": "<uuid>"}` désigne la
+tâche, l'objectif, l'entrée de journal ou le bilan dont le propriétaire veut parler
+(« Discuter de… » ; ressource exigée d'un agent : `tasks`, `goals`, `journal` ou `reviews`).
+Le serveur le relit avec les droits de celui
 qui répond, **dans l'espace de la conversation seulement**, puis l'ajoute au message de ce
 seul tour comme bloc de données délimité et borné ; le message enregistré le référence
 (`MessageOut.context`, même forme, `null` sinon). Il n'est jamais renvoyé implicitement au
@@ -154,13 +156,16 @@ raison et type) :
 
 - `404 context_not_found` : élément inconnu, d'un autre compte ou d'un **autre espace** que
   la conversation (même un espace du propriétaire) ;
-- `403 context_not_allowed` : agent qui ne lit jamais ce type d'élément (Finances, ou
-  Coaching pour une tâche). Un agent dont c'est une ressource mais qui n'y a pas encore accès
-  répond comme d'habitude `201` avec `agent_permission_required` : rien n'est envoyé, le
+- `403 context_not_allowed` : agent qui ne lit jamais ce type d'élément (Finances ; Coaching
+  pour une tâche ; tout agent autre que Coaching pour une entrée de journal ou un bilan, même
+  si le journal lui a été accordé pour un autre usage). Un agent dont c'est une ressource
+  mais qui n'y a pas encore accès répond comme d'habitude `201` avec `agent_permission_required` : rien n'est envoyé, le
   message ne référence pas l'élément, le client le renvoie après l'autorisation ;
 - `422 validation_error` : type hors de la liste ou identifiant qui n'est pas un UUID.
 
-Un envoi réussi est audité `chat.context` (`success`, cible `task` ou `goal`, `message_id`).
+Un envoi réussi est audité `chat.context` (`success`, cible `task`, `goal`, `journal` ou
+`review`, `message_id`). Un bilan ne montre les titres de tâches, d'objectifs et de décisions
+de ses faits qu'à un lecteur qui peut lire lui-même `tasks`, `goals` ou `facts` dans l'espace.
 
 Pièces jointes : `attachments` (au plus 3 identifiants de documents) joint le texte extrait
 localement au message. Les refus ont lieu **avant** tout enregistrement :
@@ -354,7 +359,7 @@ puis envoie le message avec les seules pièces jointes `sent`.
     parti), `sent`. `sending`, `unknown` et `sent` ne se modifient pas (`409
     outcome_unknown`, `409 draft_already_sent`).
   - `POST /v1/mail/drafts/{id}/send` (`Idempotency-Key`) → `201` l'approbation (`email.send`,
-    ou `email.send_reinforced` pour un nouveau destinataire ou une pièce jointe sensible :
+    ou `email.send_reinforced` pour un nouveau destinataire ou une pièce jointe :
     passkey récente). Ses `params` sont le message ; son `preview` : `from`, `to`, `cc`,
     `bcc`, `subject`, `body`, `attachments [{title, filename, mime, size_bytes,
     sensitivity, local_only}]`, `reply`, `new_recipients`, `reinforced`, `notes`. Un second
@@ -376,6 +381,27 @@ puis envoie le message avec les seules pièces jointes `sent`.
   - Le contenu exact d'une approbation d'envoi décidée est effacé après
     `mail_approval_redact_days` (30 jours) : `params = {redacted, draft_id, recipients,
     attachments}`, l'empreinte `params_sha256` reste.
+  - Brouillon rédigé par un agent (amendement de l'ADR 0018) : `POST
+    /v1/chat/conversations/{id}/mail-draft` (`Idempotency-Key`) `{agent = "core",
+    in_reply_to_id?, draft_id?}` (aucun autre champ : `422`) → `201 {draft,
+    dropped_recipients}`. Un appel au LLM par la passerelle (objectif `mail.draft`), rien
+    n'est envoyé ni proposé à l'envoi. `in_reply_to_id` : un e-mail de l'espace de la
+    conversation, envoyé au modèle comme donnée (refusé s'il est sensible, `mail.attach`
+    audité), son expéditeur devient le destinataire. `draft_id` : nouvelle version d'un
+    brouillon de cet agent, de cette conversation, que le propriétaire n'a pas touché.
+    Refus avant l'appel : `403 agent_permission_required` (`resource: "email"`, agent sans
+    `email` en écriture dans l'espace, audité `mail.draft.create` refusé), `409
+    mail_send_unavailable`, `404 mail_not_found`, `409 nothing_to_draft` (conversation
+    vide), `409 draft_not_editable_by_agent` ; refus du gateway (`503 llm_paused`, `403
+    cloud_consent_required`, `429 …`) ; après l'appel : `422 draft_proposal_empty`. Les
+    adresses non valides proposées par le modèle (masquées `[EMAIL]`, mal formées) sont
+    retirées et comptées (`dropped_recipients`) ; le modèle ne propose jamais de Cci, de
+    pièce jointe ni de compte.
+  - Un brouillon porte aussi `author_agent` (`null` : écrit par le propriétaire),
+    `conversation_id` et `owner_edited` (le propriétaire l'a modifié ou a préparé l'envoi :
+    l'agent ne le change plus). Un agent ne supprime pas de brouillon, ne modifie que le
+    sien (`409 draft_not_editable_by_agent`) et ne demande jamais l'envoi (`POST
+    …/send` par un agent : `403 action_denied`, `reason: forbidden_for_agents`, audité).
 - Planification (tâche 15), calculée sur le serveur, sans IA, en lecture seule :
   - `GET /v1/planning/conflicts?space_id&start?&end?` (14 jours par défaut, 31 au plus) →
     `{items: [{first, second, start, end}], synced_at, calendars}`. Les occurrences de tous

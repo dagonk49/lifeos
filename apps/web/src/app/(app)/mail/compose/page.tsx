@@ -9,7 +9,7 @@ import { DRAFTS_KEY, MailCompose } from "@/components/MailCompose";
 import { Alert, Badge, Card, Empty, PageHeader, Spinner, cx } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
-import { DRAFT_STATE_LABELS, MAIL_KEY, subjectLabel } from "@/lib/mail";
+import { DRAFT_STATE_LABELS, MAIL_KEY, draftAuthorLabel, subjectLabel } from "@/lib/mail";
 import { spaceParam, useSpace } from "@/lib/space";
 import type { MailDetail, MailDraft } from "@/lib/types";
 
@@ -38,10 +38,11 @@ function Drafts({ selectedId }: { selectedId: string | null }) {
             <span className="truncate text-xs text-muted">
               {d.to.join(", ") || "Sans destinataire"} · {formatDateTime(d.updated_at)}
             </span>
-            <span>
+            <span className="flex flex-wrap gap-1">
               <Badge tone={d.state === "sent" ? "teal" : d.state === "unknown" || d.state === "failed" ? "amber" : "neutral"}>
                 {DRAFT_STATE_LABELS[d.state] ?? d.state}
               </Badge>
+              {d.author_agent && <Badge tone="violet">{draftAuthorLabel(d)}</Badge>}
             </span>
           </Link>
         </li>
@@ -98,7 +99,7 @@ function ComposeView() {
       </PageHeader>
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
         <Card
-          footer="Rien ne part sans votre approbation : l'aperçu montre exactement le message, et un nouveau destinataire ou une pièce jointe sensible demande votre passkey."
+          footer="Rien ne part sans votre approbation : l'aperçu montre exactement le message, et un nouveau destinataire ou une pièce jointe demande votre passkey."
         >
           {form}
         </Card>

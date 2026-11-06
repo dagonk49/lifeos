@@ -9,7 +9,9 @@ import { Alert, Badge, Button, Field, Input, Select, Spinner, Textarea } from "@
 import { api, errorMessage } from "@/lib/api";
 import { SENSITIVITY_LABELS } from "@/lib/documents";
 import {
+  AGENT_DRAFT_NOTICE,
   DRAFT_STATE_LABELS,
+  draftAuthorLabel,
   type DraftErrors,
   type DraftFields,
   draftErrors,
@@ -194,6 +196,15 @@ export function MailCompose({
           </Badge>
           {draft.data.reply && <span className="text-muted">Réponse dans la même conversation</span>}
         </p>
+      )}
+      {draft.data?.author_agent && (
+        <Alert tone="info">
+          <p className="font-medium">{draftAuthorLabel(draft.data)}</p>
+          <p>{AGENT_DRAFT_NOTICE}</p>
+          {!draft.data.owner_edited && state === "draft" && (
+            <p>Le modifier ou préparer l&apos;envoi en fait votre brouillon : l&apos;agent ne pourra plus le changer.</p>
+          )}
+        </Alert>
       )}
       {state === "unknown" && (
         <Alert tone="warning">

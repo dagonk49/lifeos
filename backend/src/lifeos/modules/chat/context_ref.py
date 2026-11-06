@@ -1,22 +1,29 @@
-"""The task or goal chosen by the owner as the subject of a message (task 24, F01:
-« conversation contextuelle liée à l'écran courant, sans exposition implicite »).
+"""The task, goal, journal entry or review chosen by the owner as the subject of a message
+(task 24, F01: « conversation contextuelle liée à l'écran courant, sans exposition
+implicite »).
 
 Same model as the attached documents (attachments.py):
 - explicit: the client names one object (`context.ref`), never inferred from the screen;
 - checked before anything is saved: the replying principal must be allowed to read that
-  kind of object in the conversation's space (an agent needs the « tasks » or « goals »
-  grant: `403 context_not_allowed`), and the object must belong to the owner AND to the
-  conversation's space, even when the owner could read the other space
-  (`404 context_not_found`): no implicit access to another space (T12, T42);
+  kind of object in the conversation's space (an agent needs the « tasks », « goals »,
+  « journal » or « reviews » grant: `403 context_not_allowed`), and the object must belong
+  to the owner AND to the conversation's space, even when the owner could read the other
+  space (`404 context_not_found`): no implicit access to another space (T12, T42);
 - sent once, with that message only, as bounded data between delimiters it cannot
-  reproduce, never as instructions (T10, T25), then masked by the gateway like the rest;
+  reproduce, never as instructions (T10, T25), then masked by the gateway like the rest.
+  A journal entry follows the journal's existing rules: it has no « keep local » flag nor
+  sensitivity category, and reaches the provider like the coaching agent's « JOURNAL
+  RÉCENT » section or a review's excerpts (space consent, local masking of identifiers).
+  A review shows the titles of tasks, goals and decisions found in its facts only to a
+  reader that may read those resources itself (its counts are part of the review);
 - recorded on the message (a reference only) and audited (`chat.context`), without content.
 """
 
 import uuid
 from dataclasses import dataclass, field, replace
+from datetime import date
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal, TypeGuard
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -32,10 +39,18 @@ from lifeos.modules.goals.models import Goal, GoalCheckin, GoalMilestone
 from lifeos.modules.goals.schemas import GoalProgress
 from lifeos.modules.guardian.context import Ctx
 from lifeos.modules.guardian.principal import Principal
+from lifeos.modules.journal.models import JournalEntry
+from lifeos.modules.reviews.models import Review
 from lifeos.modules.tasks.models import Task
 
-# Kind of object -> the resource an agent must be granted (read) in the space.
-RESOURCES: dict[str, Literal["tasks", "goals"]] = {"task": "tasks", "goal": "goals"}
+# Kind of object -> the resource an agent must be granted (read) in the space
+# (guardian.models.RESOURCES).
+RESOURCES: dict[str, Literal["tasks", "goals", "journal", "reviews"]] = {
+    "task": "tasks",
+    "goal": "goals",
+    "journal": "journal",
+    "review": "reviews",
+}
 
 # Bounds of the block: the whole object stays a small part of the request (free quota).
 NOTES_CHARS = 1000
@@ -44,6 +59,15 @@ MILESTONES = 8
 CHECKINS = 3
 CHECKIN_NOTE_CHARS = 200
 BLOCK_CHARS = 2500
+# Journal entry: its text, on one line.
+JOURNAL_CHARS = 2000
+# Review: titles listed from its facts, then the assistant's reading of them.
+REVIEW_TITLES = 8
+DECISIONS = 5
+SUMMARY_CHARS = 600
+NARRATIVE_ITEMS = 4
+NARRATIVE_ITEM_CHARS = 200
+SUGGESTIONS = 3
 
 _TASK_STATUS = {
     "todo": "à faire",
@@ -58,7 +82,16 @@ _GOAL_STATUS = {
     "abandoned": "abandonné",
     "archived": "archivé",
 }
-_LABELS = {"task": "Tâche", "goal": "Objectif"}
+_LABELS = {"task": "Tâche", "goal": "Objectif", "journal": "Entrée de journal", "review": "Bilan"}
+_MOODS = {1: "très difficile", 2: "difficile", 3: "neutre", 4: "bien", 5: "très bien"}
+_PERIODS = {"daily": "jour", "weekly": "semaine", "monthly": "mois"}
+_OMITTED = {
+    "tasks": "tâches",
+    "journal": "journal",
+    "goals": "objectifs",
+    "facts": "mémoire",
+    "messages": "messages",
+}
 
 
 @dataclass(frozen=True)
@@ -75,6 +108,31 @@ class Selected:
     with_tasks: bool = False
     milestones: list[GoalMilestone] = field(default_factory=list)
     checkins: list[GoalCheckin] = field(default_factory=list)
+    entry: JournalEntry | None = None
+    review: Review | None = None
+    # Review: the resources (tasks, goals, facts) whose titles the reader may see.
+    readable: frozenset[str] = frozenset()
+
+    @property
+    def search_hint(self) -> str | None:
+        """Words that widen the general assistant's memory search: a task's or a goal's
+        title (a date or a period would only add noise)."""
+        return self.title if self.ref.type in ("task", "goal") else None
+
+
+def entry_title(entry_date: date) -> str:
+    return f"{entry_date:%d/%m/%Y}"
+
+
+def review_title(review: Review) -> str:
+    period = _PERIODS.get(review.period, "période")
+    if review.period_start == review.period_end:
+        return f"{period} du {review.period_start:%d/%m/%Y}"
+    return f"{period} du {review.period_start:%d/%m/%Y} au {review.period_end:%d/%m/%Y}"
+
+
+def _missing() -> ProblemError:
+    return not_found("context_not_found", "Object not found in this conversation's space")
 
 
 async def load(
@@ -99,7 +157,7 @@ async def load(
             )
         )
         if task is None:
-            raise not_found("context_not_found", "Object not found in this conversation's space")
+            raise _missing()
         goal_title = None
         if task.goal_id is not None and reader.can(space_id, "goals", "read"):
             goal_title = await ctx.db.scalar(
@@ -110,13 +168,38 @@ async def load(
                 )
             )
         return Selected(ref, space_id, task.title, task=task, goal_title=goal_title)
+    if ref.type == "journal":
+        entry = await ctx.db.scalar(
+            select(JournalEntry).where(
+                JournalEntry.id == ref.id,
+                JournalEntry.user_id == reader.user_id,
+                JournalEntry.space_id == space_id,
+            )
+        )
+        if entry is None:
+            raise _missing()
+        return Selected(ref, space_id, entry_title(entry.entry_date), entry=entry)
+    if ref.type == "review":
+        review = await ctx.db.scalar(
+            select(Review).where(
+                Review.id == ref.id, Review.user_id == reader.user_id, Review.space_id == space_id
+            )
+        )
+        if review is None:
+            raise _missing()
+        readable = frozenset(
+            resource
+            for resource in ("tasks", "goals", "facts")
+            if reader.can(space_id, resource, "read")
+        )
+        return Selected(ref, space_id, review_title(review), review=review, readable=readable)
     goal = await ctx.db.scalar(
         select(Goal).where(
             Goal.id == ref.id, Goal.user_id == reader.user_id, Goal.space_id == space_id
         )
     )
     if goal is None:
-        raise not_found("context_not_found", "Object not found in this conversation's space")
+        raise _missing()
     progress = (await goals.progress_for(as_reader, [goal]))[goal.id]
     milestones = [m for m in await goals.list_milestones(as_reader, goal) if m.done_at is None]
     checkins = await goals.list_checkins(as_reader, goal, limit=CHECKINS)
@@ -211,6 +294,130 @@ def _goal_lines(selected: Selected, tz: ZoneInfo) -> list[str]:
     return lines
 
 
+def _journal_lines(selected: Selected) -> list[str]:
+    entry = selected.entry
+    assert entry is not None
+    lines = [f"Date : {entry.entry_date:%d/%m/%Y}"]
+    if entry.mood in _MOODS:
+        lines.append(f"Humeur partagée : {entry.mood}/5 ({_MOODS[entry.mood]})")
+    lines.append(f"Texte : {_text(entry.content, JOURNAL_CHARS) or '(vide)'}")
+    return lines
+
+
+def _number(value: Any) -> TypeGuard[int | float]:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _int(section: Any, key: str) -> int | None:
+    """A count of the stored facts (JSON written by an earlier version: checked)."""
+    value = section.get(key) if isinstance(section, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _titles(section: Any, key: str, limit: int = REVIEW_TITLES) -> str | None:
+    values = section.get(key) if isinstance(section, dict) else None
+    if not isinstance(values, list):
+        return None
+    titles = [clean_title(v) for v in values if isinstance(v, str) and v.strip()]
+    if not titles:
+        return None
+    more = len(titles) - limit
+    return ", ".join(titles[:limit]) + (f" et {more} autre(s)" if more > 0 else "")
+
+
+def _review_fact_lines(selected: Selected, facts: dict[str, Any]) -> list[str]:
+    """The facts computed locally when the review was made, as they were stored."""
+    lines: list[str] = []
+    tasks = facts.get("tasks")
+    if isinstance(tasks, dict):
+        counts = [
+            (_int(tasks, "completed"), "terminée(s)"),
+            (_int(tasks, "created"), "créée(s)"),
+            (_int(tasks, "overdue_open"), "ouverte(s) en retard"),
+            (_int(tasks, "due_next_7_days"), "à échéance dans les 7 jours"),
+        ]
+        parts = [f"{n} {label}" for n, label in counts if n is not None]
+        if parts:
+            lines.append("Tâches : " + ", ".join(parts))
+        if "tasks" in selected.readable:
+            if done := _titles(tasks, "completed_titles"):
+                lines.append(f"Tâches terminées : {done}")
+            if late := _titles(tasks, "overdue_titles"):
+                lines.append(f"Tâches en retard : {late}")
+    journal = facts.get("journal")
+    if isinstance(journal, dict):
+        text = f"Journal : {_int(journal, 'entries') or 0} entrée(s)"
+        if (days := _int(journal, "days_with_entry")) is not None:
+            text += f" sur {days} jour(s)"
+        average = journal.get("mood_average")
+        if _number(average):
+            text += f", humeur moyenne {f'{average:.1f}'.replace('.', ',')}/5"
+        lines.append(text)
+    goal_facts = facts.get("goals")
+    if isinstance(goal_facts, list):
+        if "goals" in selected.readable:
+            for goal in [g for g in goal_facts if isinstance(g, dict)][:REVIEW_TITLES]:
+                parts = [clean_title(str(goal.get("title") or ""))]
+                ratio = goal.get("metric_progress")
+                if _number(ratio):
+                    parts.append(f"{round(ratio * 100)} %")
+                if checkins := _int(goal, "checkins_in_period"):
+                    parts.append(f"{checkins} point(s) d'étape")
+                if milestones := _int(goal, "milestones_done_in_period"):
+                    parts.append(f"{milestones} jalon(s) atteint(s)")
+                if goal.get("status") == "achieved":
+                    parts.append("atteint")
+                lines.append("Objectif : " + " — ".join(parts))
+        else:
+            lines.append(f"Objectifs suivis : {len(goal_facts)}")
+    memory = facts.get("memory")
+    if isinstance(memory, dict):
+        lines.append(f"Faits ajoutés à la mémoire : {_int(memory, 'facts_added') or 0}")
+        if "facts" in selected.readable and (decisions := _titles(memory, "decisions", DECISIONS)):
+            lines.append(f"Décisions : {decisions}")
+    if (sent := _int(facts.get("assistant"), "messages_sent")) is not None:
+        lines.append(f"Messages à l'assistant : {sent}")
+    omitted = facts.get("omitted")
+    if isinstance(omitted, list):
+        names = [_OMITTED[o] for o in omitted if isinstance(o, str) and o in _OMITTED]
+        if names:
+            lines.append("Non lus pour ce bilan : " + ", ".join(names))
+    return lines
+
+
+def _review_lines(selected: Selected, tz: ZoneInfo) -> list[str]:
+    review = selected.review
+    assert review is not None
+    facts = review.facts if isinstance(review.facts, dict) else {}
+    period = f"Période : {selected.title}"
+    span = facts.get("period")
+    if isinstance(span, dict) and span.get("partial") is True:
+        period += " (en cours lors du bilan)"
+    lines = [period, f"Établi le {review.generated_at.astimezone(tz):%d/%m/%Y %H:%M}"]
+    lines.append("Faits calculés localement :")
+    lines += [f"- {line}" for line in _review_fact_lines(selected, facts)]
+    narrative = review.narrative if review.narrative_status == "generated" else None
+    if not isinstance(narrative, dict):
+        return lines
+    lines.append("Lecture de l'assistant (une interprétation, pas des faits) :")
+    if summary := _text(str(narrative.get("summary") or ""), SUMMARY_CHARS):
+        lines.append(f"- Synthèse : {summary}")
+    for key, label in (("progress", "Progrès"), ("obstacles", "Difficulté")):
+        items = narrative.get(key)
+        for item in (items if isinstance(items, list) else [])[:NARRATIVE_ITEMS]:
+            if text := _text(str(item), NARRATIVE_ITEM_CHARS):
+                lines.append(f"- {label} : {text}")
+    suggestions = narrative.get("suggestions")
+    for item in (suggestions if isinstance(suggestions, list) else [])[:SUGGESTIONS]:
+        if not isinstance(item, dict):
+            continue
+        action = _text(str(item.get("action") or ""), NARRATIVE_ITEM_CHARS)
+        why = _text(str(item.get("why") or ""), NARRATIVE_ITEM_CHARS)
+        if action:
+            lines.append(f"- Suggestion : {action}" + (f" (pourquoi : {why})" if why else ""))
+    return lines
+
+
 def block(selected: Selected, tz: ZoneInfo) -> str:
     """The chosen object as a block appended to the owner's message.
 
@@ -218,7 +425,14 @@ def block(selected: Selected, tz: ZoneInfo) -> str:
     stored texts cannot reproduce: the object can neither close its block nor forge a
     header or a new section of the prompt (T10, T25).
     """
-    lines = _task_lines(selected, tz) if selected.task else _goal_lines(selected, tz)
+    if selected.task:
+        lines = _task_lines(selected, tz)
+    elif selected.entry:
+        lines = _journal_lines(selected)
+    elif selected.review:
+        lines = _review_lines(selected, tz)
+    else:
+        lines = _goal_lines(selected, tz)
     body = "\n".join(lines)
     if len(body) > BLOCK_CHARS:
         body = body[:BLOCK_CHARS] + " […]"

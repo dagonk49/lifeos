@@ -61,6 +61,11 @@ def build_scheduler() -> BlockingScheduler:
         id="purge_audit_events",
     )
     scheduler.add_job(
+        actors.purge_llm_calls.send,
+        CronTrigger(hour=3, minute=45, timezone=tz),
+        id="purge_llm_calls",
+    )
+    scheduler.add_job(
         actors.purge_decided_items.send,
         CronTrigger(hour=3, minute=15, timezone=tz),
         id="purge_decided_items",

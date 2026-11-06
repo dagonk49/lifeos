@@ -195,7 +195,7 @@ async def delete_conversation(
     )
 
 
-def _history(messages: list[Message]) -> list[LLMMessage]:
+def history_turns(messages: list[Message]) -> list[LLMMessage]:
     """Last messages within a size budget; consecutive same-role turns are merged."""
     selected: list[Message] = []
     size = 0
@@ -240,7 +240,7 @@ async def _system_prompt(
     )
 
 
-async def _load_mails(
+async def load_mails(
     ctx: Ctx, conversation: Conversation, reader: Principal, ids: list[uuid.UUID]
 ) -> list[MailMessage]:
     """The attached e-mails, checked before anything is saved: readable by the replying
@@ -338,7 +338,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
                 details={"reason": "no_permission", "attachments": len(data.attachments)},
             )
         raise
-    attached_mails = await _load_mails(ctx, conversation, reader, data.mail_ids)
+    attached_mails = await load_mails(ctx, conversation, reader, data.mail_ids)
     selected = await _load_selected(ctx, conversation, reader, data)
     now = utcnow()
     user_message = Message(
@@ -367,7 +367,7 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
         # replies, never answers built by the general assistant or another agent from
         # data it was not granted (facts, journal, memories...).
         recent = [m for m in recent if m.role == "user" or m.agent == data.agent]
-    history = _history(recent)
+    history = history_turns(recent)
     blocks = []
     if attached:
         blocks.append(attachments.block(attached))
@@ -395,8 +395,10 @@ async def send_message(ctx: Ctx, conversation_id: uuid.UUID, data: SendMessage) 
 
     call_ctx = ctx
     if data.agent == "core":
-        # The chosen object widens the search, still in this conversation's space only.
-        query = f"{data.content} {selected.title}" if selected else data.content
+        # A chosen task or goal widens the search by its title, still in this
+        # conversation's space only.
+        hint = selected.search_hint if selected else None
+        query = f"{data.content} {hint}" if hint else data.content
         items = await relevant_context(ctx, space_id=conversation.space_id, query=query)
         system = await _system_prompt(ctx, space, data.context.screen, items)
         context_items = len(items)

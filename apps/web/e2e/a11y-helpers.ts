@@ -45,6 +45,25 @@ export async function deleteTasksTitled(page: Page, title: string): Promise<void
   }, title);
 }
 
+/** Deletes the owner's journal entries with exactly this text (other journeys expect one
+ * entry of theirs only), and the reviews whose ids are given. */
+export async function deleteJournalAndReviews(page: Page, content: string, reviewIds: string[]): Promise<void> {
+  await page.evaluate(
+    async ({ wanted, reviews }) => {
+      const headers = { Accept: "application/json" };
+      const response = await fetch("/v1/journal?limit=200", { headers });
+      if (response.ok) {
+        const { items } = (await response.json()) as { items: { id: string; content: string }[] };
+        for (const entry of items.filter((e) => e.content === wanted)) {
+          await fetch(`/v1/journal/${entry.id}`, { method: "DELETE", headers });
+        }
+      }
+      for (const id of reviews) await fetch(`/v1/reviews/${id}`, { method: "DELETE", headers });
+    },
+    { wanted: content, reviews: reviewIds },
+  );
+}
+
 /** Opens a page from the navigation and waits for its heading and title. */
 export async function openPage(page: Page, target: (typeof PAGES)[number]): Promise<void> {
   await nav(page, target.link);

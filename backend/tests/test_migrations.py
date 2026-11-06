@@ -149,3 +149,51 @@ def test_a_rollback_keeps_the_data_and_its_protections(
         )
     ) == [("Retour", ["identity"])]
     command.downgrade(alembic_config, "base")
+
+
+def test_rollback_of_journal_and_review_context_keeps_the_messages(
+    alembic_config: Config, migrations_url: URL
+) -> None:
+    """Before 0026, a message could only name a task or a goal: the others lose their
+    reference (both columns), not the message."""
+    command.upgrade(alembic_config, "head")
+    ids = {name: uuid.uuid4() for name in ("user", "space", "conversation")}
+    ids |= {kind: uuid.uuid4() for kind in ("task", "journal", "review")}
+    statements = [
+        "INSERT INTO users (id, email, display_name, role) "
+        "VALUES (:user, 'contexte@example.org', 'Contexte', 'owner')",
+        "INSERT INTO spaces (id, user_id, kind, name) "
+        "VALUES (:space, :user, 'personal', 'Personnel')",
+        "INSERT INTO conversations (id, user_id, space_id, title) "
+        "VALUES (:conversation, :user, :space, 'Discussion')",
+    ]
+    message = (
+        "INSERT INTO messages (id, user_id, space_id, conversation_id, role, content, "
+        "context_type, context_id, created_at) VALUES (gen_random_uuid(), :user, :space, "
+        ":conversation, 'user', :kind, :kind, :ref, now())"
+    )
+
+    async def seed() -> None:
+        engine = create_async_engine(migrations_url)
+        try:
+            async with engine.begin() as conn:
+                for statement in statements:
+                    await conn.execute(text(statement), ids)
+                for kind in ("task", "journal", "review"):
+                    await conn.execute(text(message), {**ids, "kind": kind, "ref": ids[kind]})
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
+    script = ScriptDirectory.from_config(alembic_config)
+    previous = script.get_revision("0026").down_revision
+    assert isinstance(previous, str)
+    command.downgrade(alembic_config, previous)
+    query = "SELECT content, context_type, context_id FROM messages ORDER BY content"
+    assert asyncio.run(_rows(migrations_url, query)) == [
+        ("journal", None, None),
+        ("review", None, None),
+        ("task", "task", ids["task"]),
+    ]
+    command.upgrade(alembic_config, "head")
+    command.downgrade(alembic_config, "base")

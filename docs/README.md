@@ -58,14 +58,15 @@ retenues sont marquées « à valider » dans les documents concernés.
   gratuit sans compte de facturation, plafonds quotidiens).
 - ~~Catégories de données sensibles jamais transmises au cloud~~ : identité, santé, banque,
   détectées localement (ADR 0008, politique de données §3).
-- Durées de conservation : ~~documents originaux~~ (90 jours par défaut, « conserver » au
-  choix), ~~sauvegardes~~ (14 quotidiennes + 4 hebdomadaires, politique de données §2) ; à
-  valider : journal d'audit (1 an) et journal des appels LLM (sans purge à ce jour).
+- ~~Durées de conservation~~ : documents originaux (90 jours par défaut, « conserver » au
+  choix), sauvegardes (14 quotidiennes + 4 hebdomadaires), journal d'audit (1 an), journal
+  des appels LLM (400 jours) : validées par le propriétaire (politique de données §2).
 - ~~Matériel Proxmox~~ : i7-6700, 10 Go, GTX 1050 Ti → embeddings sur CPU (ADR 0006),
   transcription sur CPU ou sur la carte en option (ADR 0009).
 - ~~Périmètre Android, et donc l'existence d'un client mobile natif~~ : tranché par
-  l'[ADR 0022](adr/0022-client-mobile-web-dabord.md) (web installé d'abord) ; restent au
-  propriétaire le téléphone cible, le protocole sur l'appareil et les besoins natifs à
-  confirmer.
+  l'[ADR 0022](adr/0022-client-mobile-web-dabord.md) (web installé d'abord) ; LifeOS est
+  joignable hors du domicile par un reverse proxy que le propriétaire gère lui-même, hors de
+  l'application ([installation.md](installation.md), mode « derrière un reverse proxy ») ;
+  restent au propriétaire le téléphone cible et le protocole sur l'appareil.
 - Politique de publication : aucune étiquette de version `vX.Y.Z` n'existe encore ; tant
   qu'il n'y en a pas, `update.sh` demande `--to` ([exploitation.md §6](exploitation.md#6-mise-à-jour-et-retour-arrière)).

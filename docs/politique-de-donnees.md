@@ -9,7 +9,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Catégorie | Durée | Mécanisme |
 |---|---|---|
 | Messages de conversation (bruts) | **90 jours**, sauf conservation explicite | `purge_after` ; purge quotidienne avec événement d'audit (nombre supprimé) |
-| Évaluations d'un achat (`agent_runs`, tâche 28) | **90 jours** (**à valider**) | question, chiffres et objectifs calculés, synthèse vérifiée ; purge quotidienne avec les messages (audit, nombre) ; exportées ; effacées avec l'objectif qu'elles citent ou à la demande |
+| Évaluations d'un achat (`agent_runs`, tâche 28) | **90 jours** (validé par le propriétaire) | question, chiffres et objectifs calculés, synthèse vérifiée ; purge quotidienne avec les messages (audit, nombre) ; exportées ; effacées avec l'objectif qu'elles citent ou à la demande |
 | Enregistrements de dictée (audio) | **jusqu'à la transcription** (au plus 24 heures) | chiffrés comme les documents ; supprimés dès que le texte existe ou que l'enregistrement est refusé ([ADR 0009](adr/0009-voix-locale.md)) |
 | Dictées (texte transcrit, en attente de relecture) | 24 heures | effacées par le client une fois utilisées, sinon par une purge horaire ; le texte gardé vit là où le propriétaire l'a enregistré (journal, message) |
 | Faits, souvenirs, journal, tâches | tant que le propriétaire ne les supprime pas | souvenirs `protected` jamais purgés automatiquement |
@@ -28,7 +28,7 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Données synchronisées (agenda, e-mails : tâches 14 à 18) | tant que la source existe | gardées à la déconnexion, sauf si le propriétaire choisit de les supprimer ; supprimées avec le compte (cascade) |
 | Copies locales des e-mails (libellés suivis) | **90 jours** après leur réception ; aussitôt qu'ils quittent le libellé chez le fournisseur (supprimés, corbeille, spam, libellé retiré) ou que le libellé n'est plus suivi | texte brut seulement (HTML jamais conservé), 20 000 caractères au plus ; `purge_after` et purge quotidienne avec audit (nombre) ; pièces jointes jamais copiées, sauf import explicite dans Documents (le document suit alors la durée des documents et garde son expéditeur) ([ADR 0017](adr/0017-lecture-des-e-mails.md)) |
 | Brouillons d'e-mails (`mail_drafts`) | tant que le propriétaire ne les supprime pas ; un brouillon **envoyé** part **90 jours** après l'envoi (`mail_retention_days`) | adresses, objet, texte et références de documents (les pièces jointes restent des documents) ; purge quotidienne avec audit (nombre, `mail.drafts.purge`) ; les adresses déjà écrites depuis un espace ne demandent plus la passkey tant que le brouillon envoyé existe ([ADR 0018](adr/0018-envoi-des-e-mails-sous-approbation.md)) |
-| Contenu exact d'une approbation d'envoi d'e-mail | **30 jours** après la décision (`mail_approval_redact_days`, **à valider**), jamais tant que l'envoi est en cours de vérification | puis **effacé** : il ne reste que l'empreinte (`params_sha256`), le nombre de destinataires et de pièces jointes ; l'approbation elle-même part à 90 jours |
+| Contenu exact d'une approbation d'envoi d'e-mail | **30 jours** après la décision (`mail_approval_redact_days`, validé par le propriétaire), jamais tant que l'envoi est en cours de vérification | puis **effacé** : il ne reste que l'empreinte (`params_sha256`), le nombre de destinataires et de pièces jointes ; l'approbation elle-même part à 90 jours |
 | Consentements OAuth en cours (`oauth_states`) | expiration ou usage + 1 jour (valables 10 minutes) | empreinte du `state` seulement, vérificateur PKCE scellé ; purge quotidienne avec événement d'audit |
 | Sessions | expiration + 30 jours | purge quotidienne |
 | Défis WebAuthn, jetons d'enrôlement | expiration + 1 jour | purge quotidienne |
@@ -38,8 +38,8 @@ Les valeurs marquées **à valider** sont des propositions par défaut.
 | Appareils de notification push (`push_devices`) | jusqu'à leur révocation, puis **30 jours** | purge quotidienne avec audit (nombre) ; l'adresse d'abonnement et ses clés (une capacité d'envoi vers le téléphone) ne sont jamais journalisées, auditées ni exportées ; révoqués avec leur session ou leur passkey (ADR 0019) |
 | Envois push (`push_deliveries`) | **30 jours** | identifiants, état et code d'erreur seulement, jamais le contenu ; purge quotidienne avec audit (nombre). Le message chiffré transite par le service de push du navigateur (Google, Apple, Mozilla, Microsoft), qui le garde au plus 6 heures (`TTL`) si le téléphone est injoignable ; par défaut il ne contient qu'un texte générique |
 | Préférences de notification | tant que le compte existe | catégories, maximum par jour, créneaux et heures ; aucun contenu |
-| Journal d'audit | 1 an (**à valider**) | purge dédiée, seule exception au mode append-only |
-| Journal des appels LLM (`llm_calls`) | **sans limite à ce jour** (aucune purge ; durée **à valider**) | ne contient aucun contenu : palier, objet de l'appel, jetons, coût estimé, résultat |
+| Journal d'audit | 1 an (`audit_retention_days`, validé par le propriétaire) | purge dédiée, seule exception au mode append-only |
+| Journal des appels LLM (`llm_calls`) | **400 jours** (environ 13 mois, `llm_calls_retention_days`, validé par le propriétaire) : purge quotidienne des appels terminés ; une réservation encore ouverte n'est jamais purgée | ne contient aucun contenu : palier, objet de l'appel, jetons, coût estimé, résultat |
 | Logs applicatifs | selon le volume : **10 Mo × 5 fichiers par conteneur** (pas une durée) | rotation Docker (`json-file`, `infra/compose.yaml`) ; aucun contenu personnel brut |
 | Métriques Prometheus | 15 jours | rétention Prometheus ; compteurs, durées et âges seulement, aucune donnée personnelle ([exploitation.md §5](exploitation.md#5-supervision-et-alertes)) |
 | Alertes (silences, journal des notifications d'Alertmanager) | 5 jours | rétention par défaut d'Alertmanager ; textes fixes des règles, aucune donnée personnelle |
@@ -156,11 +156,16 @@ Contenu transmis :
 
 - uniquement le **paquet de contexte minimal** construit pour la requête (message courant,
   derniers échanges de la conversation, souvenirs pertinents du même espace) et, s'il l'a
-  choisi explicitement (« Discuter de… »), **un seul élément** : la tâche ou l'objectif
-  sélectionné, **du même espace** que la conversation, relu avec les droits de celui qui
-  répond (un agent n'en reçoit que s'il a le droit `tasks` ou `goals` dans l'espace), borné
-  (notes et description 1 000 caractères, motivation 400, jalons ouverts et trois derniers
-  points d'étape, 2 500 caractères au plus), délimité et annoncé comme des **données, jamais
+  choisi explicitement (« Discuter de… »), **un seul élément** : la tâche, l'objectif,
+  l'entrée de journal ou le bilan sélectionné, **du même espace** que la conversation, relu
+  avec les droits de celui qui répond (un agent n'en reçoit que s'il a le droit `tasks`,
+  `goals`, `journal` ou `reviews` dans l'espace et parmi ses propres ressources : seul
+  Coaching lit journal et bilans), borné (notes et description 1 000 caractères, motivation
+  400, jalons ouverts et trois derniers points d'étape ; texte d'une entrée 2 000 caractères,
+  humeur seulement si elle a été partagée ; pour un bilan, ses faits enregistrés — les titres
+  de tâches, d'objectifs et de décisions seulement si le lecteur peut les lire lui-même — et
+  sa lecture : synthèse 600 caractères, quatre progrès, quatre difficultés, trois
+  suggestions ; 2 500 caractères au plus), délimité et annoncé comme des **données, jamais
   des instructions**, joint au seul message envoyé avec lui et audité (`chat.context`, sans
   contenu). L'écran d'où vient la demande n'est jamais transmis comme texte libre
   ([ADR 0020](adr/0020-conversation-liee-a-un-element.md)) ;
@@ -254,7 +259,8 @@ Ce qui n'est **jamais** envoyé au cloud :
 
 - les embeddings et la recherche par le sens (calculés localement) ;
 - la détection des doublons et contradictions de la mémoire ;
-- les faits des bilans et la progression des objectifs ;
+- le calcul des faits des bilans et de la progression des objectifs (fait localement ; seuls
+  leurs résultats accompagnent une demande : lecture d'un bilan, agents, « Discuter de… ») ;
 - les fichiers importés, leur OCR et la détection de sensibilité (service `ml`) ;
 - la lecture des tickets de caisse ;
 - la voix : la transcription a lieu sur le serveur (service `stt`) et la lecture à voix
@@ -286,8 +292,9 @@ règles qu'une pièce jointe : jamais un document sensible (catégories enregist
 détection refaite avec les règles en vigueur), gardé en local, en cours de lecture ni une
 dictée, et ni son texte ni son titre ; extraits délimités comme données, masqués par la
 passerelle ; document reçu d'un tiers signalé sans l'adresse de l'expéditeur ; chaque
-document montré audité (`document.agent_context`, nombre de caractères seulement). **À
-valider par le propriétaire** avant d'accorder cet agent.
+document montré audité (`document.agent_context`, nombre de caractères seulement).
+**Validé par le propriétaire** (2026-11) ; l'agent ne voit rien tant qu'il n'est pas accordé
+dans l'espace.
 Évaluation d'un achat important (tâche 28, [ADR 0021](adr/0021-coordination-des-agents.md)) :
 les agents Finances et Coaching calculent **localement**, chacun avec ses seuls droits
 (« finances » ; « objectifs » seulement pour le coach). Un seul appel est fait, et il ne
